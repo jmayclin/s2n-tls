@@ -4,7 +4,7 @@
 use crate::{
     harness::{
         read_to_bytes, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType, KXGroup, Mode,
-        TlsConnection, TlsBenchConfig,
+        TlsBenchConfig, TlsConnection,
     },
     PemType::{self, *},
     SigType,
@@ -35,16 +35,16 @@ impl RustlsConnection {
         &self.connection
     }
 
-        /// Treat `WouldBlock` as an `Ok` value for when blocking is expected
-        fn ignore_block<T: Default>(res: Result<T, std::io::Error>) -> Result<T, std::io::Error> {
-            match res {
-                Ok(t) => Ok(t),
-                Err(err) => match err.kind() {
-                    std::io::ErrorKind::WouldBlock => Ok(T::default()),
-                    _ => Err(err),
-                },
-            }
+    /// Treat `WouldBlock` as an `Ok` value for when blocking is expected
+    fn ignore_block<T: Default>(res: Result<T, std::io::Error>) -> Result<T, std::io::Error> {
+        match res {
+            Ok(t) => Ok(t),
+            Err(err) => match err.kind() {
+                std::io::ErrorKind::WouldBlock => Ok(T::default()),
+                _ => Err(err),
+            },
         }
+    }
 }
 
 impl RustlsConfig {

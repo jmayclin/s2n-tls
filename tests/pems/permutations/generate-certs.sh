@@ -78,6 +78,8 @@ cert-gen () {
             -addext "basicConstraints = critical,CA:true" \
             -addext "keyUsage = critical,keyCertSign"
 
+    cat ca-cert.pem >> ../ca-collection.pem
+
     echo "generating server private key and CSR"
     openssl req  -new -noenc \
             -newkey $key_family \

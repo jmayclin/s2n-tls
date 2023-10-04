@@ -255,20 +255,24 @@ impl Builder {
         Ok(self)
     }
 
+    /// Add PEM-encoded DH params
     pub fn add_dhparams(&mut self, pem: &[u8]) -> Result<&mut Self, Error> {
+        println!("add_dhparams pem pointer: {:?}", pem.as_ptr());
         let cstring = CString::new(pem).map_err(|_| Error::INVALID_INPUT)?;
         unsafe { s2n_config_add_dhparams(self.as_mut_ptr(), cstring.as_ptr()).into_result() }?;
         Ok(self)
     }
 
     pub fn load_pem(&mut self, certificate: &[u8], private_key: &[u8]) -> Result<&mut Self, Error> {
-        let certificate = CString::new(certificate).map_err(|_| Error::INVALID_INPUT)?;
-        let private_key = CString::new(private_key).map_err(|_| Error::INVALID_INPUT)?;
+        //let certificate = CString::new(certificate).map_err(|_| Error::INVALID_INPUT)?;
+        //let private_key = CString::new(private_key).map_err(|_| Error::INVALID_INPUT)?;
         unsafe {
-            s2n_config_add_cert_chain_and_key(
+            let mut s2n_cert_chain_and_key = s2n_cert_chain_and_key_new().into_result()?;
+            s2n_cert_chain_and_key_load_pem_bytes(s2n_cert_chain_and_key.as_mut(), certificate.as_ptr() as *mut u8, certificate.len() as u32, private_key.as_ptr() as *mut u8, private_key.len() as u32).into_result()?;
+
+            s2n_config_add_cert_chain_and_key_to_store(
                 self.as_mut_ptr(),
-                certificate.as_ptr(),
-                private_key.as_ptr(),
+                s2n_cert_chain_and_key.as_mut()
             )
             .into_result()
         }?;

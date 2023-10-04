@@ -1,0 +1,63 @@
+Servers that support government-only applications shall be configured to use TLS 1.2 and
+should be configured to use TLS 1.3 as well. These servers should not be configured to use TLS
+1.1 and shall not use TLS 1.0, SSL 3.0, or SSL 2.0.
+NIST.SP.800-52r2 - Section 3.1
+
+
+If the server is configured with an ECDSA signature certificate, either curve
+P-256 or curve P-384 should be used for the public key in the certificate.
+NIST.SP.800-52r2 - Section 3.2
+
+// 3.3.1.1.1 - Cipher Suites for ECDSA Certificates
+
+TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+TLS_ECDHE_ECDSA_WITH_AES_128_CCM
+TLS_ECDHE_ECDSA_WITH_AES_256_CCM
+TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8
+TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8
+TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
+
+TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+
+// 3.3.1.1.2 - Cipher Suites for RSA Certificates
+
+
+TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+TLS_DHE_RSA_WITH_AES_128_CCM
+TLS_DHE_RSA_WITH_AES_256_CCM
+TLS_DHE_RSA_WITH_AES_128_CCM_8
+TLS_DHE_RSA_WITH_AES_256_CCM_8
+TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
+TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+
+TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+TLS_DHE_RSA_WITH_AES_256_CBC_SHA
+
+// s2n does not support Finite Field DSA certificates
+// s2n does not support static DH certificates
+
+// 3.3.1.2 - Cipher Suites for TLS 1.3
+
+
+TLS_AES_128_GCM_SHA256
+TLS_AES_256_GCM_SHA384
+TLS_AES_128_CCM_SHA256
+TLS_AES_128_CCM_8_SHA256
+
+Other than the SHA-1 exception listed for specific instances above, all cryptography used shall
+provide at least 112 bits of security. All server and client certificates shall contain public keys
+that offer at least 112 bits of security. All server and client certificates and certificates in their
+certification paths shall be signed using key pairs that offer at least 112 bits of security and
+SHA-224 or a stronger hashing algorithm. All ephemeral keys used by the client and server shall
+offer at least 112 bits of security. All symmetric algorithms used to protect the TLS data shall
+use keys that offer at least 112 bits of security.

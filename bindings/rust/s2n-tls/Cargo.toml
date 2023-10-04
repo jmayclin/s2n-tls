@@ -26,7 +26,7 @@ hex = "0.4"
 [dev-dependencies]
 bytes = "1"
 futures-test = "0.3"
-openssl = "0.10"
+openssl = {path = "/home/ubuntu/workspace/rust-openssl/openssl", features = ["vendored"] }
 temp-env = "0.3"
 checkers = "0.6"
 # newer versions require rust 1.66, see https://github.com/aws/s2n-tls/issues/4241

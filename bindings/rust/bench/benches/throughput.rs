@@ -26,8 +26,10 @@ fn bench_throughput_for_library<T>(
     T::Config: TlsBenchConfig,
 {
     let crypto_config = CryptoConfig::new(cipher_suite, KXGroup::default(), SigType::default());
-    let client_config = T::Config::make_config(Mode::Client, crypto_config, HandshakeType::default());
-    let server_config = T::Config::make_config(Mode::Server, crypto_config, HandshakeType::default());
+    let client_config =
+        T::Config::make_config(Mode::Client, crypto_config, HandshakeType::default());
+    let server_config =
+        T::Config::make_config(Mode::Server, crypto_config, HandshakeType::default());
 
     bench_group.bench_function(T::name(), |b| {
         b.iter_batched_ref(

@@ -1,0 +1,1255 @@
+    pub enum LegacyCipher {
+        SSL_RSA_WITH_NULL_MD5,
+        SSL_RSA_WITH_NULL_SHA,
+        SSL_RSA_EXPORT_WITH_RC4_40_MD5,
+        SSL_RSA_WITH_RC4_128_MD5,
+        SSL_RSA_WITH_RC4_128_SHA,
+        SSL_RSA_EXPORT_WITH_RC2_CBC_40_MD5,
+        SSL_RSA_WITH_IDEA_CBC_SHA,
+        SSL_RSA_EXPORT_WITH_DES40_CBC_SHA,
+        SSL_RSA_WITH_DES_CBC_SHA,
+        SSL_RSA_WITH_3DES_EDE_CBC_SHA,
+        SSL_DH_DSS_WITH_DES_CBC_SHA,
+        SSL_DH_DSS_WITH_3DES_EDE_CBC_SHA,
+        SSL_DH_RSA_WITH_DES_CBC_SHA,
+        SSL_DH_RSA_WITH_3DES_EDE_CBC_SHA,
+        SSL_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA,
+        SSL_DHE_DSS_WITH_DES_CBC_SHA,
+        SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA,
+        SSL_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA,
+        SSL_DHE_RSA_WITH_DES_CBC_SHA,
+        SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+        SSL_DH_anon_EXPORT_WITH_RC4_40_MD5,
+        SSL_DH_anon_WITH_RC4_128_MD5,
+        SSL_DH_anon_EXPORT_WITH_DES40_CBC_SHA,
+        SSL_DH_anon_WITH_DES_CBC_SHA,
+        SSL_DH_anon_WITH_3DES_EDE_CBC_SHA,
+        TLS_RSA_WITH_NULL_MD5,
+        TLS_RSA_WITH_NULL_SHA,
+        TLS_RSA_EXPORT_WITH_RC4_40_MD5,
+        TLS_RSA_WITH_RC4_128_MD5,
+        TLS_RSA_WITH_RC4_128_SHA,
+        TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5,
+        TLS_RSA_WITH_IDEA_CBC_SHA,
+        TLS_RSA_EXPORT_WITH_DES40_CBC_SHA,
+        TLS_RSA_WITH_DES_CBC_SHA,
+        TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA,
+        TLS_DHE_DSS_WITH_DES_CBC_SHA,
+        TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA,
+        TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA,
+        TLS_DHE_RSA_WITH_DES_CBC_SHA,
+        TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_DH_anon_EXPORT_WITH_RC4_40_MD5,
+        TLS_DH_anon_WITH_RC4_128_MD5,
+        TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA,
+        TLS_DH_anon_WITH_DES_CBC_SHA,
+        TLS_DH_anon_WITH_3DES_EDE_CBC_SHA,
+        TLS_RSA_WITH_AES_128_CBC_SHA,
+        TLS_RSA_WITH_AES_256_CBC_SHA,
+        TLS_DH_DSS_WITH_AES_128_CBC_SHA,
+        TLS_DH_DSS_WITH_AES_256_CBC_SHA,
+        TLS_DH_RSA_WITH_AES_128_CBC_SHA,
+        TLS_DH_RSA_WITH_AES_256_CBC_SHA,
+        TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
+        TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
+        TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
+        TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+        TLS_DH_anon_WITH_AES_128_CBC_SHA,
+        TLS_DH_anon_WITH_AES_256_CBC_SHA,
+        TLS_ECDH_RSA_WITH_NULL_SHA,
+        TLS_ECDH_RSA_WITH_RC4_128_SHA,
+        TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_ECDH_RSA_WITH_AES_128_CBC_SHA,
+        TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
+        TLS_ECDH_ECDSA_WITH_NULL_SHA,
+        TLS_ECDH_ECDSA_WITH_RC4_128_SHA,
+        TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
+        TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
+        TLS_ECDHE_RSA_WITH_NULL_SHA,
+        TLS_ECDHE_RSA_WITH_RC4_128_SHA,
+        TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+        TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+        TLS_ECDHE_ECDSA_WITH_NULL_SHA,
+        TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
+        TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
+        TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+        TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+        TLS_ECDH_anon_WITH_NULL_SHA,
+        TLS_ECDH_anon_WITH_RC4_128_SHA,
+        TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA,
+        TLS_ECDH_anon_WITH_AES_128_CBC_SHA,
+        TLS_ECDH_anon_WITH_AES_256_CBC_SHA,
+        TLS_RSA_WITH_NULL_SHA256,
+        TLS_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_RSA_WITH_AES_256_CBC_SHA256,
+        TLS_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_DH_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_DH_RSA_WITH_AES_256_CBC_SHA256,
+        TLS_DH_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_DH_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_DH_DSS_WITH_AES_128_CBC_SHA256,
+        TLS_DH_DSS_WITH_AES_256_CBC_SHA256,
+        TLS_DH_DSS_WITH_AES_128_GCM_SHA256,
+        TLS_DH_DSS_WITH_AES_256_GCM_SHA384,
+        TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
+        TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
+        TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
+        TLS_DHE_DSS_WITH_AES_256_CBC_SHA256,
+        TLS_DHE_DSS_WITH_AES_128_GCM_SHA256,
+        TLS_DHE_DSS_WITH_AES_256_GCM_SHA384,
+
+        TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384,
+        TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+
+        TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256,
+        TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384,
+        TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
+
+        TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+        TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+        TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+
+        TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+        TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+        TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+        TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+
+        TLS_DH_anon_WITH_AES_128_CBC_SHA256,
+        TLS_DH_anon_WITH_AES_256_CBC_SHA256,
+        TLS_DH_anon_WITH_AES_128_GCM_SHA256,
+        TLS_DH_anon_WITH_AES_256_GCM_SHA384,
+    }
+
+    impl LegacyCipher {
+        pub fn openssl(&self) -> &'static str {
+            match self {
+                Self::SSL_RSA_WITH_NULL_MD5 => "NULL-MD5",
+                Self::SSL_RSA_WITH_NULL_SHA => "NULL-SHA",
+                Self::SSL_RSA_EXPORT_WITH_RC4_40_MD5 => "EXP-RC4-MD5",
+                Self::SSL_RSA_WITH_RC4_128_MD5 => "RC4-MD5",
+                Self::SSL_RSA_WITH_RC4_128_SHA => "RC4-SHA",
+                Self::SSL_RSA_EXPORT_WITH_RC2_CBC_40_MD5 => "EXP-RC2-CBC-MD5",
+                Self::SSL_RSA_WITH_IDEA_CBC_SHA => "IDEA-CBC-SHA",
+                Self::SSL_RSA_EXPORT_WITH_DES40_CBC_SHA => "EXP-DES-CBC-SHA",
+                Self::SSL_RSA_WITH_DES_CBC_SHA => "DES-CBC-SHA",
+                Self::SSL_RSA_WITH_3DES_EDE_CBC_SHA => "DES-CBC3-SHA",
+                Self::SSL_DH_DSS_WITH_DES_CBC_SHA => "DH-DSS-DES-CBC-SHA",
+                Self::SSL_DH_DSS_WITH_3DES_EDE_CBC_SHA => "DH-DSS-DES-CBC3-SHA",
+                Self::SSL_DH_RSA_WITH_DES_CBC_SHA => "DH-RSA-DES-CBC-SHA",
+                Self::SSL_DH_RSA_WITH_3DES_EDE_CBC_SHA => "DH-RSA-DES-CBC3-SHA",
+                Self::SSL_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA => "EXP-EDH-DSS-DES-CBC-SHA",
+                Self::SSL_DHE_DSS_WITH_DES_CBC_SHA => "EDH-DSS-CBC-SHA",
+                Self::SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA => "EDH-DSS-DES-CBC3-SHA",
+                Self::SSL_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA => "EXP-EDH-RSA-DES-CBC-SHA",
+                Self::SSL_DHE_RSA_WITH_DES_CBC_SHA => "EDH-RSA-DES-CBC-SHA",
+                Self::SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA => "EDH-RSA-DES-CBC3-SHA",
+                Self::SSL_DH_anon_EXPORT_WITH_RC4_40_MD5 => "EXP-ADH-RC4-MD5",
+                Self::SSL_DH_anon_WITH_RC4_128_MD5 => "ADH-RC4-MD5",
+                Self::SSL_DH_anon_EXPORT_WITH_DES40_CBC_SHA => "EXP-ADH-DES-CBC-SHA",
+                Self::SSL_DH_anon_WITH_DES_CBC_SHA => "ADH-DES-CBC-SHA",
+                Self::SSL_DH_anon_WITH_3DES_EDE_CBC_SHA => "ADH-DES-CBC3-SHA",
+                Self::TLS_RSA_WITH_NULL_MD5 => "NULL-MD5",
+                Self::TLS_RSA_WITH_NULL_SHA => "NULL-SHA",
+                Self::TLS_RSA_EXPORT_WITH_RC4_40_MD5 => "EXP-RC4-MD5",
+                Self::TLS_RSA_WITH_RC4_128_MD5 => "RC4-MD5",
+                Self::TLS_RSA_WITH_RC4_128_SHA => "RC4-SHA",
+                Self::TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5 => "EXP-RC2-CBC-MD5",
+                Self::TLS_RSA_WITH_IDEA_CBC_SHA => "IDEA-CBC-SHA",
+                Self::TLS_RSA_EXPORT_WITH_DES40_CBC_SHA => "EXP-DES-CBC-SHA",
+                Self::TLS_RSA_WITH_DES_CBC_SHA => "DES-CBC-SHA",
+                Self::TLS_RSA_WITH_3DES_EDE_CBC_SHA => "DES-CBC3-SHA",
+                Self::TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA => "EXP-EDH-DSS-DES-CBC-SHA",
+                Self::TLS_DHE_DSS_WITH_DES_CBC_SHA => "EDH-DSS-CBC-SHA",
+                Self::TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA => "EDH-DSS-DES-CBC3-SHA",
+                Self::TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA => "EXP-EDH-RSA-DES-CBC-SHA",
+                Self::TLS_DHE_RSA_WITH_DES_CBC_SHA => "EDH-RSA-DES-CBC-SHA",
+                Self::TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA => "EDH-RSA-DES-CBC3-SHA",
+                Self::TLS_DH_anon_EXPORT_WITH_RC4_40_MD5 => "EXP-ADH-RC4-MD5",
+                Self::TLS_DH_anon_WITH_RC4_128_MD5 => "ADH-RC4-MD5",
+                Self::TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA => "EXP-ADH-DES-CBC-SHA",
+                Self::TLS_DH_anon_WITH_DES_CBC_SHA => "ADH-DES-CBC-SHA",
+                Self::TLS_DH_anon_WITH_3DES_EDE_CBC_SHA => "ADH-DES-CBC3-SHA",
+                Self::TLS_RSA_WITH_AES_128_CBC_SHA => "AES128-SHA",
+                Self::TLS_RSA_WITH_AES_256_CBC_SHA => "AES256-SHA",
+                Self::TLS_DH_DSS_WITH_AES_128_CBC_SHA => "DH-DSS-AES128-SHA",
+                Self::TLS_DH_DSS_WITH_AES_256_CBC_SHA => "DH-DSS-AES256-SHA",
+                Self::TLS_DH_RSA_WITH_AES_128_CBC_SHA => "DH-RSA-AES128-SHA",
+                Self::TLS_DH_RSA_WITH_AES_256_CBC_SHA => "DH-RSA-AES256-SHA",
+                Self::TLS_DHE_DSS_WITH_AES_128_CBC_SHA => "DHE-DSS-AES128-SHA",
+                Self::TLS_DHE_DSS_WITH_AES_256_CBC_SHA => "DHE-DSS-AES256-SHA",
+                Self::TLS_DHE_RSA_WITH_AES_128_CBC_SHA => "DHE-RSA-AES128-SHA",
+                Self::TLS_DHE_RSA_WITH_AES_256_CBC_SHA => "DHE-RSA-AES256-SHA",
+                Self::TLS_DH_anon_WITH_AES_128_CBC_SHA => "ADH-AES128-SHA",
+                Self::TLS_DH_anon_WITH_AES_256_CBC_SHA => "ADH-AES256-SHA",
+                Self::TLS_ECDH_RSA_WITH_NULL_SHA => "ECDH-RSA-NULL-SHA",
+                Self::TLS_ECDH_RSA_WITH_RC4_128_SHA => "ECDH-RSA-RC4-SHA",
+                Self::TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA => "ECDH-RSA-DES-CBC3-SHA",
+                Self::TLS_ECDH_RSA_WITH_AES_128_CBC_SHA => "ECDH-RSA-AES128-SHA",
+                Self::TLS_ECDH_RSA_WITH_AES_256_CBC_SHA => "ECDH-RSA-AES256-SHA",
+                Self::TLS_ECDH_ECDSA_WITH_NULL_SHA => "ECDH-ECDSA-NULL-SHA",
+                Self::TLS_ECDH_ECDSA_WITH_RC4_128_SHA => "ECDH-ECDSA-RC4-SHA",
+                Self::TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA => "ECDH-ECDSA-DES-CBC3-SHA",
+                Self::TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA => "ECDH-ECDSA-AES128-SHA",
+                Self::TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA => "ECDH-ECDSA-AES256-SHA",
+                Self::TLS_ECDHE_RSA_WITH_NULL_SHA => "ECDHE-RSA-NULL-SHA",
+                Self::TLS_ECDHE_RSA_WITH_RC4_128_SHA => "ECDHE-RSA-RC4-SHA",
+                Self::TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA => "ECDHE-RSA-DES-CBC3-SHA",
+                Self::TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA => "ECDHE-RSA-AES128-SHA",
+                Self::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA => "ECDHE-RSA-AES256-SHA",
+                Self::TLS_ECDHE_ECDSA_WITH_NULL_SHA => "ECDHE-ECDSA-NULL-SHA",
+                Self::TLS_ECDHE_ECDSA_WITH_RC4_128_SHA => "ECDHE-ECDSA-RC4-SHA",
+                Self::TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA => "ECDHE-ECDSA-DES-CBC3-SHA",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA => "ECDHE-ECDSA-AES128-SHA",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA => "ECDHE-ECDSA-AES256-SHA",
+                Self::TLS_ECDH_anon_WITH_NULL_SHA => "AECDH-NULL-SHA",
+                Self::TLS_ECDH_anon_WITH_RC4_128_SHA => "AECDH-RC4-SHA",
+                Self::TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA => "AECDH-DES-CBC3-SHA",
+                Self::TLS_ECDH_anon_WITH_AES_128_CBC_SHA => "AECDH-AES128-SHA",
+                Self::TLS_ECDH_anon_WITH_AES_256_CBC_SHA => "AECDH-AES256-SHA",
+                Self::TLS_RSA_WITH_NULL_SHA256 => "NULL-SHA256",
+                Self::TLS_RSA_WITH_AES_128_CBC_SHA256 => "AES128-SHA256",
+                Self::TLS_RSA_WITH_AES_256_CBC_SHA256 => "AES256-SHA256",
+                Self::TLS_RSA_WITH_AES_128_GCM_SHA256 => "AES128-GCM-SHA256",
+                Self::TLS_RSA_WITH_AES_256_GCM_SHA384 => "AES256-GCM-SHA384",
+                Self::TLS_DH_RSA_WITH_AES_128_CBC_SHA256 => "DH-RSA-AES128-SHA256",
+                Self::TLS_DH_RSA_WITH_AES_256_CBC_SHA256 => "DH-RSA-AES256-SHA256",
+                Self::TLS_DH_RSA_WITH_AES_128_GCM_SHA256 => "DH-RSA-AES128-GCM-SHA256",
+                Self::TLS_DH_RSA_WITH_AES_256_GCM_SHA384 => "DH-RSA-AES256-GCM-SHA384",
+                Self::TLS_DH_DSS_WITH_AES_128_CBC_SHA256 => "DH-DSS-AES128-SHA256",
+                Self::TLS_DH_DSS_WITH_AES_256_CBC_SHA256 => "DH-DSS-AES256-SHA256",
+                Self::TLS_DH_DSS_WITH_AES_128_GCM_SHA256 => "DH-DSS-AES128-GCM-SHA256",
+                Self::TLS_DH_DSS_WITH_AES_256_GCM_SHA384 => "DH-DSS-AES256-GCM-SHA384",
+                Self::TLS_DHE_RSA_WITH_AES_128_CBC_SHA256 => "DHE-RSA-AES128-SHA256",
+                Self::TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 => "DHE-RSA-AES256-SHA256",
+                Self::TLS_DHE_RSA_WITH_AES_128_GCM_SHA256 => "DHE-RSA-AES128-GCM-SHA256",
+                Self::TLS_DHE_RSA_WITH_AES_256_GCM_SHA384 => "DHE-RSA-AES256-GCM-SHA384",
+                Self::TLS_DHE_DSS_WITH_AES_128_CBC_SHA256 => "DHE-DSS-AES128-SHA256",
+                Self::TLS_DHE_DSS_WITH_AES_256_CBC_SHA256 => "DHE-DSS-AES256-SHA256",
+                Self::TLS_DHE_DSS_WITH_AES_128_GCM_SHA256 => "DHE-DSS-AES128-GCM-SHA256",
+                Self::TLS_DHE_DSS_WITH_AES_256_GCM_SHA384 => "DHE-DSS-AES256-GCM-SHA384",
+                Self::TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256 => "ECDH-RSA-AES128-SHA256",
+                Self::TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384 => "ECDH-RSA-AES256-SHA384",
+                Self::TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256 => "ECDH-RSA-AES128-GCM-SHA256",
+                Self::TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384 => "ECDH-RSA-AES256-GCM-SHA384",
+                Self::TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256 => "ECDH-ECDSA-AES128-SHA256",
+                Self::TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384 => "ECDH-ECDSA-AES256-SHA384",
+                Self::TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256 => "ECDH-ECDSA-AES128-GCM-SHA256",
+                Self::TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384 => "ECDH-ECDSA-AES256-GCM-SHA384",
+                Self::TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 => "ECDHE-RSA-AES128-SHA256",
+                Self::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 => "ECDHE-RSA-AES256-SHA384",
+                Self::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => "ECDHE-RSA-AES128-GCM-SHA256",
+                Self::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => "ECDHE-RSA-AES256-GCM-SHA384",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 => "ECDHE-ECDSA-AES128-SHA256",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 => "ECDHE-ECDSA-AES256-SHA384",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 => "ECDHE-ECDSA-AES128-GCM-SHA256",
+                Self::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 => "ECDHE-ECDSA-AES256-GCM-SHA384",
+                Self::TLS_DH_anon_WITH_AES_128_CBC_SHA256 => "ADH-AES128-SHA256",
+                Self::TLS_DH_anon_WITH_AES_256_CBC_SHA256 => "ADH-AES256-SHA256",
+                Self::TLS_DH_anon_WITH_AES_128_GCM_SHA256 => "ADH-AES128-GCM-SHA256",
+                Self::TLS_DH_anon_WITH_AES_256_GCM_SHA384 => "ADH-AES256-GCM-SHA384",
+            }
+        }
+    }
+
+
+pub struct Query {
+    security_policy: s2n_tls::security::Policy,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct TLS13SecurityQuery {
+    pub kx: Vec<String>,
+    pub cipher: Vec<String>,
+    pub signature_scheme: Vec<String>,
+}
+
+/// In legacy versions, key exchange and the symmetric encryption algorithim are both
+/// specified by a single "cipher" parameter.
+/// The signature algorithim is a tuple of hash/signature alg.
+#[derive(Debug)]
+pub struct TLSLegacyQuery {
+    // kx and symmetric encryption
+    pub protocol: Vec<String>,
+    // supported curves for elliptic things
+    pub curves: Vec<String>,
+    // kx (RSA/FF - DH-E, ECDH-E)
+    pub cipher: Vec<String>,
+    // signature hash tuple
+    pub sig_hash: Vec<String>,
+    // we cartesian product sig and has before actually using them
+}
+
+
+impl TLSLegacyQuery {
+    // These "good" parameters are only used when querying the capabilities of
+    // libcrypto. We select good parameters to ensure there aren't any false
+    // negatives when capability probing.
+    pub const GOOD_PROTOCOL: &'static str = "TLSv1.2";
+    pub const GOOD_KX_GROUP: &'static str = "P-256";
+    pub const GOOD_CIPHER: &'static str = "AES";
+    pub const GOOD_SIG_HASH: &'static str = "RSA+SHA256";
+
+    fn new(protocol: &str, curve: &str, cipher: &str, sig_hash: &str) -> Self {
+        TLSLegacyQuery {
+            protocol: vec![protocol.to_string()],
+            curves: vec![curve.to_string()],
+            cipher: vec![cipher.to_string()],
+            sig_hash: vec![sig_hash.to_string()],
+        }
+    }
+}
+
+impl Default for TLSLegacyQuery {
+    fn default() -> Self {
+        Self::new(
+            Self::GOOD_PROTOCOL,
+            Self::GOOD_KX_GROUP,
+            Self::GOOD_CIPHER,
+            Self::GOOD_SIG_HASH,
+        )
+    }
+}
+
+impl TLS13SecurityQuery {
+    // These "good" parameters are only used when querying the capabilities of
+    // libcrypto. We select good parameters to ensure there aren't any false
+    // negatives when capability probing.
+    pub const GOOD_KX_GROUP: &'static str = "P-256";
+    pub const GOOD_CIPHER: &'static str = "TLS_AES_128_GCM_SHA256";
+    pub const GOOD_SIGNATURE_SCHEME: &'static str = "rsa_pss_rsae_sha256";
+
+    fn new(kx: &str, cipher: &str, sig: &str) -> Self {
+        TLS13SecurityQuery {
+            kx: vec![kx.to_owned()],
+            cipher: vec![cipher.to_owned()],
+            signature_scheme: vec![sig.to_owned()],
+        }
+    }
+}
+
+impl Default for TLS13SecurityQuery {
+    fn default() -> Self {
+        Self::new(
+            Self::GOOD_KX_GROUP,
+            Self::GOOD_CIPHER,
+            Self::GOOD_SIGNATURE_SCHEME,
+        )
+    }
+}
+
+
+
+    pub fn tls13_security_query(
+        query: &crate::scanner::TLS13SecurityQuery,
+    ) -> Result<Self, Box<dyn Error>> {
+        let TLS13SecurityQuery {
+            kx,
+            cipher,
+            signature_scheme,
+        } = query;
+        let mut context = openssl::ssl::SslContext::builder(SslMethod::tls_client()).unwrap();
+        context
+            .set_max_proto_version(Some(SslVersion::TLS1_3))
+            .unwrap();
+        // TODO: for some reason openssl will still successfully negotiate TLS 1.2 even
+        // when cipher preferences are manually specified. I think this is because the
+        // set_cipher_list has it's own default
+        context
+            .set_min_proto_version(Some(SslVersion::TLS1_3))
+            .unwrap();
+        context.set_ciphersuites(&cipher.join(":")).unwrap();
+        context.set_groups_list(&kx.join(":"))?;
+        // https://www.openssl.org/docs/man1.1.1/man3/SSL_CTX_set1_sigalgs.html
+        context.set_sigalgs_list(&signature_scheme.join(":"))?;
+
+        // load in all of the CA certs
+        context.set_ca_file(get_ca_path()).unwrap();
+        context.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
+
+        Ok(Self {
+            config: context.build(),
+            session_ticket_storage: SessionTicketStorage::default(),
+        })
+    }
+
+    pub fn tls_legacy_security_query(
+        query: &crate::scanner::TLSLegacyQuery,
+    ) -> Result<Self, Box<dyn Error>> {
+        let TLSLegacyQuery {
+            protocol,
+            curves,
+            cipher,
+            sig_hash,
+        } = query;
+        let mut context = openssl::ssl::SslContext::builder(SslMethod::tls_client()).unwrap();
+        let max_proto = protocol.iter().max().unwrap();
+        let min_proto = protocol.iter().min().unwrap();
+        context.set_max_proto_version(Some(Self::get_ossl_version(max_proto)))?;
+        context.set_min_proto_version(Some(Self::get_ossl_version(min_proto)))?;
+        //println!("set the proto versions");
+
+        context.set_cipher_list(&cipher.join(":"))?;
+        //println!("set the cipher versions");
+
+        // https://www.openssl.org/docs/man3.1/man3/SSL_CTX_set1_groups.html
+        context.set_groups_list(&curves.join(":"))?;
+        //println!("set the group versions");
+
+        // https://www.openssl.org/docs/man1.1.1/man3/SSL_CTX_set1_sigalgs.html
+        let sig_product: String = sig_hash.join(":");
+        //println!("sig_product: {:?}", sig_product);
+        let sig_algs = context.set_sigalgs_list(&sig_product)?;
+
+        // load in all of the CA certs
+        context
+            .set_ca_file(get_cert_path(PemType::CACert, SigType::Rsa2048))
+            .unwrap();
+        context.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
+
+        Ok(Self {
+            config: context.build(),
+            session_ticket_storage: SessionTicketStorage::default(),
+        })
+    }
+
+    fn get_ossl_version(version: &str) -> SslVersion {
+        match version {
+            "TLSv1.0" => SslVersion::TLS1,
+            "TLSv1.1" => SslVersion::TLS1_1,
+            "TLSv1.2" => SslVersion::TLS1_2,
+            _ => panic!("unknown version"),
+        }
+    }
+
+
+// if any of them fail, they are unsupported
+
+        // store the list of unsupported configuration
+
+        // panic if the parameters are not actually good.
+        crate::openssl::OpenSslConfig::tls13_security_query(&TLS13SecurityQuery::default())
+            .unwrap();
+        let mut supported_params: HashMap<TLS13Param, Vec<&'static str>> = HashMap::new();
+        params::tls13::get_all()
+            .into_iter()
+            // try to construct an OpenSSL query using parameter of interest
+            .map(|param| {
+                let mut query = TLS13SecurityQuery::default();
+                match TLS13Param::param_type(param) {
+                    TLS13Param::Kx => query.kx = vec![param.to_string()],
+                    TLS13Param::Cipher => query.cipher = vec![param.to_string()],
+                    // we must query these together. because RSA+SHA1 is supported, but RSA-PSS+SHA1 is not supported
+                    TLS13Param::SignatureScheme => query.signature_scheme = vec![param.to_string()],
+                };
+                (param, query)
+            })
+            .filter(|(_param, query)| {
+                crate::openssl::OpenSslConfig::tls13_security_query(query).is_ok()
+            })
+            .map(|(param, _query)| param)
+            // build up the list of supported parameters
+            .for_each(|param| {
+                supported_params
+                    .entry(TLS13Param::param_type(param))
+                    .or_default()
+                    .push(param)
+            });
+
+        // TLS Legacy Versions
+        // panic if the default params aren't actually good
+        crate::openssl::OpenSslConfig::tls_legacy_security_query(&TLSLegacyQuery::default())
+            .unwrap();
+        let mut supported_legacy_params: HashMap<TLSLegacyParam, Vec<String>> = HashMap::new();
+        params::legacy::get_all()
+            .into_iter()
+            .filter(|param| TLSLegacyParam::param_type(param) != TLSLegacyParam::Group)
+            .map(|param| {
+                let mut query = TLSLegacyQuery::default();
+                query.curves = allocate(supported_params.get(&TLS13Param::Kx).unwrap());
+                match TLSLegacyParam::param_type(&param) {
+                    TLSLegacyParam::Cipher => query.cipher = vec![param.to_string()],
+                    TLSLegacyParam::SignatureHash => query.sig_hash = vec![param.to_string()],
+                    _ => panic!(),
+                };
+                (param, query)
+            })
+            .filter(|(_param, query)| {
+                crate::openssl::OpenSslConfig::tls_legacy_security_query(query).is_ok()
+            })
+            .map(|(param, _query)| param)
+            .for_each(|param| {
+                supported_legacy_params
+                    .entry(TLSLegacyParam::param_type(&param))
+                    .or_default()
+                    .push(param)
+            });
+
+        Self {
+            groups: supported_params.remove(&TLS13Param::Kx).unwrap(),
+            tls13_ciphers: supported_params.remove(&TLS13Param::Cipher).unwrap(),
+            tls13_signatures: supported_params
+                .remove(&TLS13Param::SignatureScheme)
+                .unwrap(),
+            tlslegacy_ciphers: supported_legacy_params
+                .remove(&TLSLegacyParam::Cipher)
+                .unwrap(),
+            tlslegacy_sig_hash: supported_legacy_params
+                .remove(&TLSLegacyParam::SignatureHash)
+                .unwrap(),
+        }
+
+
+
+
+
+
+
+
+
+    /// return a TLS13SecurityQuery including all supported libcrypto parameters
+    fn all_supported(&self) -> TLS13SecurityQuery {
+        TLS13SecurityQuery {
+            kx: allocate(&self.groups),
+            cipher: allocate(&self.tls13_ciphers),
+            signature_scheme: allocate(&self.tls13_signatures),
+        }
+    }
+
+    /// return a Legacy Query including all supported libcrypto parameters
+    fn all_legacy_supported(&self) -> TLSLegacyQuery {
+        TLSLegacyQuery {
+            protocol: vec![
+                "TLSv1.0".to_string(),
+                "TLSv1.1".to_string(),
+                "TLSv1.2".to_string(),
+            ],
+            curves: allocate(&self.groups),
+            cipher: self.tlslegacy_ciphers.clone(),
+            sig_hash: self.tlslegacy_sig_hash.clone(),
+        }
+    }
+
+
+
+
+
+
+        pub fn inspect_security_policy(&self, security_policy: &str) -> Report {
+        // get a list of all of the parameters
+
+        // remove the unsupported parameters
+
+        // construct all of the queries
+
+        // map them to OpenSSL Configs
+
+        //
+        // filter down to libcrypto supported configurations
+        // then query for individual fields by iterating over tuples
+        let queries: Vec<(&str, TLS13SecurityQuery)> = self
+            .groups
+            .iter()
+            .chain(self.tls13_ciphers.iter())
+            .chain(self.tls13_signatures.iter())
+            .map(|param| {
+                let mut query = self.all_supported();
+                match TLS13Param::param_type(*param) {
+                    TLS13Param::Kx => query.kx = vec![param.to_string()],
+                    TLS13Param::Cipher => query.cipher = vec![param.to_string()],
+                    TLS13Param::SignatureScheme => query.signature_scheme = vec![param.to_string()],
+                };
+                (*param, query)
+            })
+            .collect();
+
+        log::info!("doing this many queries for TLS 1.3: {}", queries.len());
+        let mut report = Report::default();
+        for (param, query) in queries.iter() {
+            // we should be able to unwrap here because earlier we probed the capabilities of the libcrypto
+            let configured_openssl =
+                crate::openssl::OpenSslConfig::tls13_security_query(query).unwrap();
+            let configured_s2n = S2NConfig::new_security_policy_server(security_policy);
+            let mut pair = TlsConnPair::<
+                crate::openssl::OpenSslConnection,
+                crate::s2n_tls::S2NConnection,
+            >::new(&configured_openssl, &configured_s2n);
+            //println!("made the pair, now trying to handshake");
+            //println!(
+            //    "handshaking resulting with {:?} was {:?}",
+            //    query,
+            //    pair.handshake()
+            //);
+            //continue;
+            let res = pair.handshake();
+            log::trace!("{:?}, {:?}, {:?}", param, query, res);
+            if let Ok(()) = res {
+                report.protocols.insert("TLSv1.3".to_string());
+                match TLS13Param::param_type(*param) {
+                    TLS13Param::Kx => report.groups.insert(param.to_string()),
+                    TLS13Param::Cipher => report.ciphers.insert(param.to_string()),
+                    TLS13Param::SignatureScheme => report.signature.insert(param.to_string()),
+                };
+            }
+            let (ossl, s2n) = pair.split();
+            assert_eq!(ossl.connection().version_str(), "TLSv1.3");
+        }
+        let protocols: Vec<String> = params::legacy::PROTOCOLS
+            .iter()
+            .map(|param| param.to_string())
+            .collect();
+
+        log::info!(
+            "doing this many queries for Legacy TLS: {}",
+            self.tlslegacy_ciphers.len() * self.tlslegacy_sig_hash.len() * 3
+        );
+
+        self.tlslegacy_ciphers
+            .iter()
+            .chain(self.tlslegacy_sig_hash.iter())
+            .chain(protocols.iter())
+            // map to a query
+            .map(|param| {
+                let mut query = self.all_legacy_supported();
+                // TODO: param setting should be method on legacy query
+                match TLSLegacyParam::param_type(param) {
+                    TLSLegacyParam::Cipher => query.cipher = vec![param.to_string()],
+                    TLSLegacyParam::SignatureHash => query.sig_hash = vec![param.to_string()],
+                    TLSLegacyParam::Protocol => query.protocol = vec![param.to_string()],
+                    _ => panic!(),
+                };
+                (param, query)
+            })
+            .inspect(|query| log::trace!("{:?}", query))
+            .map(|(param, query)| {
+                (
+                    param,
+                    crate::openssl::OpenSslConfig::tls_legacy_security_query(&query),
+                )
+            })
+            .inspect(|res| log::trace!("{:?}", res.1.as_ref().err()))
+            .filter(|(param, query)| query.is_ok())
+            .map(|(param, query)| (param, query.unwrap()))
+            // configured the TLS conn pair
+            .map(|(param, query)| {
+                let configured_s2n = S2NConfig::new_security_policy_server(security_policy);
+                let mut pair = TlsConnPair::<
+                    crate::openssl::OpenSslConnection,
+                    crate::s2n_tls::S2NConnection,
+                >::new(&query, &configured_s2n);
+                (param, pair.handshake())
+            })
+            .inspect(|(param, handshake)| log::trace!("{:?}", handshake))
+            .filter(|(param, pair)| pair.is_ok())
+            //.inspect(|thing| println!("each of {:?}", thing))
+            .for_each(|(param, pair)| {
+                match TLSLegacyParam::param_type(&param) {
+                    TLSLegacyParam::Protocol => report.protocols.insert(param.to_string()),
+                    TLSLegacyParam::Cipher => report
+                        .ciphers
+                        .insert(params::legacy::get_iana_from_openssl(param)),
+                    TLSLegacyParam::SignatureHash => {
+                        report.legacy_sig_hash.insert(param.to_string())
+                    }
+                    _ => panic!("unexpected param"),
+                };
+            });
+
+        report
+    }
+
+
+
+
+
+
+
+
+        //
+        // filter down to libcrypto supported configurations
+        // then query for individual fields by iterating over tuples
+        let queries: Vec<(&str, TLS13SecurityQuery)> = self
+            .groups
+            .iter()
+            .chain(self.tls13_ciphers.iter())
+            .chain(self.tls13_signatures.iter())
+            .map(|param| {
+                let mut query = self.all_supported();
+                match TLS13Param::param_type(*param) {
+                    TLS13Param::Kx => query.kx = vec![param.to_string()],
+                    TLS13Param::Cipher => query.cipher = vec![param.to_string()],
+                    TLS13Param::SignatureScheme => query.signature_scheme = vec![param.to_string()],
+                };
+                (*param, query)
+            })
+            .collect();
+
+        log::info!("doing this many queries for TLS 1.3: {}", queries.len());
+        let mut report = Report::default();
+        for (param, query) in queries.iter() {
+            // we should be able to unwrap here because earlier we probed the capabilities of the libcrypto
+            let configured_openssl =
+                crate::openssl::OpenSslConfig::tls13_security_query(query).unwrap();
+            let configured_s2n = S2NConfig::new_security_policy_server(security_policy);
+            let mut pair = TlsConnPair::<
+                crate::openssl::OpenSslConnection,
+                crate::s2n_tls::S2NConnection,
+            >::new(&configured_openssl, &configured_s2n);
+            //println!("made the pair, now trying to handshake");
+            //println!(
+            //    "handshaking resulting with {:?} was {:?}",
+            //    query,
+            //    pair.handshake()
+            //);
+            //continue;
+            let res = pair.handshake();
+            log::trace!("{:?}, {:?}, {:?}", param, query, res);
+            if let Ok(()) = res {
+                report.protocols.insert("TLSv1.3".to_string());
+                match TLS13Param::param_type(*param) {
+                    TLS13Param::Kx => report.groups.insert(param.to_string()),
+                    TLS13Param::Cipher => report.ciphers.insert(param.to_string()),
+                    TLS13Param::SignatureScheme => report.signatures.insert(param.to_string()),
+                };
+            }
+            let (ossl, s2n) = pair.split();
+            assert_eq!(ossl.connection().version_str(), "TLSv1.3");
+        }
+        let protocols: Vec<String> = params::legacy::PROTOCOLS
+            .iter()
+            .map(|param| param.to_string())
+            .collect();
+
+        log::info!(
+            "doing this many queries for Legacy TLS: {}",
+            self.tlslegacy_ciphers.len() * self.tlslegacy_sig_hash.len() * 3
+        );
+
+        self.tlslegacy_ciphers
+            .iter()
+            .chain(self.tlslegacy_sig_hash.iter())
+            .chain(protocols.iter())
+            // map to a query
+            .map(|param| {
+                let mut query = self.all_legacy_supported();
+                // TODO: param setting should be method on legacy query
+                match TLSLegacyParam::param_type(param) {
+                    TLSLegacyParam::Cipher => query.cipher = vec![param.to_string()],
+                    TLSLegacyParam::SignatureHash => query.sig_hash = vec![param.to_string()],
+                    TLSLegacyParam::Protocol => query.protocol = vec![param.to_string()],
+                    _ => panic!(),
+                };
+                (param, query)
+            })
+            .inspect(|query| log::trace!("{:?}", query))
+            .map(|(param, query)| {
+                (
+                    param,
+                    crate::openssl::OpenSslConfig::tls_legacy_security_query(&query),
+                )
+            })
+            .inspect(|res| log::trace!("{:?}", res.1.as_ref().err()))
+            .filter(|(param, query)| query.is_ok())
+            .map(|(param, query)| (param, query.unwrap()))
+            // configured the TLS conn pair
+            .map(|(param, query)| {
+                let configured_s2n = S2NConfig::new_security_policy_server(security_policy);
+                let mut pair = TlsConnPair::<
+                    crate::openssl::OpenSslConnection,
+                    crate::s2n_tls::S2NConnection,
+                >::new(&query, &configured_s2n);
+                (param, pair.handshake())
+            })
+            .inspect(|(param, handshake)| log::trace!("{:?}", handshake))
+            .filter(|(param, pair)| pair.is_ok())
+            //.inspect(|thing| println!("each of {:?}", thing))
+            .for_each(|(param, pair)| {
+                match TLSLegacyParam::param_type(&param) {
+                    TLSLegacyParam::Protocol => report.protocols.insert(param.to_string()),
+                    TLSLegacyParam::Cipher => report
+                        .ciphers
+                        .insert(params::legacy::get_iana_from_openssl(param)),
+                    TLSLegacyParam::SignatureHash => {
+                        report.legacy_sig_hash.insert(param.to_string())
+                    }
+                    _ => panic!("unexpected param"),
+                };
+            });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    pub fn brute_force(security_policy: &str) -> Report {
+        todo!();
+        let mut report = Report::default();
+
+        // TLS 1.3 query
+        for kx in params::tls13::KX_GROUPS {
+            for cipher in params::tls13::CIPHERS {
+                for signature_scheme in params::tls13::SIGNATURE_SCHEMES {
+                    let query = TLS13SecurityQuery {
+                        kx: vec![kx.to_owned()],
+                        cipher: vec![cipher.to_owned()],
+                        signature_scheme: vec![signature_scheme.to_owned()],
+                    };
+                    let configured_openssl =
+                        match crate::openssl::OpenSslConfig::tls13_security_query(&query) {
+                            Ok(config) => config,
+                            Err(e) => {
+                                //println!("problem configuring openssl: {:?}", e);
+                                continue;
+                            }
+                        };
+                    let configured_s2n = S2NConfig::new_security_policy_server(security_policy);
+                    let mut pair = TlsConnPair::<
+                        crate::openssl::OpenSslConnection,
+                        crate::s2n_tls::S2NConnection,
+                    >::new(&configured_openssl, &configured_s2n);
+                    match pair.handshake() {
+                        Ok(()) => {
+                            report.protocols.insert("TLSv1.3".to_string());
+                            report.groups.insert(kx.to_string());
+                            report.ciphers.insert(cipher.to_string());
+                            report.signatures.insert(signature_scheme.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        log::info!(
+            "total queries {}",
+            3 * params::tls13::KX_GROUPS.len()
+                * params::legacy::CIPHER_SUITES.len()
+                * params::legacy::HASH_ALGS.len()
+                * params::legacy::SIGNATURE_ALGS.len()
+        );
+        let mut query_count = 0;
+        for protocol in vec!["TLSv1.2"] {
+            // kx is currently used for all the thing, when it should not be. Results in false
+            // positives according to my detection method.
+            for group in params::tls13::KX_GROUPS {
+                for cipher in params::legacy::CIPHER_SUITES {
+                    for sig in params::legacy::SIGNATURE_ALGS {
+                        for hash in params::legacy::HASH_ALGS {
+                            query_count += 1;
+                            if query_count % 1000 == 0 {
+                                log::info!("query count is {:?}", query_count);
+                            }
+                            let query = TLSLegacyQuery {
+                                protocol: vec![protocol.to_string()],
+                                curves: vec![group.to_string()],
+                                cipher: vec![cipher.1.to_string()],
+                                sig_hash: vec![format!("{sig}+{hash}")],
+                            };
+                            log::trace!("query is {:?}", query);
+
+                            let configured_openssl =
+                                match crate::openssl::OpenSslConfig::tls_legacy_security_query(
+                                    &query,
+                                ) {
+                                    Ok(config) => config,
+                                    Err(e) => {
+                                        //println!("problem configuring openssl: {:?}", e);
+                                        continue;
+                                    }
+                                };
+                            let configured_s2n =
+                                S2NConfig::new_security_policy_server(security_policy);
+                            let mut pair = TlsConnPair::<
+                                crate::openssl::OpenSslConnection,
+                                crate::s2n_tls::S2NConnection,
+                            >::new(
+                                &configured_openssl, &configured_s2n
+                            );
+                            match pair.handshake() {
+                                Ok(()) => {
+                                    report.protocols.insert(protocol.to_string());
+                                    report.groups.insert(group.to_string());
+                                    report.ciphers.insert(cipher.0.to_string());
+                                    report.signatures.insert(format!("{}+{}", sig, hash));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        report
+    }
+
+
+
+
+
+
+
+
+
+
+    pub mod legacy {
+
+        pub fn get_all() -> Vec<String> {
+            CIPHER_SUITES
+                .iter()
+                .map(|(iana, ossl)| ossl.to_string())
+                .chain(
+                    SIGNATURE_ALGS
+                        .iter()
+                        .map(|sig| {
+                            HASH_ALGS
+                                .iter()
+                                .map(|h| format!("{}+{}", sig.to_string(), h))
+                        })
+                        .flatten(),
+                )
+                .collect()
+        }
+
+        pub fn get_iana_from_openssl(openssl_cipher: &str) -> String {
+            CIPHER_SUITES
+                .iter()
+                .find(|(_iana, ossl)| *ossl == openssl_cipher)
+                .unwrap()
+                .0
+                .to_owned()
+        }
+
+        // https://www.openssl.org/docs/man1.1.1/man1/ciphers.html
+        // this contains the openssl IANA -> cipher suite mappings
+        // don't think about it, just use the one that everyone else uses
+        // Some of these are listed multiple times, but it makes the definitions a
+        // bit more understandable
+        pub const CIPHER_SUITES: [(&str, &str); 95] = [
+            /*                   SSL v3.0 Ciphers                   */
+            ("SSL_RSA_WITH_NULL_MD5", "NULL-MD5"),
+            ("SSL_RSA_WITH_NULL_SHA", "NULL-SHA"),
+            ("SSL_RSA_WITH_RC4_128_MD5", "RC4-MD5"),
+            ("SSL_RSA_WITH_RC4_128_SHA", "RC4-SHA"),
+            ("SSL_RSA_WITH_IDEA_CBC_SHA", "IDEA-CBC-SHA"),
+            ("SSL_RSA_WITH_3DES_EDE_CBC_SHA", "DES-CBC3-SHA"),
+            ("SSL_DH_DSS_WITH_3DES_EDE_CBC_SHA", "DH-DSS-DES-CBC3-SHA"),
+            ("SSL_DH_RSA_WITH_3DES_EDE_CBC_SHA", "DH-RSA-DES-CBC3-SHA"),
+            ("SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "DHE-DSS-DES-CBC3-SHA"),
+            ("SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA", "DHE-RSA-DES-CBC3-SHA"),
+            /* TLS v1.0 cipher suites */
+            ("TLS_RSA_WITH_NULL_MD5", "NULL-MD5"),
+            ("TLS_RSA_WITH_NULL_SHA", "NULL-SHA"),
+            ("TLS_RSA_WITH_RC4_128_MD5", "RC4-MD5"),
+            ("TLS_RSA_WITH_RC4_128_SHA", "RC4-SHA"),
+            ("TLS_RSA_WITH_IDEA_CBC_SHA", "IDEA-CBC-SHA"),
+            ("TLS_RSA_WITH_3DES_EDE_CBC_SHA", "DES-CBC3-SHA"),
+            ("TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA", "Not implemented."),
+            ("TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA", "Not implemented."),
+            ("TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", "DHE-DSS-DES-CBC3-SHA"),
+            ("TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA", "DHE-RSA-DES-CBC3-SHA"),
+            ("TLS_DH_anon_WITH_RC4_128_MD5", "ADH-RC4-MD5"),
+            ("TLS_DH_anon_WITH_3DES_EDE_CBC_SHA", "ADH-DES-CBC3-SHA"),
+            /* AES Cipher Suites for TLS 1.0 */
+            ("TLS_RSA_WITH_AES_128_CBC_SHA", "AES128-SHA"),
+            ("TLS_RSA_WITH_AES_256_CBC_SHA", "AES256-SHA"),
+            ("TLS_DH_DSS_WITH_AES_128_CBC_SHA", "DH-DSS-AES128-SHA"),
+            ("TLS_DH_DSS_WITH_AES_256_CBC_SHA", "DH-DSS-AES256-SHA"),
+            ("TLS_DH_RSA_WITH_AES_128_CBC_SHA", "DH-RSA-AES128-SHA"),
+            ("TLS_DH_RSA_WITH_AES_256_CBC_SHA", "DH-RSA-AES256-SHA"),
+            ("TLS_DHE_DSS_WITH_AES_128_CBC_SHA", "DHE-DSS-AES128-SHA"),
+            ("TLS_DHE_DSS_WITH_AES_256_CBC_SHA", "DHE-DSS-AES256-SHA"),
+            ("TLS_DHE_RSA_WITH_AES_128_CBC_SHA", "DHE-RSA-AES128-SHA"),
+            ("TLS_DHE_RSA_WITH_AES_256_CBC_SHA", "DHE-RSA-AES256-SHA"),
+            /* export cipher suite */
+            ("TLS_DHE_DSS_WITH_RC4_128_SHA", "DHE-DSS-RC4-SHA"),
+            /* Elliptic curve cipher suites */
+            ("TLS_ECDHE_RSA_WITH_NULL_SHA", "ECDHE-RSA-NULL-SHA"),
+            ("TLS_ECDHE_RSA_WITH_RC4_128_SHA", "ECDHE-RSA-RC4-SHA"),
+            (
+                "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
+                "ECDHE-RSA-DES-CBC3-SHA",
+            ),
+            ("TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", "ECDHE-RSA-AES128-SHA"),
+            ("TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "ECDHE-RSA-AES256-SHA"),
+            ("TLS_ECDHE_ECDSA_WITH_NULL_SHA", "ECDHE-ECDSA-NULL-SHA"),
+            ("TLS_ECDHE_ECDSA_WITH_RC4_128_SHA", "ECDHE-ECDSA-RC4-SHA"),
+            (
+                "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA",
+                "ECDHE-ECDSA-DES-CBC3-SHA",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+                "ECDHE-ECDSA-AES128-SHA",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+                "ECDHE-ECDSA-AES256-SHA",
+            ),
+            // ("TLS_ECDH_anon_WITH_NULL_SHA",             "AECDH-NULL-SHA"),
+            // ("TLS_ECDH_anon_WITH_RC4_128_SHA",          "AECDH-RC4-SHA"),
+            // ("TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA",     "AECDH-DES-CBC3-SHA"),
+            // ("TLS_ECDH_anon_WITH_AES_128_CBC_SHA",      "AECDH-AES128-SHA"),
+            // ("TLS_ECDH_anon_WITH_AES_256_CBC_SHA",      "AECDH-AES256-SHA"),
+
+            /* TLS 1.2 cipher suites */
+            ("TLS_RSA_WITH_NULL_SHA256", "NULL-SHA256"),
+            ("TLS_RSA_WITH_AES_128_CBC_SHA256", "AES128-SHA256"),
+            ("TLS_RSA_WITH_AES_256_CBC_SHA256", "AES256-SHA256"),
+            ("TLS_RSA_WITH_AES_128_GCM_SHA256", "AES128-GCM-SHA256"),
+            ("TLS_RSA_WITH_AES_256_GCM_SHA384", "AES256-GCM-SHA384"),
+            ("TLS_DH_RSA_WITH_AES_128_CBC_SHA256", "DH-RSA-AES128-SHA256"),
+            ("TLS_DH_RSA_WITH_AES_256_CBC_SHA256", "DH-RSA-AES256-SHA256"),
+            (
+                "TLS_DH_RSA_WITH_AES_128_GCM_SHA256",
+                "DH-RSA-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_DH_RSA_WITH_AES_256_GCM_SHA384",
+                "DH-RSA-AES256-GCM-SHA384",
+            ),
+            ("TLS_DH_DSS_WITH_AES_128_CBC_SHA256", "DH-DSS-AES128-SHA256"),
+            ("TLS_DH_DSS_WITH_AES_256_CBC_SHA256", "DH-DSS-AES256-SHA256"),
+            (
+                "TLS_DH_DSS_WITH_AES_128_GCM_SHA256",
+                "DH-DSS-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_DH_DSS_WITH_AES_256_GCM_SHA384",
+                "DH-DSS-AES256-GCM-SHA384",
+            ),
+            (
+                "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
+                "DHE-RSA-AES128-SHA256",
+            ),
+            (
+                "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256",
+                "DHE-RSA-AES256-SHA256",
+            ),
+            (
+                "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
+                "DHE-RSA-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
+                "DHE-RSA-AES256-GCM-SHA384",
+            ),
+            (
+                "TLS_DHE_DSS_WITH_AES_128_CBC_SHA256",
+                "DHE-DSS-AES128-SHA256",
+            ),
+            (
+                "TLS_DHE_DSS_WITH_AES_256_CBC_SHA256",
+                "DHE-DSS-AES256-SHA256",
+            ),
+            (
+                "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256",
+                "DHE-DSS-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_DHE_DSS_WITH_AES_256_GCM_SHA384",
+                "DHE-DSS-AES256-GCM-SHA384",
+            ),
+            (
+                "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+                "ECDHE-RSA-AES128-SHA256",
+            ),
+            (
+                "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
+                "ECDHE-RSA-AES256-SHA384",
+            ),
+            (
+                "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+                "ECDHE-RSA-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+                "ECDHE-RSA-AES256-GCM-SHA384",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+                "ECDHE-ECDSA-AES128-SHA256",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
+                "ECDHE-ECDSA-AES256-SHA384",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+                "ECDHE-ECDSA-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+                "ECDHE-ECDSA-AES256-GCM-SHA384",
+            ),
+            ("TLS_DH_anon_WITH_AES_128_CBC_SHA256", "ADH-AES128-SHA256"),
+            ("TLS_DH_anon_WITH_AES_256_CBC_SHA256", "ADH-AES256-SHA256"),
+            (
+                "TLS_DH_anon_WITH_AES_128_GCM_SHA256",
+                "ADH-AES128-GCM-SHA256",
+            ),
+            (
+                "TLS_DH_anon_WITH_AES_256_GCM_SHA384",
+                "ADH-AES256-GCM-SHA384",
+            ),
+            // I think their documentation is wrong. These cipher suite names should be prefixed with "TLS_"
+            ("TLS_RSA_WITH_AES_128_CCM", "AES128-CCM"),
+            ("TLS_RSA_WITH_AES_256_CCM", "AES256-CCM"),
+            ("TLS_DHE_RSA_WITH_AES_128_CCM", "DHE-RSA-AES128-CCM"), // Diffie Hellman (ephemeral) key exchange where the DH parameters are verified with an RSA signature with AES_128_CCM
+            ("TLS_DHE_RSA_WITH_AES_256_CCM", "DHE-RSA-AES256-CCM"),
+            ("TLS_RSA_WITH_AES_128_CCM_8", "AES128-CCM8"),
+            ("TLS_RSA_WITH_AES_256_CCM_8", "AES256-CCM8"),
+            ("TLS_DHE_RSA_WITH_AES_128_CCM_8", "DHE-RSA-AES128-CCM8"),
+            ("TLS_DHE_RSA_WITH_AES_256_CCM_8", "DHE-RSA-AES256-CCM8"),
+            ("TLS_ECDHE_ECDSA_WITH_AES_128_CCM", "ECDHE-ECDSA-AES128-CCM"),
+            ("TLS_ECDHE_ECDSA_WITH_AES_256_CCM", "ECDHE-ECDSA-AES256-CCM"),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8",
+                "ECDHE-ECDSA-AES128-CCM8",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8",
+                "ECDHE-ECDSA-AES256-CCM8",
+            ),
+            /* no aria */
+            /* no camellia */
+            /* no psk suites */
+
+            /* ChaCha20-Poly1305 */
+            (
+                "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+                "ECDHE-RSA-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+                "ECDHE-ECDSA-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+                "DHE-RSA-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256",
+                "PSK-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256",
+                "ECDHE-PSK-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256",
+                "DHE-PSK-CHACHA20-POLY1305",
+            ),
+            (
+                "TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256",
+                "RSA-PSK-CHACHA20-POLY1305",
+            ),
+        ];
+
+        pub fn iana_ciphers() -> Vec<&'static str> {
+            CIPHER_SUITES.iter().map(|(iana, ossl)| *iana).collect()
+        }
+
+        pub fn ossl_ciphers() -> Vec<&'static str> {
+            CIPHER_SUITES.iter().map(|(iana, ossl)| *ossl).collect()
+        }
+
+        pub fn iana_from_ossl(ossl_target: &str) -> &'static str {
+            CIPHER_SUITES
+                .iter()
+                .find(|(iana, ossl)| *ossl == ossl_target)
+                .unwrap()
+                .0
+        }
+
+        pub const PROTOCOLS: [&str; 3] = ["TLSv1.0", "TLSv1.1", "TLSv1.2"];
+
+        // we assume that these are independent of the hash alg even though they probably aren't.
+        // different use cases
+        // Is this client supported? -> want a more pessimistic/exact answer
+        // Is this algorithm used in any fashion? -> security concern
+        pub const SIGNATURE_ALGS: [&str; 4] = ["RSA", "RSA-PSS", "DSA", "ECDSA"];
+
+        pub const HASH_ALGS: [&str; 6] = ["MD5", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512"];
+    }
+
+
+
+
+
+
+
+    pub mod tls13 {
+        pub fn get_all() -> Vec<&'static str> {
+            KX_GROUPS
+                .iter()
+                .chain(CIPHERS.iter())
+                .chain(SIGNATURE_SCHEMES.iter())
+                .map(|p| *p)
+                .collect()
+        }
+
+        pub const KX_GROUPS: [&str; 10] = [
+            "P-521",
+            "P-384",
+            "P-256",
+            "X25519",
+            "X448",
+            "ffdhe2048",
+            "ffdhe3072",
+            "ffdhe4096",
+            "ffdhe6144",
+            "ffdhe8192",
+        ];
+
+        pub const CIPHERS: [&str; 5] = [
+            "TLS_AES_128_GCM_SHA256",
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256",
+            "TLS_AES_128_CCM_SHA256",
+            "TLS_AES_128_CCM_8_SHA256",
+        ];
+
+        pub const SIGNATURE_SCHEMES: [&str; 16] = [
+            /* RSASSA-PKCS1-v1_5 algorithms */
+            "rsa_pkcs1_sha256",
+            "rsa_pkcs1_sha384",
+            "rsa_pkcs1_sha512",
+            /* ECDSA algorithms */
+            "ecdsa_secp256r1_sha256",
+            "ecdsa_secp384r1_sha384",
+            "ecdsa_secp521r1_sha512",
+            /* RSASSA-PSS algorithms with public key OID rsaEncryption */
+            "rsa_pss_rsae_sha256",
+            "rsa_pss_rsae_sha384",
+            "rsa_pss_rsae_sha512",
+            /* EdDSA algorithms */
+            "ed25519",
+            "ed448",
+            /* RSASSA-PSS algorithms with public key OID RSASSA-PSS */
+            "rsa_pss_pss_sha256",
+            "rsa_pss_pss_sha384",
+            "rsa_pss_pss_sha512",
+            /* Legacy algorithms */
+            "rsa_pkcs1_sha1",
+            "ecdsa_sha1",
+        ];
+    }

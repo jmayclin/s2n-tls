@@ -13,6 +13,11 @@ exclude = [
     "bench"
 ]
 
+[patches.crates-io]
+openssl = { path = "/home/ubuntu/workspace/rust-openssl/openssl", features = ["vendored"], optional = true }
+# openssl-sys = { path = "/home/ubuntu/workspace/rust-openssl/openssl-sys" }
+
+
 [profile.release]
 lto = true
 codegen-units = 1

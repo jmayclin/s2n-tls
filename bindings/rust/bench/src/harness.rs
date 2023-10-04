@@ -9,6 +9,7 @@ use std::{
     fs::read_to_string,
     io::{ErrorKind, Read, Write},
     rc::Rc,
+    sync::{Once, Mutex, RwLock},
 };
 use strum::EnumIter;
 
@@ -41,6 +42,8 @@ pub enum SigType {
     #[default]
     Ecdsa384,
     Ecdsa256,
+    Ecdsa521,
+    Rsassa2048,
 }
 
 impl SigType {
@@ -49,8 +52,10 @@ impl SigType {
             SigType::Rsa2048 => "rsa2048",
             SigType::Rsa3072 => "rsa3072",
             SigType::Rsa4096 => "rsa4096",
-            SigType::Ecdsa384 => "ecdsa384",
+            SigType::Rsassa2048 => "rsapss2048",
             SigType::Ecdsa256 => "ecdsa256",
+            SigType::Ecdsa384 => "ecdsa384",
+            SigType::Ecdsa521 => "ecdsa521",
         }
     }
 }
@@ -59,6 +64,10 @@ impl Debug for SigType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.get_dir_name())
     }
+}
+
+pub fn get_ca_path() -> String {
+    format!("certs/ca-collection.pem")
 }
 
 pub fn get_cert_path(pem_type: PemType, sig_type: SigType) -> String {
@@ -73,6 +82,17 @@ pub fn read_to_bytes(pem_type: PemType, sig_type: SigType) -> Vec<u8> {
     read_to_string(get_cert_path(pem_type, sig_type))
         .unwrap()
         .into_bytes()
+}
+
+// use RwLock so we don't have to use unsafe static mut
+static DH: RwLock<Vec<u8>> = RwLock::new(Vec::new());
+static DH_READ: Once = Once::new();
+
+// pem encoded dh params
+pub fn dh_params() -> Vec<u8> {
+    // we only read in the bytes a single time
+    DH_READ.call_once(|| DH.write().unwrap().append(&mut std::fs::read("certs/dh.pem").unwrap()));
+    DH.read().unwrap().clone()
 }
 
 #[derive(Clone, Copy)]
@@ -288,11 +308,18 @@ where
     /// Two round trips are needed for the server to receive the Finished message
     /// from the client and be ready to send data
     pub fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        for _ in 0..2 {
+        // we should never need more than 4 round trips
+        for _ in 0..5 {
             self.client.handshake()?;
             self.server.handshake()?;
+            if self.client.handshake_completed() && self.server.handshake_completed() {
+                return Ok(());
+            }
         }
-        Ok(())
+        panic!();
+        // assert!(self.client.handshake_completed());
+        // assert!(self.server.handshake_completed());
+        //Ok(())
     }
 
     /// Checks if handshake is finished for both client and server
@@ -437,11 +464,23 @@ mod tests {
     }
 
     #[test]
-    fn test_all() {
+    fn test_s2n_server() {
         test_type::<S2NConnection, S2NConnection>();
-        #[cfg(feature = "rustls")]
+        test_type::<S2NConnection, RustlsConnection>();
+        test_type::<S2NConnection, OpenSslConnection>();
+    }
+
+    #[test]
+    fn test_rustls_server() {
+        test_type::<RustlsConnection, S2NConnection>();
         test_type::<RustlsConnection, RustlsConnection>();
-        #[cfg(feature = "openssl")]
+        test_type::<RustlsConnection, OpenSslConnection>();
+    }
+
+    #[test]
+    fn test_openssl_server() {
+        test_type::<OpenSslConnection, S2NConnection>();
+        test_type::<OpenSslConnection, RustlsConnection>();
         test_type::<OpenSslConnection, OpenSslConnection>();
     }
 
@@ -467,8 +506,18 @@ mod tests {
         for handshake_type in HandshakeType::iter() {
             for cipher_suite in CipherSuite::iter() {
                 for kx_group in KXGroup::iter() {
-                    for sig_type in SigType::iter() {
+                    // it's hard to find an s2n security policy that supports SECP521 with x25519 key exchange so we don't try all of the key exchange types
+                    for sig_type in vec![
+                        SigType::Rsa2048,
+                        SigType::Rsa3072,
+                        SigType::Rsa4096,
+                        SigType::Ecdsa384,
+                        SigType::Ecdsa256,
+                    ]
+                    .into_iter()
+                    {
                         let crypto_config = CryptoConfig::new(cipher_suite, kx_group, sig_type);
+                        println!("crypto config -> {:?}", crypto_config);
                         let mut conn_pair =
                             TlsConnPair::<C, S>::new_bench_pair(crypto_config, handshake_type)
                                 .unwrap();

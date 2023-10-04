@@ -3,11 +3,13 @@
 
 use crate::{
     harness::{
-        read_to_bytes, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType, KXGroup, Mode,
-        TlsConnection,
+        dh_params, read_to_bytes, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType,
+        KXGroup, Mode, TlsConnection,
     },
-    PemType::*,
+    PemType::{self, *},
+    SigType,
 };
+use openssl::bn::BigNum;
 use s2n_tls::{
     callbacks::{SessionTicketCallback, VerifyHostNameCallback},
     config::Builder,
@@ -24,8 +26,9 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,
-    time::SystemTime,
+    time::{SystemTime, Instant},
 };
+use strum::IntoEnumIterator;
 
 /// Custom callback for verifying hostnames. Rustls requires checking hostnames,
 /// so this is to make a fair comparison
@@ -57,10 +60,83 @@ const KEY_NAME: &str = "InsecureTestKey";
 const KEY_VALUE: [u8; 16] = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
 
 /// s2n-tls has mode-independent configs, so this struct wraps the config with the mode
+#[derive(Clone)]
 pub struct S2NConfig {
     mode: Mode,
     config: s2n_tls::config::Config,
     ticket_storage: SessionTicketStorage,
+}
+
+impl S2NConfig {
+    /// this is used to construct multiple servers with a given server policy
+    /// we construct a different config for each certificate type, because it is
+    /// less tedious than relying on the SNI cert mapping stuff
+    pub fn new_security_policy_server(security_policy: &str) -> Vec<S2NConfig> {
+        let sp = Policy::from_version(security_policy).unwrap();
+        // get all of the ECDSA certs
+        let mut certs: Vec<SigType> = SigType::iter()
+            .filter(|s| format!("{:?}", s).contains("ecdsa"))
+            .collect();
+        // add an RSA cert
+        // there is no point in iterating over multiple RSA certs of different sizes
+        // because we don't distinguish between those
+        certs.push(SigType::Rsa2048);
+        certs.push(SigType::Rsassa2048);
+        println!("the cert types are {:?}", certs);
+
+        certs
+            .iter()
+            .map(|c| {
+                let cert = read_to_bytes(PemType::ServerCertChain, *c);
+                let key = read_to_bytes(PemType::ServerKey, *c);
+                let mut builder = s2n_tls::config::Builder::new();
+                builder.wipe_trust_store().unwrap();
+                builder.set_security_policy(&sp).unwrap();
+                println!("loading dh params");
+                println!("generating dh param");
+                // let dh = openssl::dh::Dh::from_params(
+                //     BigNum::from_u32(2048).unwrap(),
+                //     BigNum::from_u32(5).unwrap(),
+                //     BigNum::from_u32(3).unwrap(),
+                // ).unwrap();
+                println!("generating param with p_len = 2048, g = 5");
+                //let dh = openssl::dh::Dh::generate_params(2048, 5).unwrap();
+                //let dh = openssl::dh::Dh::
+                // println!("p -> {:?}", dh.prime_p());
+                // println!("q -> {:?}", dh.prime_q());
+                println!("checking dh param");
+                // damn it, lc has different values
+                //dh.check_key().unwrap();
+                //let dh_pem = dh.params_to_pem().unwrap();
+                // I could not get any of these generations to work
+                /*
+-----BEGIN DH PARAMETERS-----
+MIICCAKCAgEAsb8mBiOtYJZ3XR7f/rCXQwpAAnUPXf7l9pwjYxxy30A7rIzMTrsz
+bXuhhEmzroJcDqKbu2nIzOBNO6HuyQ3n9x/ZbY5kiEt6q7UrB5jC9LwyPASZhd/F
+6xLC7yqFs9sdCaXzuyMS4Ep5sPH6lOvftdsuGZZF9HriTepv/lpD1cPtab+3vHZX
+IELVc2WBwVzvNRGd/SQB8RJ+NNF8IseCV/pb/tb67O1p7sn+JsD5xgNB7Lte/XjD
+QBXv86aNuI2Z6zAuCiQsQ4rJuWcdnyAz0+zW9DRHz0osB1+IfHYcf4tNmvMKbC8E
+u/vI+Q2WsMXkbTyhWibV2zH8cXdfsj5xpIgtbxm4G1ELGFgqyX9LD0IddXE7Md86
+qwoKSTBNOyCIEZwwNfKDXY0b7zzObv7b3//J7gM323bAcm9g3uVaYBxF7ITd/jGm
+AxpnF55mfhAOYemPZtNinnPAdvqf6BhZe29wfVC1yCIhg7ec9spRaFn2GgW0eL3d
+q/+Ux8DJBtzKE10YyLa7bh1Dhml/xtA7rpqLL4+jg5c6lLEvSGmAZtm879NYS0za
+33/2LN0/KB4z46Ro5hwqq3UIIe8oDsxdlNGb0mb9F0lKw5//J24PK/t11qMt8yuG
+oKUE7TkDfwXlEBxd/ynW2/kLIjhG1JG55Vz8GWet8+ZGzfl/VQeUb9MCAQI=
+-----END DH PARAMETERS-----
+                 */
+                let start = Instant::now();
+                builder.add_dhparams(&dh_params()).unwrap();
+                println!("dh params successfully loaded, and it took {} ms", start.elapsed().as_millis());
+                builder.load_pem(&cert, &key).unwrap();
+                builder.build().unwrap()
+            })
+            .map(|config| Self {
+                mode: Mode::Server,
+                config,
+                ticket_storage: SessionTicketStorage::default(),
+            })
+            .collect()
+    }
 }
 
 impl crate::harness::TlsBenchConfig for S2NConfig {
@@ -104,8 +180,9 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
                 match handshake_type {
                     HandshakeType::MutualAuth => {
                         builder.load_pem(
-                            read_to_bytes(ClientCertChain, crypto_config.sig_type).as_slice(),
-                            read_to_bytes(ClientKey, crypto_config.sig_type).as_slice(),
+                            read_to_bytes(PemType::ClientCertChain, crypto_config.sig_type)
+                                .as_slice(),
+                            read_to_bytes(PemType::ClientKey, crypto_config.sig_type).as_slice(),
                         )?;
                     }
                     HandshakeType::Resumption => {
@@ -117,8 +194,8 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
             }
             Mode::Server => {
                 builder.load_pem(
-                    read_to_bytes(ServerCertChain, crypto_config.sig_type).as_slice(),
-                    read_to_bytes(ServerKey, crypto_config.sig_type).as_slice(),
+                    read_to_bytes(PemType::ServerCertChain, crypto_config.sig_type).as_slice(),
+                    read_to_bytes(PemType::ServerKey, crypto_config.sig_type).as_slice(),
                 )?;
 
                 match handshake_type {
@@ -238,11 +315,7 @@ impl TlsConnection for S2NConnection {
     }
 
     fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        self.handshake_completed = self
-            .connection
-            .poll_negotiate()
-            .map(|res| res.unwrap()) // unwrap `Err` if present
-            .is_ready();
+        self.handshake_completed = self.connection.poll_negotiate()?.is_ready();
         Ok(())
     }
 

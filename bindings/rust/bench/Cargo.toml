@@ -8,7 +8,7 @@ default = ["rustls", "openssl"]
 rustls = ["dep:rustls", "rustls-pemfile"]
 openssl = ["dep:openssl"]
 memory = ["plotters", "crabgrind", "structopt"]
-historical-perf = ["plotters", "serde_json", "semver"]
+historical-perf = ["plotters", "semver"]
 
 [dependencies]
 s2n-tls = { path = "../s2n-tls" }
@@ -17,11 +17,21 @@ libc = "0.2"
 strum = { version = "0.25", features = ["derive"] }
 rustls = { version = "0.21", optional = true }
 rustls-pemfile = { version = "1.0", optional = true }
-openssl = { version = "0.10", features = ["vendored"], optional = true }
+openssl = { path = "/home/ubuntu/workspace/rust-openssl/openssl", optional = true, features = ["vendored"]}
 crabgrind = { version = "0.1", optional = true }
 structopt = { version = "0.3", optional = true }
-serde_json = { version = "1.0", optional = true }
+serde_json = { version = "1.0" }
 semver = { version = "1.0", optional = true }
+tracing = "0.1.37"
+log = "0.4"
+env_logger = "0.10"
+rayon = "1.8.0"
+tokio = "1.33.0"
+serde = { version = "1.0", features = ["derive"]}
+serde_yaml = "0.9.25"
+rand = "0.8.5"
+
+openssl-src = {version = "*", features = ["legacy", "weak-crypto"]}
 
 [dependencies.plotters]
 version = "0.3"
@@ -36,6 +46,7 @@ pprof = { version = "0.12", features = ["criterion", "flamegraph"] }
 # debugging interop failures
 env_logger = "0.10"
 log = "0.4"
+
 
 [[bin]]
 name = "memory"

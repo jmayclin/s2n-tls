@@ -309,6 +309,7 @@ int s2n_dh_params_check(struct s2n_dh_params *dh_params)
     int codes = 0;
 
     POSIX_GUARD_OSSL(DH_check(dh_params->dh, &codes), S2N_ERR_DH_PARAMETER_CHECK);
+    printf("codes: %i\n", codes);
     POSIX_ENSURE(codes == 0, S2N_ERR_DH_PARAMETER_CHECK);
 
     return S2N_SUCCESS;
