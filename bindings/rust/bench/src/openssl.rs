@@ -68,13 +68,13 @@ impl OpenSslConfig {
         } = query;
 
         let mut context = openssl::ssl::SslContext::builder(SslMethod::tls_client()).unwrap();
+        context.set_security_level(0);
 
         // signatures and ciphers are protocol dependent.
         let max_proto = protocols.iter().max().unwrap().ossl_version();
         let min_proto = protocols.iter().min().unwrap().ossl_version();
         context.set_max_proto_version(Some(max_proto))?;
         context.set_min_proto_version(Some(min_proto))?;
-        context.set_security_level(0);
         log::trace!("set the proto version max, min, {:?}", protocols);
 
         let (tls13_ciphers, legacy_ciphers): (Vec<Cipher>, Vec<Cipher>) =
@@ -128,6 +128,7 @@ impl OpenSslConfig {
             .map(|s| format!("{}", s))
             .collect::<Vec<String>>()
             .join(":");
+        println!("setting the sigalgs: {:?}", signatures);
         log::trace!("setting the sigalgs {:?}", signatures);
         context.set_sigalgs_list(&signatures)?;
         log::trace!("set the sigalgs {:?}", signatures);

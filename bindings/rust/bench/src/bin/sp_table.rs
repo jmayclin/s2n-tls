@@ -52,13 +52,8 @@ impl Table {
                 query: |report| report.supports_cipher("3DES"),
             },
             Column {
-                header: "ECDHE",
-                query: |report| {
-                    report
-                        .groups
-                        .iter()
-                        .any(|g| g.key_exchange() == KeyExchange::ECDHE)
-                },
+                header: "RC4",
+                query: |report| report.supports_cipher("RC4"),
             },
             Column {
                 header: "DHE",
@@ -67,6 +62,15 @@ impl Table {
                         .groups
                         .iter()
                         .any(|g| g.key_exchange() == KeyExchange::DHE)
+                },
+            },
+            Column {
+                header: "ECDHE",
+                query: |report| {
+                    report
+                        .groups
+                        .iter()
+                        .any(|g| g.key_exchange() == KeyExchange::ECDHE)
                 },
             },
         ];

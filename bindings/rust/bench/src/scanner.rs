@@ -489,9 +489,19 @@ impl QueryEngine {
     /// not all configurations will be supported.
     pub fn construct_engine() -> Self {
         LOAD_LEGACY_PROVIDER.call_once(|| {
-            let load = openssl::provider::Provider::try_load(None, "legacy", true);
-            load.unwrap();
+            let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
+            // can't load MD5 because legacy isn't there yet
+            assert!(fetch.is_err());
+            let load = openssl::provider::Provider::try_load(None, "legacy", false).unwrap();
+            std::mem::forget(load);
+            //let load = openssl::provider::Provider::try_load(None, "default", false).unwrap();
+            //let provider = load.unwrap();
+
+            let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
+            assert!(fetch.is_ok());
         });
+        let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
+        assert!(fetch.is_ok());
         let query = TlsQuery::default();
 
         // panic if the default parameters aren't supported
@@ -1510,12 +1520,42 @@ mod test {
         // make sure that 3des is supported
         // make sure that the weak-crypto feature is enabled on openssl-src if this is failing
         // I clobbered the openssl-sys definition to make this happen
+
+        println!("unsupported: {:?}", qe.unsupported_params);
+
+        // make sure 3des is being queried for
         assert!(!qe
             .unsupported_params
             .contains(&ParameterType::Cipher(Cipher::Legacy(
                 LegacyCipher::TLS_RSA_WITH_3DES_EDE_CBC_SHA
             ))));
-        assert_eq!(queries.len(), 122);
+
+        // rc4 is being queried for
+        assert!(!qe
+            .unsupported_params
+            .contains(&ParameterType::Cipher(Cipher::Legacy(
+                LegacyCipher::TLS_RSA_WITH_RC4_128_SHA
+            ))));
+
+        // make sure md5 hashes are being queried for
+        assert!(!qe
+            .unsupported_params
+            .contains(&ParameterType::Signature(Signature::SigHash(
+                Sig::RSA,
+                Hash::MD5
+            ))));
+        assert_eq!(queries.len(), 128);
+    }
+
+    #[test]
+    fn rsa_md5_sig_alg() {
+        let qe = QueryEngine::construct_engine();
+        // let mut query = TlsQuery::default();
+        let mut query = qe.construct_omni_query();
+        query.interest(ParameterType::Signature(Signature::SigHash(Sig::RSA, Hash::MD5)));
+        let ossl = OpenSslConfig::tls_security_query(&query);
+        println!("result was {:?}", ossl.as_ref().err());
+        assert!(ossl.is_ok());
     }
 
     #[test]
@@ -1563,6 +1603,21 @@ mod test {
             "server connect {:?}",
             server.connection().selected_signature_algorithm()
         );
+    }
+
+    #[test]
+    fn legacy_loading() {
+
+        // whirlpool is only available from the legacy provider
+        // we should fail to fetch it because the provider is not yet loaded
+        let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
+        assert!(fetch.is_err());
+        let qe = QueryEngine::construct_engine();
+
+        // after constructing an engine for the first time, the legacy provider should
+        // be loaded
+        let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
+        assert!(fetch.is_ok());
     }
 }
 
