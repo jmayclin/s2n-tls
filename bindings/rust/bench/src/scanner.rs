@@ -1621,9 +1621,24 @@ mod test {
     }
 }
 
+
+extern "C" {
+    fn OBJ_sn2nid(name:* const i8) -> i32;
+}
+
 #[cfg(test)]
 mod known_test {
+    use std::ffi::CString;
+
     use super::*;
+
+    #[test]
+    fn call_ossl() {
+        let arg = CString::new("MD5").unwrap();
+        let ret = unsafe {OBJ_sn2nid(arg.as_ptr())};
+        println!("ret :{:?}", ret);
+        assert!(false);
+    }
 
     // coverage: groups without TLS 1.3
     #[test]
