@@ -1,6 +1,9 @@
+use std::sync::atomic::AtomicU32;
+
 use bench::scanner::{
+    compliance::{ComplianceRegime, CryptoRecommendation20231130},
     params::{KeyExchange, KxGroup, Protocol, Sig, Signature},
-    Report, compliance::{CryptoRecommendation20231130, ComplianceRegime},
+    Report,
 };
 use rayon::prelude::*;
 use strum::IntoEnumIterator;
@@ -140,12 +143,10 @@ impl Table {
     }
 
     fn Compliance() -> Self {
-        let c = vec![
-            Column {
-                header: CryptoRecommendation20231130::regime(),
-                query: |report| CryptoRecommendation20231130::compliance(report).is_ok(),
-            },
-        ];
+        let c = vec![Column {
+            header: CryptoRecommendation20231130::regime(),
+            query: |report| CryptoRecommendation20231130::compliance(report).is_ok(),
+        }];
         Table(c)
     }
 
@@ -237,15 +238,137 @@ fn main() {
         "CloudFront-TLS-1-2-2021",
     ];
 
-    //let sp =  bench::scanner::security_policies::SECURITY_POLICIES;
+    let sp = vec![
+        "default",
+        "default_tls13",
+        "default_fips",
+        "20190214",
+        "20230317",
+        "rfc9151",
+        "CloudFront-TLS-1-2-2021",
+    ];
 
-    let reports: Vec<Report> = sp
-        .par_iter()
-        .map(|sp| query.inspect_security_policy(*sp))
-        .collect();
+    let sp =  bench::scanner::security_policies::SECURITY_POLICIES;
+
+    let total = sp.len();
+    for p in sp {
+        let res = query.inspect_security_policy(p);
+    }
+    let reports: Vec<Report> = Vec::new();
+    return;
+    //let progress = AtomicU32::new(total as u32);
+    //let mut reports: Vec<Report> = sp
+    //    .iter()
+    //    .map(|sp| query.inspect_security_policy(*sp))
+    //    .inspect(|r| {
+    //        progress.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    //        println!("{:?} remaining", progress);
+    //    })
+    //    .collect();
+
+    // TODO: I don't think this clone should be here
+    reports.sort_by_key(|r| r.endpoint.clone());
 
     let protocol_and_cipher = Table::ProtocolAndCipher();
     protocol_and_cipher.write(&reports);
+
+    // 20140601
+    /*
+        const struct s2n_security_policy security_policy_20140601 = {
+            .minimum_protocol_version = S2N_SSLv3,
+            .cipher_preferences = &cipher_preferences_20140601,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20140601,
+            .ecc_preferences = &s2n_ecc_preferences_20140601,
+        };
+     */
+
+    // 20141001
+    /*
+        const struct s2n_security_policy security_policy_20141001 = {
+            .minimum_protocol_version = S2N_TLS10,
+            .cipher_preferences = &cipher_preferences_20141001,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20140601,
+            .ecc_preferences = &s2n_ecc_preferences_20140601,
+        };
+     */
+    // 20150202
+    /*
+        const struct s2n_security_policy security_policy_20150202 = {
+            .minimum_protocol_version = S2N_TLS10,
+            .cipher_preferences = &cipher_preferences_20150202,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20140601,
+            .ecc_preferences = &s2n_ecc_preferences_20140601,
+        };
+     */
+
+    // 20150214
+    /*
+        const struct s2n_security_policy security_policy_20150214 = {
+            .minimum_protocol_version = S2N_TLS10,
+            .cipher_preferences = &cipher_preferences_20150214,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20140601,
+            .ecc_preferences = &s2n_ecc_preferences_20140601,
+        };
+     */
+
+    // test_all
+    /*
+        const struct s2n_security_policy security_policy_test_all = {
+            .minimum_protocol_version = S2N_SSLv3,
+            .cipher_preferences = &cipher_preferences_test_all,
+            .kem_preferences = &kem_preferences_all,
+            .signature_preferences = &s2n_signature_preferences_20201021,
+            .ecc_preferences = &s2n_ecc_preferences_test_all,
+        };
+     */
+
+    //
+    /*
+        const struct s2n_security_policy security_policy_test_all_fips = {
+            .minimum_protocol_version = S2N_TLS10,
+            .cipher_preferences = &cipher_preferences_test_all_fips,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20201021,
+            .ecc_preferences = &s2n_ecc_preferences_20201021,
+        };
+     */
+
+    // test_all_rsa_kex
+    /*
+        const struct s2n_security_policy security_policy_test_all_rsa_kex = {
+            .minimum_protocol_version = S2N_TLS10,
+            .cipher_preferences = &cipher_preferences_test_all_rsa_kex,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20140601,
+            .ecc_preferences = &s2n_ecc_preferences_20140601,
+        };
+     */
+
+    // test_ecdsa_priority
+    /*
+        const struct s2n_security_policy security_policy_test_ecdsa_priority = {
+            .minimum_protocol_version = S2N_SSLv3,
+            .cipher_preferences = &cipher_preferences_test_ecdsa_priority,
+            .kem_preferences = &kem_preferences_null,
+            .signature_preferences = &s2n_signature_preferences_20201021,
+            .ecc_preferences = &s2n_ecc_preferences_test_all,
+        };
+    */
+
+    // test_all_tls12
+    /*
+        const struct s2n_security_policy security_policy_test_all_tls12 = {
+            .minimum_protocol_version = S2N_SSLv3,
+            .cipher_preferences = &cipher_preferences_test_all_tls12,
+            .kem_preferences = &kem_preferences_pq_tls_1_0_2021_05,
+            .signature_preferences = &s2n_signature_preferences_20201021,
+            .ecc_preferences = &s2n_ecc_preferences_20201021,
+        };
+     */
 
     let sigs = Table::Signature();
     sigs.write(&reports);
@@ -255,4 +378,21 @@ fn main() {
 
     let compliance = Table::Compliance();
     compliance.write(&reports);
+
+    let crypo_report: Vec<(String, Result<(), Vec<String>>)> = reports
+        .iter()
+        .map(|r| (r.endpoint.clone(), CryptoRecommendation20231130::compliance(r)))
+        .collect();
+
+    std::fs::write(
+        "sp-capabilities.json",
+        serde_json::to_string_pretty(&reports).unwrap(),
+    )
+    .unwrap();
+
+    std::fs::write(
+        "sp-compliance.json",
+        serde_json::to_string_pretty(&crypo_report).unwrap(),
+    )
+    .unwrap();
 }

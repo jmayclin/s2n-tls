@@ -128,7 +128,6 @@ impl OpenSslConfig {
             .map(|s| format!("{}", s))
             .collect::<Vec<String>>()
             .join(":");
-        println!("setting the sigalgs: {:?}", signatures);
         log::trace!("setting the sigalgs {:?}", signatures);
         context.set_sigalgs_list(&signatures)?;
         log::trace!("set the sigalgs {:?}", signatures);

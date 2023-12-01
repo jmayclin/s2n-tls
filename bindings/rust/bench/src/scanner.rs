@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use log::error;
 use openssl::{
     asn1::Asn1Time,
     pkey::Id,
@@ -26,8 +27,8 @@ use self::params::{
     all_parameters, Hash, KeyExchange, KxGroup, ParameterType, Protocol, Sig, Signature,
     SignatureScheme,
 };
-pub mod security_policies;
 pub mod compliance;
+pub mod security_policies;
 
 pub const MAX_ENDPOINT_TPS: usize = 10;
 
@@ -90,6 +91,22 @@ impl TlsQuery {
                 .filter(|c| match c {
                     Cipher::Tls13(_) => true,
                     Cipher::Legacy(c) => c.key_exchange() == Some(g.key_exchange()),
+                })
+                .collect();
+            self.ciphers = ciphers;
+        }
+
+        // if we are interested in a SigHash Signature, then we need to make
+        // sure we aren't negotiating a cipher with RSA kx, otherwise no
+        // transcript signature is actually used
+        if let ParameterType::Signature(Signature::SigHash(_, _)) = interest {
+            let ciphers = self
+                .ciphers
+                .iter()
+                .cloned()
+                .filter(|c| match c {
+                    Cipher::Tls13(_) => true,
+                    Cipher::Legacy(c) => c.key_exchange() != Some(KeyExchange::RSA),
                 })
                 .collect();
             self.ciphers = ciphers;
@@ -651,7 +668,7 @@ impl QueryEngine {
                 if pair.handshake().is_err() {
                     continue;
                 } else {
-                    let (client, _server) = pair.split();
+                    let (client, server) = pair.split();
                     // let hash = client.connection().signature_nid().unwrap();
                     // println!("the hash is {:?}", hash);
                     // check that the query of interest was actually negotiated. It is expected
@@ -662,6 +679,34 @@ impl QueryEngine {
                         // this means we were interested in a sig hash thing, which might have fallen prey to silly
                         // parameter defaults (which I despise, btw, in case that wasn't clear). STOP PUTTING DEFAULT VALUES
                         // IN YOUR PROTOCOLS DAMN IT.
+                        let s2n_sig = Signature::SigHash(
+                            server
+                                .connection()
+                                .selected_signature_algorithm()
+                                .unwrap()
+                                .into(),
+                            server
+                                .connection()
+                                .selected_hash_algorithm()
+                                .unwrap()
+                                .into(),
+                        );
+                        println!("{:?}", s2n_sig);
+                        if client.connection().peer_signature_type_nid().is_err()
+                            || client.connection().peer_signature_nid().is_err()
+                        {
+                            error!(
+                                "sig:{:?} - hash:{:?}",
+                                client.connection().peer_signature_type_nid(),
+                                client.connection().peer_signature_nid()
+                            );
+                            error!("no peer signature type with sp :{:?}, for interest {:?}, s2n was {:?}", security_policy, query.interest, s2n_sig);
+                            error!(
+                                "negoatiated cipher: {:?}",
+                                server.connection().cipher_suite().unwrap()
+                            );
+                            continue;
+                        }
                         let actual = Signature::SigHash(
                             client
                                 .connection()
@@ -1655,7 +1700,6 @@ mod test {
 
     #[test]
     fn legacy_loading() {
-
         // whirlpool is only available from the legacy provider
         // we should fail to fetch it because the provider is not yet loaded, but
         // this test might not be the first to run in which case -> sadness
@@ -1670,9 +1714,8 @@ mod test {
     }
 }
 
-
 extern "C" {
-    fn OBJ_sn2nid(name:* const i8) -> i32;
+    fn OBJ_sn2nid(name: *const i8) -> i32;
 }
 
 #[cfg(test)]
@@ -1684,7 +1727,7 @@ mod known_test {
     #[test]
     fn call_ossl() {
         let arg = CString::new("MD5").unwrap();
-        let ret = unsafe {OBJ_sn2nid(arg.as_ptr())};
+        let ret = unsafe { OBJ_sn2nid(arg.as_ptr()) };
         println!("ret :{:?}", ret);
         assert_ne!(ret, 0);
         //assert!(false);

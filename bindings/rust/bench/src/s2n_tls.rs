@@ -92,19 +92,15 @@ impl S2NConfig {
                 let mut builder = s2n_tls::config::Builder::new();
                 builder.wipe_trust_store().unwrap();
                 builder.set_security_policy(&sp).unwrap();
-                println!("loading dh params");
-                println!("generating dh param");
                 // let dh = openssl::dh::Dh::from_params(
                 //     BigNum::from_u32(2048).unwrap(),
                 //     BigNum::from_u32(5).unwrap(),
                 //     BigNum::from_u32(3).unwrap(),
                 // ).unwrap();
-                println!("generating param with p_len = 2048, g = 5");
                 //let dh = openssl::dh::Dh::generate_params(2048, 5).unwrap();
                 //let dh = openssl::dh::Dh::
                 // println!("p -> {:?}", dh.prime_p());
                 // println!("q -> {:?}", dh.prime_q());
-                println!("checking dh param");
                 // damn it, lc has different values
                 //dh.check_key().unwrap();
                 //let dh_pem = dh.params_to_pem().unwrap();
@@ -125,7 +121,7 @@ oKUE7TkDfwXlEBxd/ynW2/kLIjhG1JG55Vz8GWet8+ZGzfl/VQeUb9MCAQI=
 -----END DH PARAMETERS-----
                  */
                 let start = Instant::now();
-                builder.add_dhparams(&dh_params()).unwrap();
+                //builder.add_dhparams(&dh_params()).unwrap();
                 println!("dh params successfully loaded, and it took {} ms", start.elapsed().as_millis());
                 builder.load_pem(&cert, &key).unwrap();
                 builder.build().unwrap()
