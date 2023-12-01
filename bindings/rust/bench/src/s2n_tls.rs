@@ -105,23 +105,19 @@ impl S2NConfig {
                 //dh.check_key().unwrap();
                 //let dh_pem = dh.params_to_pem().unwrap();
                 // I could not get any of these generations to work
-                /*
+                /* 4096 -> 5 - 10 seconds check
+                   2048 -> 1 second check
 -----BEGIN DH PARAMETERS-----
-MIICCAKCAgEAsb8mBiOtYJZ3XR7f/rCXQwpAAnUPXf7l9pwjYxxy30A7rIzMTrsz
-bXuhhEmzroJcDqKbu2nIzOBNO6HuyQ3n9x/ZbY5kiEt6q7UrB5jC9LwyPASZhd/F
-6xLC7yqFs9sdCaXzuyMS4Ep5sPH6lOvftdsuGZZF9HriTepv/lpD1cPtab+3vHZX
-IELVc2WBwVzvNRGd/SQB8RJ+NNF8IseCV/pb/tb67O1p7sn+JsD5xgNB7Lte/XjD
-QBXv86aNuI2Z6zAuCiQsQ4rJuWcdnyAz0+zW9DRHz0osB1+IfHYcf4tNmvMKbC8E
-u/vI+Q2WsMXkbTyhWibV2zH8cXdfsj5xpIgtbxm4G1ELGFgqyX9LD0IddXE7Md86
-qwoKSTBNOyCIEZwwNfKDXY0b7zzObv7b3//J7gM323bAcm9g3uVaYBxF7ITd/jGm
-AxpnF55mfhAOYemPZtNinnPAdvqf6BhZe29wfVC1yCIhg7ec9spRaFn2GgW0eL3d
-q/+Ux8DJBtzKE10YyLa7bh1Dhml/xtA7rpqLL4+jg5c6lLEvSGmAZtm879NYS0za
-33/2LN0/KB4z46Ro5hwqq3UIIe8oDsxdlNGb0mb9F0lKw5//J24PK/t11qMt8yuG
-oKUE7TkDfwXlEBxd/ynW2/kLIjhG1JG55Vz8GWet8+ZGzfl/VQeUb9MCAQI=
+MIIBCAKCAQEAqxMGKZB8YNV8WQnbJWwwwmifc+PfVRtd1FN5v5aQSsf6dpjX3Zlh
+N1NmgecsQyg4u2EWe4Umta10QzCgYaxf6QdTCg7iprLzFNw7IvWYbQ6du12NMGDr
+hmwA6KQKwbTgPL6mSlSlcK2wTP2FzxDTNffFu10cB/6Fj4kdQjPG0c1Koz/z7OOq
+BuDElJLClS8rjp3z1xvrc7gX95dFa2KaKgOAYDkpe8tfHRhHfJeIVS/whH9hzx6r
+OBg+E5K9JyvayrUoKgPeptRKCqo8A4YevtMLpRxMup0nMUgAIv6+BGTwPAFpwgl/
+8UIVcvjh1v95PwGDM/Q8yvIBJznBYk/e2wIBAg==
 -----END DH PARAMETERS-----
                  */
                 let start = Instant::now();
-                //builder.add_dhparams(&dh_params()).unwrap();
+                builder.add_dhparams(&dh_params()).unwrap();
                 println!("dh params successfully loaded, and it took {} ms", start.elapsed().as_millis());
                 builder.load_pem(&cert, &key).unwrap();
                 builder.build().unwrap()

@@ -1352,7 +1352,6 @@ pub const FIPS_RSA_COMPAT_CIPHERS: [params::Cipher; 10] = [
 mod test {
     use openssl::{bn::BigNum, nid::Nid, pkey::Id};
 
-    use s2n_tls::enums::{HashAlgorithm, SignatureAlgorithm};
     use strum::IntoEnumIterator;
 
     use crate::{OpenSslConnection, S2NConnection};
@@ -1406,7 +1405,7 @@ mod test {
             _server.connection().cipher_suite().unwrap()
         );
         let peer_key = client.connection().peer_tmp_key().unwrap();
-        assert_eq!(peer_key.bits(), 4096);
+        assert_eq!(peer_key.bits(), 2048);
         assert_eq!(peer_key.id(), Id::DH);
 
         let mut query = qe.construct_omni_query();
@@ -1974,7 +1973,7 @@ mod known_test {
             vec![Protocol::TLS_1_0, Protocol::TLS_1_1, Protocol::TLS_1_2].into_iter(),
         );
 
-        let expected_groups = BTreeSet::from_iter(vec![KxGroup::ffdhe4096].into_iter());
+        let expected_groups = BTreeSet::from_iter(vec![KxGroup::ffdhe2048].into_iter());
 
         /*
          * const struct s2n_signature_scheme* const s2n_sig_scheme_pref_list_20140601[] = {
