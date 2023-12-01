@@ -21,7 +21,7 @@ fn main() {
         .unwrap();
     let engine = bench::scanner::QueryEngine::construct_engine();
     let engine = Arc::new(engine);
-    let endpoints = std::fs::read_to_string("endpoints-services-ctis-2023-10-20.csv").unwrap();
+    let endpoints = std::fs::read_to_string("endpoints.csv").unwrap();
     let mut endpoints: Vec<String> = endpoints
         .lines()
         // get the domain name
