@@ -1,6 +1,6 @@
 use bench::scanner::{
     params::{KeyExchange, KxGroup, Protocol, Sig, Signature},
-    Report,
+    Report, compliance::{CryptoRecommendation20231130, ComplianceRegime},
 };
 use rayon::prelude::*;
 use strum::IntoEnumIterator;
@@ -139,6 +139,16 @@ impl Table {
         Table(c)
     }
 
+    fn Compliance() -> Self {
+        let c = vec![
+            Column {
+                header: CryptoRecommendation20231130::regime(),
+                query: |report| CryptoRecommendation20231130::compliance(report).is_ok(),
+            },
+        ];
+        Table(c)
+    }
+
     fn write(&self, policies: &Vec<Report>) {
         // + 2 for space on each side of the column
         let mut col_widths: Vec<usize> = self.0.iter().map(|c| c.header.len() + 2).collect();
@@ -242,4 +252,7 @@ fn main() {
 
     let groups = Table::Groups();
     groups.write(&reports);
+
+    let compliance = Table::Compliance();
+    compliance.write(&reports);
 }
