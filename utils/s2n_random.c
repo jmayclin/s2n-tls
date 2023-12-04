@@ -577,6 +577,7 @@ S2N_RESULT s2n_set_private_drbg_for_test(struct s2n_drbg drbg)
  */
 static int s2n_rand_rdrand_impl(void *data, uint32_t size)
 {
+/* if we are on a 64 bit intel or 32 bit intel platform */
 #if defined(__x86_64__) || defined(__i386__)
     struct s2n_blob out = { 0 };
     POSIX_GUARD(s2n_blob_init(&out, data, size));
@@ -611,10 +612,36 @@ static int s2n_rand_rdrand_impl(void *data, uint32_t size)
             */
             unsigned char success_high = 0, success_low = 0;
             __asm__ __volatile__(
+                    /* in normal syntax this line is `rdrand %%eax;\n`
+                     * This will call the rdrand instruction, which is a special
+                     * instruction available on intel that provides random bits.
+                     * The random bits will be written to the `eax` register. The
+                     * "e" in "ecx" indicates that the register is 32 bits.
+                     */
                     ".byte 0x0f, 0xc7, 0xf0;\n"
+                    /* rdrand might fail to execute, in which case the carry bit
+                     * is set. This line indicates that the carry bit should be
+                     * set/moved to the second output operand. Operands are zero
+                     * indexed, so %1 indicates the second output operand, and %b1
+                     * indicates that the second output operand is only 1 byte.
+                     */
                     "setc %b1;\n"
+                    /* This is the list of output operands.
+                     * "=a" indicates that the first output operand is constrained
+                     * to the "a" register, "eax". Since the first line explicitly
+                     * specified "eax" as the output for rdrand, this is the
+                     * output of rdrand. We also see that this output is in the
+                     * output.i386_fields.u_low variable.
+                     *
+                     * "=qm" indicates that the output operand is constrained to
+                     * a (q)uadword register or a (m)emory location.
+                     */
                     : "=a"(output.i386_fields.u_low), "=qm"(success_low)
+                    /* input list: there are no input operands */
                     :
+                    /* clobber list: this assembly might have modified the
+                     * condition codes
+                     */
                     : "cc");
 
             __asm__ __volatile__(
