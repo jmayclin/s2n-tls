@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicU32;
 
 use bench::scanner::{
     compliance::{ComplianceRegime, CryptoRecommendation20231130},
-    params::{KeyExchange, KxGroup, Protocol, Sig, Signature},
+    params::{KeyExchange, KxGroup, Protocol, Sig, Signature, Cipher},
     Report,
 };
 use rayon::prelude::*;
@@ -74,6 +74,19 @@ impl Table {
                         .groups
                         .iter()
                         .any(|g| g.key_exchange() == KeyExchange::ECDHE)
+                },
+            },
+            Column {
+                header: "RSA kx",
+                query: |report| {
+                    report
+                        .ciphers
+                        .iter()
+                        .filter_map(|c| match c {
+                            Cipher::Tls13(_) => None,
+                            Cipher::Legacy(legacy) => Some(legacy)
+                        })
+                        .any(|c| c.key_exchange() == Some(KeyExchange::RSA))
                 },
             },
         ];
@@ -171,7 +184,8 @@ impl Table {
 
         for report in policies {
             // print a left aligned column padded to first_width characters
-            print!("|{:1$}", &report.endpoint, first_width);
+            //print!("|{:1$}", &report.endpoint, first_width);
+            print!("|{}", Self::centered_token(&report.endpoint, first_width));
             for (c, width) in self.0.iter().zip(col_widths.iter()) {
                 let mut token = vec![b' '; *width];
                 let center = *width / 2;

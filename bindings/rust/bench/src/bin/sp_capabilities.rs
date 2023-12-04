@@ -23,6 +23,7 @@ fn main() {
     log::info!("Query engine capabilities: {:?}", query);
 
     let sp = vec![
+        "20230317",
         "default",
         "default_tls13",
         "default_fips",
@@ -38,16 +39,13 @@ fn main() {
         "20150214",
         "20150202",
         "20141001",
-        "20140601",
         "20190120",
         "20190121",
         "20190122",
         "20190801",
         "20190802",
         "20200207",
-        "20230317",
         "rfc9151",
-        "CloudFront-TLS-1-2-2021",
     ];
 
     //let sp = vec![
@@ -59,7 +57,7 @@ fn main() {
     //    "rfc9151",
     //    "CloudFront-TLS-1-2-2021",
     //];
-    let sp =  bench::scanner::security_policies::SECURITY_POLICIES;
+    //let sp =  bench::scanner::security_policies::SECURITY_POLICIES;
 
     let total = sp.len();
 
@@ -74,7 +72,7 @@ fn main() {
         .collect();
 
     // TODO: I don't think this clone should be here
-    reports.sort_by_key(|r| r.endpoint.clone());
+    // reports.sort_by_key(|r| r.endpoint.clone());
 
     std::fs::write(
         "sp-capabilities.json",
