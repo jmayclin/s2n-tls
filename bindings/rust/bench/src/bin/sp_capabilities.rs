@@ -57,7 +57,10 @@ fn main() {
     //    "rfc9151",
     //    "CloudFront-TLS-1-2-2021",
     //];
-    //let sp =  bench::scanner::security_policies::SECURITY_POLICIES;
+    let sp = bench::scanner::security_policies::SECURITY_POLICIES;
+    let mut sp = Vec::from_iter(sp.iter().cloned());
+    sp.sort_by_key(|s| s.to_owned());
+
 
     let total = sp.len();
 
