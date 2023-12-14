@@ -2,7 +2,7 @@ import os
 import pytest
 import subprocess
 
-from global_flags import get_flag, is_criterion_on, S2N_USE_CRITERION
+from global_flags import is_criterion_on
 from processes import ManagedProcess
 from providers import Provider, CriterionS2N, S2N
 
@@ -21,8 +21,16 @@ def managed_process():
     """
     processes = []
 
-    def _fn(provider_class: Provider, options: ProviderOptions, timeout=5, send_marker=None, close_marker=None,
-            expect_stderr=None, kill_marker=None, send_with_newline=None):
+    def _fn(
+        provider_class: Provider,
+        options: ProviderOptions,
+        timeout=5,
+        send_marker=None,
+        close_marker=None,
+        expect_stderr=None,
+        kill_marker=None,
+        send_with_newline=None,
+    ):
         if provider_class == S2N and is_criterion_on():
             provider_class = CriterionS2N
             # This comes from the number of iterations specific in the rust benchmark handler(s).
@@ -49,7 +57,7 @@ def managed_process():
             env_overrides=options.env_overrides,
             expect_stderr=expect_stderr,
             kill_marker=kill_marker,
-            send_with_newline=send_with_newline
+            send_with_newline=send_with_newline,
         )
 
         processes.append(p)
@@ -58,12 +66,13 @@ def managed_process():
             with provider._provider_ready_condition:
                 # Don't continue processing until the provider has indicated it is ready.
                 provider._provider_ready_condition.wait_for(
-                    provider.is_provider_ready, timeout)
+                    provider.is_provider_ready, timeout
+                )
         return p
 
     try:
         yield _fn
-    except Exception as e:
+    except Exception:
         # The ManagedProcess already prints information to stdout, so there
         # is nothing to capture here.
         pass
@@ -79,13 +88,14 @@ def _swap_mtu(device, new_mtu):
     Return the original MTU so it can be reset later.
     """
     cmd = ["ip", "link", "show", device]
-    p = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(
+        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     mtu = 65536
     for line in p.stdout.readlines():
         s = line.decode("utf-8")
-        pieces = s.split(' ')
-        if len(pieces) >= 4 and pieces[3] == 'mtu':
+        pieces = s.split(" ")
+        if len(pieces) >= 4 and pieces[3] == "mtu":
             mtu = int(pieces[4])
 
     p.wait()
@@ -95,7 +105,7 @@ def _swap_mtu(device, new_mtu):
     return int(mtu)
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def custom_mtu():
     """
     This fixture will swap the loopback's MTU from the default
@@ -109,6 +119,6 @@ def custom_mtu():
     if os.geteuid() != 0:
         pytest.skip("Test needs root privileges to modify lo MTU")
 
-    original_mtu = _swap_mtu('lo', 1500)
+    original_mtu = _swap_mtu("lo", 1500)
     yield
-    _swap_mtu('lo', original_mtu)
+    _swap_mtu("lo", original_mtu)

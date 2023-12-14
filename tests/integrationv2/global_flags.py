@@ -3,17 +3,17 @@
 # based on the environment.
 
 # If PQ support was not compiled in to S2N
-S2N_NO_PQ = 's2n_no_pq'
+S2N_NO_PQ = "s2n_no_pq"
 
 # If S2N is operating in FIPS mode
-S2N_FIPS_MODE = 's2n_fips_mode'
+S2N_FIPS_MODE = "s2n_fips_mode"
 
 # The version of provider being used
 # (set from the S2N_LIBCRYPTO env var, which is how the original integration test works)
-S2N_PROVIDER_VERSION = 's2n_provider_version'
+S2N_PROVIDER_VERSION = "s2n_provider_version"
 
 # From S2N_USE_CRITERION env var.
-S2N_USE_CRITERION = 's2n_use_criterion'
+S2N_USE_CRITERION = "s2n_use_criterion"
 
 
 def is_criterion_on():

@@ -107,26 +107,27 @@ class Tcpdump(Provider):
         Provider.__init__(self, options)
 
     def setup_client(self):
-        self.ready_to_test_marker = 'listening on lo'
+        self.ready_to_test_marker = "listening on lo"
         tcpdump_filter = "dst port {}".format(self.options.port)
 
-        cmd_line = ["tcpdump",
-                    # Line buffer the output
-                    "-l",
-
-                    # Only read 10 packets before exiting. This is enough to find a large
-                    # packet, and still exit before the timeout.
-                    "-c", "10",
-
-                    # Watch the loopback device
-                    "-i", "lo",
-
-                    # Don't resolve IP addresses
-                    "-nn",
-
-                    # Set the buffer size to 1k
-                    "-B", "1024",
-                    tcpdump_filter]
+        cmd_line = [
+            "tcpdump",
+            # Line buffer the output
+            "-l",
+            # Only read 10 packets before exiting. This is enough to find a large
+            # packet, and still exit before the timeout.
+            "-c",
+            "10",
+            # Watch the loopback device
+            "-i",
+            "lo",
+            # Don't resolve IP addresses
+            "-nn",
+            # Set the buffer size to 1k
+            "-B",
+            "1024",
+            tcpdump_filter,
+        ]
 
         return cmd_line
 
@@ -143,18 +144,14 @@ class S2N(Provider):
 
     @classmethod
     def get_send_marker(cls):
-        return 's2n is ready'
+        return "s2n is ready"
 
     @classmethod
     def supports_protocol(cls, protocol, with_cert=None):
         # TLS 1.3 is unsupported for openssl-1.0
         # libressl and boringssl are disabled because of configuration issues
         # see https://github.com/aws/s2n-tls/issues/3250
-        TLS_13_UNSUPPORTED_LIBCRYPTOS = {
-            "libressl",
-            "boringssl",
-            "openssl-1.0"
-        }
+        TLS_13_UNSUPPORTED_LIBCRYPTOS = {"libressl", "boringssl", "openssl-1.0"}
 
         # Disable TLS 1.3 tests for all libcryptos that don't support 1.3
         if protocol == Protocols.TLS13:
@@ -174,7 +171,10 @@ class S2N(Provider):
             "RC4": ["openssl-3"],
         }
 
-        for unsupported_cipher, unsupported_libcryptos in unsupported_configurations.items():
+        for (
+            unsupported_cipher,
+            unsupported_libcryptos,
+        ) in unsupported_configurations.items():
             # the queried cipher has some libcrypto's that don't support it
             # e.g. "RC4" in "TLS_ECDHE_RSA_WITH_RC4_128_SHA"
             if unsupported_cipher in cipher.name:
@@ -188,14 +188,15 @@ class S2N(Provider):
     @classmethod
     def supports_signature(cls, signature):
         # Disable RSA_PSS_RSAE_SHA256 in unsupported libcryptos
-        if any([
-            libcrypto in get_flag(S2N_PROVIDER_VERSION)
-            for libcrypto in [
-                "openssl-1.0.2",
-                "libressl",
-                "boringssl"
-            ]
-        ]) and signature == Signatures.RSA_PSS_RSAE_SHA256:
+        if (
+            any(
+                [
+                    libcrypto in get_flag(S2N_PROVIDER_VERSION)
+                    for libcrypto in ["openssl-1.0.2", "libressl", "boringssl"]
+                ]
+            )
+            and signature == Signatures.RSA_PSS_RSAE_SHA256
+        ):
             return False
 
         return True
@@ -206,44 +207,44 @@ class S2N(Provider):
         """
         cmd_line = []
         if self.options.use_mainline_version is True:
-            cmd_line.append('s2nc_head')
+            cmd_line.append("s2nc_head")
         else:
-            cmd_line.append('s2nc')
-        cmd_line.append('--non-blocking')
+            cmd_line.append("s2nc")
+        cmd_line.append("--non-blocking")
 
         # Tests requiring reconnects can't wait on echo data,
         # but all other tests can.
         if self.options.reconnect is not True:
-            cmd_line.append('-e')
+            cmd_line.append("-e")
 
         if self.options.use_session_ticket is False:
-            cmd_line.append('-T')
+            cmd_line.append("-T")
 
         if self.options.insecure is True:
-            cmd_line.append('--insecure')
+            cmd_line.append("--insecure")
         elif self.options.trust_store:
-            cmd_line.extend(['-f', self.options.trust_store])
+            cmd_line.extend(["-f", self.options.trust_store])
         elif self.options.cert:
-            cmd_line.extend(['-f', self.options.cert])
+            cmd_line.extend(["-f", self.options.cert])
 
         if self.options.reconnect is True:
-            cmd_line.append('-r')
+            cmd_line.append("-r")
 
         # If the test provided a cipher (security policy) that is compatible with
         # s2n, we'll use it. Otherwise, default to the appropriate `test_all` policy.
-        cipher_prefs = 'test_all_tls12'
+        cipher_prefs = "test_all_tls12"
         if self.options.protocol is Protocols.TLS13:
-            cipher_prefs = 'test_all'
+            cipher_prefs = "test_all"
         if self.options.cipher and self.options.cipher.s2n:
             cipher_prefs = self.options.cipher.name
 
-        cmd_line.extend(['-c', cipher_prefs])
+        cmd_line.extend(["-c", cipher_prefs])
 
         if self.options.use_client_auth:
             if self.options.key:
-                cmd_line.extend(['--key', self.options.key])
+                cmd_line.extend(["--key", self.options.key])
             if self.options.cert:
-                cmd_line.extend(['--cert', self.options.cert])
+                cmd_line.extend(["--cert", self.options.cert])
 
         if get_flag(S2N_FIPS_MODE):
             cmd_line.append("--enter-fips-mode")
@@ -263,49 +264,50 @@ class S2N(Provider):
 
     def setup_server(self):
         # s2nd prints this message after it begins listening for connections
-        self.ready_to_test_marker = 'Listening on'
+        self.ready_to_test_marker = "Listening on"
 
         """
         Using the passed ProviderOptions, create a command line.
         """
         cmd_line = []
         if self.options.use_mainline_version is True:
-            cmd_line.append('s2nd_head')
+            cmd_line.append("s2nd_head")
         else:
-            cmd_line.append('s2nd')
-        cmd_line.extend(['-X', '--self-service-blinding', '--non-blocking'])
+            cmd_line.append("s2nd")
+        cmd_line.extend(["-X", "--self-service-blinding", "--non-blocking"])
 
         if self.options.key is not None:
-            cmd_line.extend(['--key', self.options.key])
+            cmd_line.extend(["--key", self.options.key])
         if self.options.cert is not None:
-            cmd_line.extend(['--cert', self.options.cert])
+            cmd_line.extend(["--cert", self.options.cert])
 
         if self.options.insecure is True:
-            cmd_line.append('--insecure')
+            cmd_line.append("--insecure")
         elif self.options.trust_store:
-            cmd_line.extend(['-t', self.options.trust_store])
+            cmd_line.extend(["-t", self.options.trust_store])
         elif self.options.cert:
-            cmd_line.extend(['-t', self.options.cert])
+            cmd_line.extend(["-t", self.options.cert])
 
         # If the test provided a cipher (security policy) that is compatible with
         # s2n, we'll use it. Otherwise, default to the appropriate `test_all` policy.
-        cipher_prefs = 'test_all_tls12'
+        cipher_prefs = "test_all_tls12"
         if self.options.protocol is Protocols.TLS13:
-            cipher_prefs = 'test_all'
+            cipher_prefs = "test_all"
         if self.options.cipher and self.options.cipher.s2n:
             cipher_prefs = self.options.cipher.name
 
-        cmd_line.extend(['-c', cipher_prefs])
+        cmd_line.extend(["-c", cipher_prefs])
 
         if self.options.use_client_auth is True:
-            cmd_line.append('-m')
+            cmd_line.append("-m")
 
         if self.options.use_session_ticket is False:
-            cmd_line.append('-T')
+            cmd_line.append("-T")
 
         if self.options.reconnects_before_exit is not None:
             cmd_line.append(
-                '--max-conns={}'.format(self.options.reconnects_before_exit))
+                "--max-conns={}".format(self.options.reconnects_before_exit)
+            )
 
         if get_flag(S2N_FIPS_MODE):
             cmd_line.append("--enter-fips-mode")
@@ -331,18 +333,20 @@ class CriterionS2N(S2N):
     `S2NC_ARGS` or `S2ND_ARGS`, along with the test name, which are read by the rust benchmark when spawning
     s2nc/d as subprocesses.
     """
-    criterion_off = 'off'
-    criterion_delta = 'delta'
-    criterion_baseline = 'baseline'
+
+    criterion_off = "off"
+    criterion_delta = "delta"
+    criterion_baseline = "baseline"
     # Figure out what mode to run in: baseline or delta
     criterion_mode = get_flag(S2N_USE_CRITERION)
 
     def _find_s2n_benchmark(self, pattern):
         # Use executable bit to find the correct file.
-        result = find_files(pattern, root_dir=self.cargo_root, modes=['0o775', '0o755'])
+        result = find_files(pattern, root_dir=self.cargo_root, modes=["0o775", "0o755"])
         if len(result) != 1:
             raise FileNotFoundError(
-                f"Exactly one s2n criterion benchmark not found. Found {result}.")
+                f"Exactly one s2n criterion benchmark not found. Found {result}."
+            )
         else:
             return result[0]
 
@@ -365,46 +369,58 @@ class CriterionS2N(S2N):
         self._cargo_bench()
 
         # strip off the s2nc/d at the front because criterion
-        if 's2nc' in self.cmd_line[0] or 's2nd' in self.cmd_line[0]:
+        if "s2nc" in self.cmd_line[0] or "s2nd" in self.cmd_line[0]:
             self.cmd_line = self.cmd_line[1:]
 
         # strip off the s2nc -e argument, criterion handler isn't sending any STDIN characters,
         # and makes it look like s2nc is hanging.
         # WARNING: this is a blocker for any test that requires STDIN.
-        if '-e' in self.cmd_line:
-            self.cmd_line.remove('-e')
+        if "-e" in self.cmd_line:
+            self.cmd_line.remove("-e")
             print(f"***** cmd_line is now {self.cmd_line}")
 
         # Copy the command arguments to an environment variable for the harness to read.
         if self.options.mode == Provider.ServerMode:
             self.options.env_overrides.update(
-                {'S2ND_ARGS': ' '.join(self.cmd_line),
-                 'S2ND_TEST_NAME': f"{self.options.cipher}_{self.options.host}"})
+                {
+                    "S2ND_ARGS": " ".join(self.cmd_line),
+                    "S2ND_TEST_NAME": f"{self.options.cipher}_{self.options.host}",
+                }
+            )
             self.capture_server_args()
         elif self.options.mode == Provider.ClientMode:
             self.options.env_overrides.update(
-                {'S2NC_ARGS': ' '.join(self.cmd_line),
-                 'S2NC_TEST_NAME': f"{self.options.cipher}_{self.options.host}"})
+                {
+                    "S2NC_ARGS": " ".join(self.cmd_line),
+                    "S2NC_TEST_NAME": f"{self.options.cipher}_{self.options.host}",
+                }
+            )
             if self.criterion_mode == CriterionS2N.criterion_baseline:
                 self.capture_client_args_baseline()
             if self.criterion_mode == CriterionS2N.criterion_delta:
                 self.capture_client_args_delta()
 
     def capture_server_args(self):
-        self.cmd_line = [self.s2nd_bench, "--bench",
-                         "s2nd", "--save-baseline", "main"]
+        self.cmd_line = [self.s2nd_bench, "--bench", "s2nd", "--save-baseline", "main"]
 
     # Saves baseline data with the tag "main"
     # see https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html
     def capture_client_args_baseline(self):
-        self.cmd_line = [self.s2nc_bench, "--bench",
-                         "s2nc", "--save-baseline", "main"]
+        self.cmd_line = [self.s2nc_bench, "--bench", "s2nc", "--save-baseline", "main"]
 
     # "By default, Criterion.rs will compare the measurements against the previous run"
     # This run is stored with the tag "new"
     # https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html
     def capture_client_args_delta(self):
-        self.cmd_line = [self.s2nc_bench, "--bench", "s2nc", "--plotting-backend", "plotters", "--baseline", "main"]
+        self.cmd_line = [
+            self.s2nc_bench,
+            "--bench",
+            "s2nc",
+            "--plotting-backend",
+            "plotters",
+            "--baseline",
+            "main",
+        ]
 
 
 class OpenSSL(Provider):
@@ -419,7 +435,7 @@ class OpenSSL(Provider):
 
     @classmethod
     def get_send_marker(cls):
-        return 'Verify return code'
+        return "Verify return code"
 
     def _join_ciphers(self, ciphers):
         """
@@ -431,7 +447,7 @@ class OpenSSL(Provider):
         for c in ciphers:
             cipher_list.append(c.name)
 
-        ciphers = ':'.join(cipher_list)
+        ciphers = ":".join(cipher_list)
 
         return ciphers
 
@@ -442,23 +458,29 @@ class OpenSSL(Provider):
         if type(cipher) is list:
             # In the case of a cipher list we need to be sure TLS13 specific ciphers aren't
             # mixed with ciphers from previous versions
-            is_tls13_or_above = (cipher[0].min_version >= Protocols.TLS13)
-            mismatch = [c for c in cipher if (
-                c.min_version >= Protocols.TLS13) != is_tls13_or_above]
+            is_tls13_or_above = cipher[0].min_version >= Protocols.TLS13
+            mismatch = [
+                c
+                for c in cipher
+                if (c.min_version >= Protocols.TLS13) != is_tls13_or_above
+            ]
 
             if len(mismatch) > 0:
-                raise Exception("Cannot combine ciphers for TLS1.3 or above with older ciphers: {}".format(
-                    [c.name for c in cipher]))
+                raise Exception(
+                    "Cannot combine ciphers for TLS1.3 or above with older ciphers: {}".format(
+                        [c.name for c in cipher]
+                    )
+                )
 
             ciphers.append(self._join_ciphers(cipher))
         else:
-            is_tls13_or_above = (cipher.min_version >= Protocols.TLS13)
+            is_tls13_or_above = cipher.min_version >= Protocols.TLS13
             ciphers.append(cipher.name)
 
         if is_tls13_or_above:
-            cmdline.append('-ciphersuites')
+            cmdline.append("-ciphersuites")
         else:
-            cmdline.append('-cipher')
+            cmdline.append("-cipher")
 
         return cmdline + ciphers
 
@@ -475,68 +497,72 @@ class OpenSSL(Provider):
         return True
 
     def _is_openssl_11(self) -> None:
-        result = subprocess.run(["openssl", "version"], shell=False, capture_output=True, text=True)
+        result = subprocess.run(
+            ["openssl", "version"], shell=False, capture_output=True, text=True
+        )
         version_str = result.stdout.split(" ")
         project = version_str[0]
         version = version_str[1]
         print(f"openssl version: {project} version: {version}")
-        if (project != "OpenSSL" or version[0:3] != "1.1"):
-            raise FileNotFoundError(f"Openssl version returned {version}, expected 1.1.x.")
+        if project != "OpenSSL" or version[0:3] != "1.1":
+            raise FileNotFoundError(
+                f"Openssl version returned {version}, expected 1.1.x."
+            )
 
     def setup_client(self):
-        cmd_line = ['openssl', 's_client']
+        cmd_line = ["openssl", "s_client"]
         cmd_line.extend(
-            ['-connect', '{}:{}'.format(self.options.host, self.options.port)])
+            ["-connect", "{}:{}".format(self.options.host, self.options.port)]
+        )
 
         # Additional debugging that will be captured incase of failure
         if self.options.verbose:
-            cmd_line.append('-debug')
+            cmd_line.append("-debug")
 
-        cmd_line.extend(['-tlsextdebug', '-state'])
+        cmd_line.extend(["-tlsextdebug", "-state"])
 
         if self.options.key is not None:
-            cmd_line.extend(['-key', self.options.key])
+            cmd_line.extend(["-key", self.options.key])
 
         # Unlike s2n, OpenSSL allows us to be much more specific about which TLS
         # protocol to use.
         if self.options.protocol == Protocols.TLS13:
-            cmd_line.append('-tls1_3')
+            cmd_line.append("-tls1_3")
         elif self.options.protocol == Protocols.TLS12:
-            cmd_line.append('-tls1_2')
+            cmd_line.append("-tls1_2")
         elif self.options.protocol == Protocols.TLS11:
-            cmd_line.append('-tls1_1')
+            cmd_line.append("-tls1_1")
         elif self.options.protocol == Protocols.TLS10:
-            cmd_line.append('-tls1')
+            cmd_line.append("-tls1")
 
         if self.options.cipher is not None:
             cmd_line.extend(self._cipher_to_cmdline(self.options.cipher))
 
         if self.options.curve is not None:
-            cmd_line.extend(['-curves', str(self.options.curve)])
+            cmd_line.extend(["-curves", str(self.options.curve)])
 
         if self.options.use_client_auth:
             if self.options.key:
-                cmd_line.extend(['-key', self.options.key])
+                cmd_line.extend(["-key", self.options.key])
             if self.options.cert:
-                cmd_line.extend(['-cert', self.options.cert])
+                cmd_line.extend(["-cert", self.options.cert])
 
         if self.options.reconnect is True:
-            cmd_line.append('-reconnect')
+            cmd_line.append("-reconnect")
 
         if self.options.extra_flags is not None:
             cmd_line.extend(self.options.extra_flags)
 
         if self.options.server_name is not None:
-            cmd_line.extend(['-servername', self.options.server_name])
+            cmd_line.extend(["-servername", self.options.server_name])
             if self.options.verify_hostname is not None:
-                cmd_line.extend(['-verify_hostname', self.options.server_name])
+                cmd_line.extend(["-verify_hostname", self.options.server_name])
 
         if self.options.enable_client_ocsp:
             cmd_line.append("-status")
 
         if self.options.signature_algorithm is not None:
-            cmd_line.extend(
-                ["-sigalgs", self.options.signature_algorithm.name])
+            cmd_line.extend(["-sigalgs", self.options.signature_algorithm.name])
 
         if self.options.record_size is not None:
             cmd_line.extend(["-max_send_frag", str(self.options.record_size)])
@@ -548,58 +574,56 @@ class OpenSSL(Provider):
 
     def setup_server(self):
         # s_server prints this message before it is ready to send/receive data
-        self.ready_to_test_marker = 'ACCEPT'
+        self.ready_to_test_marker = "ACCEPT"
 
-        cmd_line = ['openssl', 's_server']
-        cmd_line.extend(['-accept', '{}'.format(self.options.port)])
+        cmd_line = ["openssl", "s_server"]
+        cmd_line.extend(["-accept", "{}".format(self.options.port)])
 
         if self.options.reconnects_before_exit is not None:
             # If the user request a specific reconnection count, set it here
-            cmd_line.extend(
-                ['-naccept', str(self.options.reconnects_before_exit)])
+            cmd_line.extend(["-naccept", str(self.options.reconnects_before_exit)])
         else:
             # Exit after the first connection by default
-            cmd_line.extend(['-naccept', '1'])
+            cmd_line.extend(["-naccept", "1"])
 
         # Additional debugging that will be captured incase of failure
         if self.options.verbose:
-            cmd_line.append('-debug')
+            cmd_line.append("-debug")
 
-        cmd_line.extend(['-tlsextdebug', '-state'])
+        cmd_line.extend(["-tlsextdebug", "-state"])
 
         if self.options.cert is not None:
-            cmd_line.extend(['-cert', self.options.cert])
+            cmd_line.extend(["-cert", self.options.cert])
         if self.options.key is not None:
-            cmd_line.extend(['-key', self.options.key])
+            cmd_line.extend(["-key", self.options.key])
 
         # Unlike s2n, OpenSSL allows us to be much more specific about which TLS
         # protocol to use.
         if self.options.protocol == Protocols.TLS13:
-            cmd_line.append('-tls1_3')
+            cmd_line.append("-tls1_3")
         elif self.options.protocol == Protocols.TLS12:
-            cmd_line.append('-tls1_2')
+            cmd_line.append("-tls1_2")
         elif self.options.protocol == Protocols.TLS11:
-            cmd_line.append('-tls1_1')
+            cmd_line.append("-tls1_1")
         elif self.options.protocol == Protocols.TLS10:
-            cmd_line.append('-tls1')
+            cmd_line.append("-tls1")
 
         if self.options.cipher is not None:
             cmd_line.extend(self._cipher_to_cmdline(self.options.cipher))
             if self.options.cipher.parameters is not None:
-                cmd_line.extend(['-dhparam', self.options.cipher.parameters])
+                cmd_line.extend(["-dhparam", self.options.cipher.parameters])
 
         if self.options.curve is not None:
-            cmd_line.extend(['-curves', str(self.options.curve)])
+            cmd_line.extend(["-curves", str(self.options.curve)])
         if self.options.use_client_auth is True:
             # We use "Verify" instead of "verify" to require a client cert
-            cmd_line.extend(['-Verify', '1'])
+            cmd_line.extend(["-Verify", "1"])
 
         if self.options.ocsp_response is not None:
             cmd_line.extend(["-status_file", self.options.ocsp_response])
 
         if self.options.signature_algorithm is not None:
-            cmd_line.extend(
-                ["-sigalgs", self.options.signature_algorithm.name])
+            cmd_line.extend(["-sigalgs", self.options.signature_algorithm.name])
 
         if self.options.extra_flags is not None:
             cmd_line.extend(self.options.extra_flags)
@@ -631,16 +655,16 @@ class JavaSSL(Provider):
     @classmethod
     def supports_cipher(cls, cipher, with_curve=None):
         # Java SSL does not support CHACHA20
-        if 'CHACHA20' in cipher.name:
+        if "CHACHA20" in cipher.name:
             return False
 
         return True
 
     def setup_server(self):
-        pytest.skip('JavaSSL does not support server mode at this time')
+        pytest.skip("JavaSSL does not support server mode at this time")
 
     def setup_client(self):
-        cmd_line = ['java', "-classpath", "bin", "SSLSocketClient"]
+        cmd_line = ["java", "-classpath", "bin", "SSLSocketClient"]
 
         if self.options.port is not None:
             cmd_line.extend([self.options.port])
@@ -674,39 +698,44 @@ class BoringSSL(Provider):
 
     @classmethod
     def get_send_marker(cls):
-        return 'Cert issuer:'
+        return "Cert issuer:"
 
     def setup_server(self):
-        pytest.skip('BoringSSL does not support server mode at this time')
+        pytest.skip("BoringSSL does not support server mode at this time")
 
     def setup_client(self):
-        cmd_line = ['bssl', 's_client']
+        cmd_line = ["bssl", "s_client"]
         cmd_line.extend(
-            ['-connect', '{}:{}'.format(self.options.host, self.options.port)])
+            ["-connect", "{}:{}".format(self.options.host, self.options.port)]
+        )
         if self.options.cert is not None:
-            cmd_line.extend(['-cert', self.options.cert])
+            cmd_line.extend(["-cert", self.options.cert])
         if self.options.key is not None:
-            cmd_line.extend(['-key', self.options.key])
+            cmd_line.extend(["-key", self.options.key])
         if self.options.cipher is not None:
             if self.options.cipher == Ciphersuites.TLS_CHACHA20_POLY1305_SHA256:
                 cmd_line.extend(
-                    ['-cipher', 'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256'])
+                    ["-cipher", "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"]
+                )
             elif self.options.cipher == Ciphersuites.TLS_AES_128_GCM_256:
-                pytest.skip('BoringSSL does not support Cipher {}'.format(
-                    self.options.cipher))
+                pytest.skip(
+                    "BoringSSL does not support Cipher {}".format(self.options.cipher)
+                )
             elif self.options.cipher == Ciphersuites.TLS_AES_256_GCM_384:
-                pytest.skip('BoringSSL does not support Cipher {}'.format(
-                    self.options.cipher))
+                pytest.skip(
+                    "BoringSSL does not support Cipher {}".format(self.options.cipher)
+                )
         if self.options.curve is not None:
             if self.options.curve == Curves.P256:
-                cmd_line.extend(['-curves', 'P-256'])
+                cmd_line.extend(["-curves", "P-256"])
             elif self.options.curve == Curves.P384:
-                cmd_line.extend(['-curves', 'P-384'])
+                cmd_line.extend(["-curves", "P-384"])
             elif self.options.curve == Curves.P521:
-                cmd_line.extend(['-curves', 'P-521'])
+                cmd_line.extend(["-curves", "P-521"])
             elif self.options.curve == Curves.X25519:
-                pytest.skip('BoringSSL does not support curve {}'.format(
-                    self.options.curve))
+                pytest.skip(
+                    "BoringSSL does not support curve {}".format(self.options.curve)
+                )
 
         # Clients are always ready to connect
         self.set_provider_ready()
@@ -724,35 +753,32 @@ class GnuTLS(Provider):
     @staticmethod
     def cipher_to_priority_str(cipher):
         return {
-            Ciphers.DHE_RSA_AES128_SHA:         "DHE-RSA:+AES-128-CBC:+SHA1",
-            Ciphers.DHE_RSA_AES256_SHA:         "DHE-RSA:+AES-256-CBC:+SHA1",
-            Ciphers.DHE_RSA_AES128_SHA256:      "DHE-RSA:+AES-128-CBC:+SHA256",
-            Ciphers.DHE_RSA_AES256_SHA256:      "DHE-RSA:+AES-256-CBC:+SHA256",
-            Ciphers.DHE_RSA_AES128_GCM_SHA256:  "DHE-RSA:+AES-128-GCM:+AEAD",
-            Ciphers.DHE_RSA_AES256_GCM_SHA384:  "DHE-RSA:+AES-256-GCM:+AEAD",
-            Ciphers.DHE_RSA_CHACHA20_POLY1305:  "DHE-RSA:+CHACHA20-POLY1305:+AEAD",
-
-            Ciphers.AES128_SHA:         "RSA:+AES-128-CBC:+SHA1",
-            Ciphers.AES256_SHA:         "RSA:+AES-256-CBC:+SHA1",
-            Ciphers.AES128_SHA256:      "RSA:+AES-128-CBC:+SHA256",
-            Ciphers.AES256_SHA256:      "RSA:+AES-256-CBC:+SHA256",
-            Ciphers.AES128_GCM_SHA256:  "RSA:+AES-128-GCM:+AEAD",
-            Ciphers.AES256_GCM_SHA384:  "RSA:+AES-256-GCM:+AEAD",
-
-            Ciphers.ECDHE_ECDSA_AES128_SHA:         "ECDHE-ECDSA:+AES-128-CBC:+SHA1",
-            Ciphers.ECDHE_ECDSA_AES256_SHA:         "ECDHE-ECDSA:+AES-256-CBC:+SHA1",
-            Ciphers.ECDHE_ECDSA_AES128_SHA256:      "ECDHE-ECDSA:+AES-128-CBC:+SHA256",
-            Ciphers.ECDHE_ECDSA_AES256_SHA384:      "ECDHE-ECDSA:+AES-256-CBC:+SHA384",
-            Ciphers.ECDHE_ECDSA_AES128_GCM_SHA256:  "ECDHE-ECDSA:+AES-128-GCM:+AEAD",
-            Ciphers.ECDHE_ECDSA_AES256_GCM_SHA384:  "ECDHE-ECDSA:+AES-256-GCM:+AEAD",
-
-            Ciphers.ECDHE_RSA_AES128_SHA:           "ECDHE-RSA:+AES-128-CBC:+SHA1",
-            Ciphers.ECDHE_RSA_AES256_SHA:           "ECDHE-RSA:+AES-256-CBC:+SHA1",
-            Ciphers.ECDHE_RSA_AES128_SHA256:        "ECDHE-RSA:+AES-128-CBC:+SHA256",
-            Ciphers.ECDHE_RSA_AES256_SHA384:        "ECDHE-RSA:+AES-256-CBC:+SHA384",
-            Ciphers.ECDHE_RSA_AES128_GCM_SHA256:    "ECDHE-RSA:+AES-128-GCM:+AEAD",
-            Ciphers.ECDHE_RSA_AES256_GCM_SHA384:    "ECDHE-RSA:+AES-256-GCM:+AEAD",
-            Ciphers.ECDHE_RSA_CHACHA20_POLY1305:    "ECDHE-RSA:+CHACHA20-POLY1305:+AEAD"
+            Ciphers.DHE_RSA_AES128_SHA: "DHE-RSA:+AES-128-CBC:+SHA1",
+            Ciphers.DHE_RSA_AES256_SHA: "DHE-RSA:+AES-256-CBC:+SHA1",
+            Ciphers.DHE_RSA_AES128_SHA256: "DHE-RSA:+AES-128-CBC:+SHA256",
+            Ciphers.DHE_RSA_AES256_SHA256: "DHE-RSA:+AES-256-CBC:+SHA256",
+            Ciphers.DHE_RSA_AES128_GCM_SHA256: "DHE-RSA:+AES-128-GCM:+AEAD",
+            Ciphers.DHE_RSA_AES256_GCM_SHA384: "DHE-RSA:+AES-256-GCM:+AEAD",
+            Ciphers.DHE_RSA_CHACHA20_POLY1305: "DHE-RSA:+CHACHA20-POLY1305:+AEAD",
+            Ciphers.AES128_SHA: "RSA:+AES-128-CBC:+SHA1",
+            Ciphers.AES256_SHA: "RSA:+AES-256-CBC:+SHA1",
+            Ciphers.AES128_SHA256: "RSA:+AES-128-CBC:+SHA256",
+            Ciphers.AES256_SHA256: "RSA:+AES-256-CBC:+SHA256",
+            Ciphers.AES128_GCM_SHA256: "RSA:+AES-128-GCM:+AEAD",
+            Ciphers.AES256_GCM_SHA384: "RSA:+AES-256-GCM:+AEAD",
+            Ciphers.ECDHE_ECDSA_AES128_SHA: "ECDHE-ECDSA:+AES-128-CBC:+SHA1",
+            Ciphers.ECDHE_ECDSA_AES256_SHA: "ECDHE-ECDSA:+AES-256-CBC:+SHA1",
+            Ciphers.ECDHE_ECDSA_AES128_SHA256: "ECDHE-ECDSA:+AES-128-CBC:+SHA256",
+            Ciphers.ECDHE_ECDSA_AES256_SHA384: "ECDHE-ECDSA:+AES-256-CBC:+SHA384",
+            Ciphers.ECDHE_ECDSA_AES128_GCM_SHA256: "ECDHE-ECDSA:+AES-128-GCM:+AEAD",
+            Ciphers.ECDHE_ECDSA_AES256_GCM_SHA384: "ECDHE-ECDSA:+AES-256-GCM:+AEAD",
+            Ciphers.ECDHE_RSA_AES128_SHA: "ECDHE-RSA:+AES-128-CBC:+SHA1",
+            Ciphers.ECDHE_RSA_AES256_SHA: "ECDHE-RSA:+AES-256-CBC:+SHA1",
+            Ciphers.ECDHE_RSA_AES128_SHA256: "ECDHE-RSA:+AES-128-CBC:+SHA256",
+            Ciphers.ECDHE_RSA_AES256_SHA384: "ECDHE-RSA:+AES-256-CBC:+SHA384",
+            Ciphers.ECDHE_RSA_AES128_GCM_SHA256: "ECDHE-RSA:+AES-128-GCM:+AEAD",
+            Ciphers.ECDHE_RSA_AES256_GCM_SHA384: "ECDHE-RSA:+AES-256-GCM:+AEAD",
+            Ciphers.ECDHE_RSA_CHACHA20_POLY1305: "ECDHE-RSA:+CHACHA20-POLY1305:+AEAD",
         }.get(cipher)
 
     @staticmethod
@@ -763,25 +789,25 @@ class GnuTLS(Provider):
             Protocols.TLS10.value: "VERS-TLS1.0",
             Protocols.TLS11.value: "VERS-TLS1.1",
             Protocols.TLS12.value: "VERS-TLS1.2",
-            Protocols.TLS13.value: "VERS-TLS1.3"
+            Protocols.TLS13.value: "VERS-TLS1.3",
         }.get(protocol.value)
 
     @staticmethod
     def curve_to_priority_str(curve):
         return {
-            Curves.P256:    "CURVE-SECP256R1",
-            Curves.P384:    "CURVE-SECP384R1",
-            Curves.P521:    "CURVE-SECP521R1",
-            Curves.X25519:  "CURVE-X25519"
+            Curves.P256: "CURVE-SECP256R1",
+            Curves.P384: "CURVE-SECP384R1",
+            Curves.P521: "CURVE-SECP521R1",
+            Curves.X25519: "CURVE-X25519",
         }.get(curve)
 
     @staticmethod
     def sigalg_to_priority_str(sigalg):
         return {
-            Signatures.RSA_SHA1:    "SIGN-RSA-SHA1",
-            Signatures.RSA_SHA256:  "SIGN-RSA-SHA256",
-            Signatures.RSA_SHA384:  "SIGN-RSA-SHA384",
-            Signatures.RSA_SHA512:  "SIGN-RSA-SHA512",
+            Signatures.RSA_SHA1: "SIGN-RSA-SHA1",
+            Signatures.RSA_SHA256: "SIGN-RSA-SHA256",
+            Signatures.RSA_SHA384: "SIGN-RSA-SHA384",
+            Signatures.RSA_SHA512: "SIGN-RSA-SHA512",
         }.get(sigalg)
 
     @classmethod
@@ -809,7 +835,9 @@ class GnuTLS(Provider):
         else:
             priority_str += ":+GROUP-ALL"
 
-        sigalg_to_priority_str = self.sigalg_to_priority_str(self.options.signature_algorithm)
+        sigalg_to_priority_str = self.sigalg_to_priority_str(
+            self.options.signature_algorithm
+        )
         if sigalg_to_priority_str:
             priority_str += ":+" + sigalg_to_priority_str
         else:
@@ -831,9 +859,11 @@ class GnuTLS(Provider):
 
         cmd_line = [
             "gnutls-cli",
-            "--port", str(self.options.port),
+            "--port",
+            str(self.options.port),
             self.options.host,
-            "--debug", "9999"
+            "--debug",
+            "9999",
         ]
 
         if self.options.verbose:
@@ -867,7 +897,7 @@ class GnuTLS(Provider):
             "gnutls-serv",
             f"--port={self.options.port}",
             "--echo",
-            "--debug=9999"
+            "--debug=9999",
         ]
 
         if self.options.cert is not None:

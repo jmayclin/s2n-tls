@@ -110,7 +110,8 @@ input_vectors = [
         "ec_shared_secret": "519be87fa0599077e5673d6f2d910aa150d7fef783c5e1491961fdf63b255910",
         "pq_shared_secret": "0A6925676F24B22C286F4C81A4224CEC506C9B257D480E02E3B49F44CAA3237F",
         "transcript_hash": "35412cebcf35cb8a7af8f78278a486fc798f8702eaebd067c97acb27bffe13524d8426a4ed57956b4fd0ffdc4c90be52",
-    },    {
+    },
+    {
         "group_name": "secp256r1_kyber512r3",
         "cipher_suite": "TLS_AES_128_GCM_SHA256",
         "ec_shared_secret": "9348e27655539e08fffe46b35f863dd634e7437cc6bc11c7d329ef5484ec3b60",
@@ -210,8 +211,10 @@ input_vectors = [
     },
 ]
 
+
 def hkdf_extract(key: bytes, info: bytes, hash_alg: str):
     return hmac.new(key, info, hash_alg).digest()
+
 
 def hkdf_expand_label(key: bytes, label: str, context: bytes, hash_alg: str):
     label_arr = [0, hashlib.new(hash_alg).digest_size, len("tls13 ") + len(label)]
@@ -228,8 +231,11 @@ def hkdf_expand_label(key: bytes, label: str, context: bytes, hash_alg: str):
 
     return hkdf_extract(key, bytearray(label_arr) + bytes([1]), hash_alg)
 
+
 def compute_secrets(input_vector: dict):
-    shared_secret = bytes.fromhex(input_vector["ec_shared_secret"] + input_vector["pq_shared_secret"])
+    shared_secret = bytes.fromhex(
+        input_vector["ec_shared_secret"] + input_vector["pq_shared_secret"]
+    )
     hash_alg = input_vector["cipher_suite"].split("_")[-1].lower()
     zeros = bytearray([0] * hashlib.new(hash_alg).digest_size)
     transcript_hash = bytes.fromhex(input_vector["transcript_hash"])
@@ -239,12 +245,21 @@ def compute_secrets(input_vector: dict):
     empty_hash = h.digest()
 
     secrets = {"early_secret": hkdf_extract(zeros, zeros, hash_alg)}
-    secrets["derived_secret"] = hkdf_expand_label(secrets["early_secret"], "derived", empty_hash, hash_alg)
-    secrets["handshake_secret"] = hkdf_extract(secrets["derived_secret"], shared_secret, hash_alg)
-    secrets["client_traffic_secret"] = hkdf_expand_label(secrets["handshake_secret"], "c hs traffic", transcript_hash, hash_alg)
-    secrets["server_traffic_secret"] = hkdf_expand_label(secrets["handshake_secret"], "s hs traffic", transcript_hash, hash_alg)
+    secrets["derived_secret"] = hkdf_expand_label(
+        secrets["early_secret"], "derived", empty_hash, hash_alg
+    )
+    secrets["handshake_secret"] = hkdf_extract(
+        secrets["derived_secret"], shared_secret, hash_alg
+    )
+    secrets["client_traffic_secret"] = hkdf_expand_label(
+        secrets["handshake_secret"], "c hs traffic", transcript_hash, hash_alg
+    )
+    secrets["server_traffic_secret"] = hkdf_expand_label(
+        secrets["handshake_secret"], "s hs traffic", transcript_hash, hash_alg
+    )
 
     return secrets
+
 
 def main():
     output = ""
@@ -262,5 +277,6 @@ def main():
 
     print(output)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

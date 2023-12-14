@@ -37,7 +37,9 @@ def main():
                 ok = False
                 logging.error(
                     "Failed to build cbmc-batch.yaml in %s (return code %d)",
-                    root, proc.returncode)
+                    root,
+                    proc.returncode,
+                )
 
     sys.exit(0 if ok else 1)
 

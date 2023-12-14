@@ -3,8 +3,7 @@ import pytest
 from constants import TRUST_STORE_BUNDLE, TRUST_STORE_TRUSTED_BUNDLE
 from configuration import PROTOCOLS
 from common import ProviderOptions, Ciphers, pq_enabled
-from fixtures import managed_process  # lgtm [py/unused-import]
-from global_flags import get_flag, is_criterion_on, S2N_FIPS_MODE, S2N_USE_CRITERION
+from global_flags import get_flag, is_criterion_on, S2N_FIPS_MODE
 from providers import Provider, S2N
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
 
@@ -53,35 +52,55 @@ CIPHERS = [
     Ciphers.PQ_SIKE_TEST_TLS_1_0_2019_11,
     Ciphers.KMS_PQ_TLS_1_0_2020_07,
     Ciphers.KMS_PQ_TLS_1_0_2020_02,
-    Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02
+    Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02,
 ]
 
 
 if pq_enabled():
     EXPECTED_RESULTS = {
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2019_06):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2019_11):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_07):
-            {"cipher": "ECDHE-KYBER-RSA-AES256-GCM-SHA384", "kem": "kyber512r3"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_02):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2019_06): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2019_11): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_07): {
+            "cipher": "ECDHE-KYBER-RSA-AES256-GCM-SHA384",
+            "kem": "kyber512r3",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_02): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
     }
 else:
     EXPECTED_RESULTS = {
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2019_06):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2019_11):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_07):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_02):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
-        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02):
-            {"cipher": "ECDHE-RSA-AES256-GCM-SHA384", "kem": "NONE"},
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2019_06): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2019_11): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_07): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.KMS_PQ_TLS_1_0_2020_02): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
+        ("kms.us-east-1.amazonaws.com", Ciphers.PQ_SIKE_TEST_TLS_1_0_2020_02): {
+            "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+            "kem": "NONE",
+        },
     }
 
 
@@ -101,19 +120,19 @@ def test_well_known_endpoints(managed_process, protocol, endpoint, provider, cip
         insecure=False,
         trust_store=TRUST_STORE_BUNDLE,
         protocol=protocol,
-        cipher=cipher)
+        cipher=cipher,
+    )
 
     if get_flag(S2N_FIPS_MODE) is True:
         client_options.trust_store = TRUST_STORE_TRUSTED_BUNDLE
 
     # TODO: Understand the failure with criterion and this endpoint.
-    if is_criterion_on() and 'www.netflix.com' in endpoint:
+    if is_criterion_on() and "www.netflix.com" in endpoint:
         pytest.skip()
 
     # expect_stderr=True because S2N sometimes receives OCSP responses:
     # https://github.com/aws/s2n-tls/blob/14ed186a13c1ffae7fbb036ed5d2849ce7c17403/bin/echo.c#L180-L184
-    client = managed_process(provider, client_options,
-                             timeout=5, expect_stderr=True)
+    client = managed_process(provider, client_options, timeout=5, expect_stderr=True)
 
     expected_result = EXPECTED_RESULTS.get((endpoint, cipher), None)
 
@@ -121,5 +140,5 @@ def test_well_known_endpoints(managed_process, protocol, endpoint, provider, cip
         results.assert_success()
 
         if expected_result is not None:
-            assert to_bytes(expected_result['cipher']) in results.stdout
-            assert to_bytes(expected_result['kem']) in results.stdout
+            assert to_bytes(expected_result["cipher"]) in results.stdout
+            assert to_bytes(expected_result["kem"]) in results.stdout

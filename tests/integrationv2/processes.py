@@ -9,7 +9,7 @@ from time import monotonic as _time
 
 
 _PopenSelector = selectors.PollSelector
-_PIPE_BUF = getattr(select, 'PIPE_BUF', 512)
+_PIPE_BUF = getattr(select, "PIPE_BUF", 512)
 _DEBUG_LEN = 80
 
 
@@ -61,8 +61,15 @@ class _processCommunicator(object):
 
         return (stdout, stderr)
 
-    def communicate(self, input_data=None, send_marker_list=None, close_marker=None, kill_marker=None,
-                    send_with_newline=False, timeout=None):
+    def communicate(
+        self,
+        input_data=None,
+        send_marker_list=None,
+        close_marker=None,
+        kill_marker=None,
+        send_with_newline=False,
+        timeout=None,
+    ):
         """
         Communicates with the managed process. If send_marker_list is set, input_data will not be sent
         until the marker is seen.
@@ -81,15 +88,22 @@ class _processCommunicator(object):
                 close_marker,
                 kill_marker,
                 send_with_newline,
-                timeout
+                timeout,
             )
         finally:
             self._communication_started = True
 
         return (stdout, stderr)
 
-    def _communicate(self, input_data=None, send_marker_list=None, close_marker=None, kill_marker=None,
-                     send_with_newline=False, timeout=None):
+    def _communicate(
+        self,
+        input_data=None,
+        send_marker_list=None,
+        close_marker=None,
+        kill_marker=None,
+        send_with_newline=False,
+        timeout=None,
+    ):
         """
         This method will read and write data to a subprocess in a non-blocking manner.
         The code is heavily based on Popen.communicate. There are a couple differences:
@@ -145,12 +159,13 @@ class _processCommunicator(object):
             while selector.get_map():
                 timeout = self._remaining_time(endtime)
                 if timeout is not None and timeout < 0:
-                    self._check_timeout(endtime, orig_timeout,
-                                        stdout, stderr,
-                                        skip_check_and_raise=True)
+                    self._check_timeout(
+                        endtime, orig_timeout, stdout, stderr, skip_check_and_raise=True
+                    )
                     raise RuntimeError(  # Impossible :)
-                        '_check_timeout(..., skip_check_and_raise=True) '
-                        'failed to raise TimeoutExpired.')
+                        "_check_timeout(..., skip_check_and_raise=True) "
+                        "failed to raise TimeoutExpired."
+                    )
 
                 ready = selector.select(timeout)
                 self._check_timeout(endtime, orig_timeout, stdout, stderr)
@@ -158,12 +173,13 @@ class _processCommunicator(object):
                 for key, events in ready:
                     # STDIN is only registered to receive events after the send_marker is found.
                     if key.fileobj is self.proc.stdin:
-                        print(f'{self.name}: stdin available')
-                        chunk = input_view[input_data_offset:
-                                           input_data_offset + _PIPE_BUF]
+                        print(f"{self.name}: stdin available")
+                        chunk = input_view[
+                            input_data_offset : input_data_offset + _PIPE_BUF
+                        ]
                         try:
                             input_data_offset += os.write(key.fd, chunk)
-                            print(f'{self.name}: sent')
+                            print(f"{self.name}: sent")
                         except BrokenPipeError:
                             selector.unregister(key.fileobj)
                         else:
@@ -173,16 +189,18 @@ class _processCommunicator(object):
                                 input_data_offset = 0
                                 if send_marker_list:
                                     send_marker = send_marker_list.pop(0)
-                                print(f'{self.name}: next send_marker is {send_marker}')
+                                print(f"{self.name}: next send_marker is {send_marker}")
                     elif key.fileobj in (self.proc.stdout, self.proc.stderr):
-                        print(f'{self.name}: stdout available')
+                        print(f"{self.name}: stdout available")
                         data = os.read(key.fd, 32768)
                         if not data:
                             selector.unregister(key.fileobj)
                         data_str = str(data)
                         data_debug = data_str[:_DEBUG_LEN]
                         if len(data_str) > _DEBUG_LEN:
-                            data_debug += f' ...({len(data_str) - _DEBUG_LEN} more bytes)'
+                            data_debug += (
+                                f" ...({len(data_str) - _DEBUG_LEN} more bytes)"
+                            )
 
                         # fileobj2output[key.fileobj] is a list of data chunks
                         # that get joined later
@@ -192,33 +210,43 @@ class _processCommunicator(object):
                         # register STDIN to receive events. If there is no data to send,
                         # just mark input_send as true so we can close out STDIN.
                         if send_marker:
-                            print(f'{self.name}: looking for send_marker {send_marker} in {data_debug}')
+                            print(
+                                f"{self.name}: looking for send_marker {send_marker} in {data_debug}"
+                            )
                         if send_marker is not None and send_marker in data_str:
-                            print(f'{self.name}: found {send_marker}')
+                            print(f"{self.name}: found {send_marker}")
                             if self.proc.stdin and input_data:
                                 selector.register(
-                                    self.proc.stdin, selectors.EVENT_WRITE)
+                                    self.proc.stdin, selectors.EVENT_WRITE
+                                )
                                 message = input_data.pop(0)
                                 if send_with_newline:
-                                    message += b'\n'
+                                    message += b"\n"
                                 # Data destined for stdin is stored in a memoryview
                                 input_view = memoryview(message)
                                 input_data_len = len(message)
                                 input_data_sent = False
-                                print(f'{self.name}: will send {message}')
+                                print(f"{self.name}: will send {message}")
                             else:
                                 input_data_sent = True
-                                print(f'{self.name}: will send nothing')
+                                print(f"{self.name}: will send nothing")
 
                         if self.wait_for_marker:
-                            print(f'{self.name}: looking for wait_for_marker {self.wait_for_marker} in {data_debug}')
-                        if self.wait_for_marker is not None and self.wait_for_marker in data_str:
+                            print(
+                                f"{self.name}: looking for wait_for_marker {self.wait_for_marker} in {data_debug}"
+                            )
+                        if (
+                            self.wait_for_marker is not None
+                            and self.wait_for_marker in data_str
+                        ):
                             selector.unregister(self.proc.stdout)
                             selector.unregister(self.proc.stderr)
                             return None, None
 
                         if kill_marker:
-                            print(f'{self.name}: looking for kill_marker {kill_marker} in {data}')
+                            print(
+                                f"{self.name}: looking for kill_marker {kill_marker} in {data}"
+                            )
                         if kill_marker is not None and kill_marker in data:
                             selector.unregister(self.proc.stdout)
                             selector.unregister(self.proc.stderr)
@@ -227,11 +255,15 @@ class _processCommunicator(object):
                 # If we have finished sending all our input, and have received the
                 # ready-to-send marker, we can close out stdin.
                 if self.proc.stdin and input_data_sent and not input_data:
-                    print(f'{self.name}: finished sending')
+                    print(f"{self.name}: finished sending")
                     if close_marker:
-                        print(f'{self.name}: looking for close_marker {close_marker} in {data_debug}')
-                    if close_marker is None or (close_marker and close_marker in data_str):
-                        print(f'{self.name}: closing stdin')
+                        print(
+                            f"{self.name}: looking for close_marker {close_marker} in {data_debug}"
+                        )
+                    if close_marker is None or (
+                        close_marker and close_marker in data_str
+                    ):
+                        print(f"{self.name}: closing stdin")
                         input_data_sent = None
                         self.proc.stdin.close()
 
@@ -239,9 +271,9 @@ class _processCommunicator(object):
 
         # All data exchanged.  Translate lists into strings.
         if stdout is not None:
-            stdout = b''.join(stdout)
+            stdout = b"".join(stdout)
         if stderr is not None:
-            stderr = b''.join(stderr)
+            stderr = b"".join(stderr)
 
         return (stdout, stderr)
 
@@ -252,8 +284,9 @@ class _processCommunicator(object):
         else:
             return endtime - _time()
 
-    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
-                       skip_check_and_raise=False):
+    def _check_timeout(
+        self, endtime, orig_timeout, stdout_seq, stderr_seq, skip_check_and_raise=False
+    ):
         """
         Convenience for checking if a timeout has expired.
 
@@ -264,9 +297,11 @@ class _processCommunicator(object):
             return
         if skip_check_and_raise or _time() > endtime:
             raise subprocess.TimeoutExpired(
-                self.proc.args, orig_timeout,
-                output=b''.join(stdout_seq) if stdout_seq else None,
-                stderr=b''.join(stderr_seq) if stderr_seq else None)
+                self.proc.args,
+                orig_timeout,
+                output=b"".join(stdout_seq) if stdout_seq else None,
+                stderr=b"".join(stderr_seq) if stderr_seq else None,
+            )
 
 
 class ManagedProcess(threading.Thread):
@@ -278,9 +313,20 @@ class ManagedProcess(threading.Thread):
     are made available to the caller.
     """
 
-    def __init__(self, cmd_line, provider_set_ready_condition, wait_for_marker=None, send_marker_list=None,
-                 close_marker=None, timeout=5, data_source=None, env_overrides=dict(), expect_stderr=False,
-                 kill_marker=None, send_with_newline=False):
+    def __init__(
+        self,
+        cmd_line,
+        provider_set_ready_condition,
+        wait_for_marker=None,
+        send_marker_list=None,
+        close_marker=None,
+        timeout=5,
+        data_source=None,
+        env_overrides=dict(),
+        expect_stderr=False,
+        kill_marker=None,
+        send_with_newline=False,
+    ):
         threading.Thread.__init__(self)
 
         proc_env = os.environ.copy()
@@ -326,12 +372,17 @@ class ManagedProcess(threading.Thread):
     def run(self):
         with self.results_condition:
             try:
-                proc = subprocess.Popen(self.cmd_line, env=self.proc_env, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+                proc = subprocess.Popen(
+                    self.cmd_line,
+                    env=self.proc_env,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    close_fds=True,
+                )
                 self.proc = proc
             except Exception as ex:
-                self.results = Results(
-                    None, None, None, ex, self.expect_stderr)
+                self.results = Results(None, None, None, ex, self.expect_stderr)
                 raise ex
 
             communicator = _processCommunicator(proc, self.cmd_line[0])
@@ -359,7 +410,7 @@ class ManagedProcess(threading.Thread):
                     proc.returncode,
                     None,
                     expect_stderr=self.expect_stderr,
-                    expect_nonzero_exit=self.kill_marker is not None
+                    expect_nonzero_exit=self.kill_marker is not None,
                 )
             except subprocess.TimeoutExpired as ex:
                 proc.kill()
@@ -368,20 +419,36 @@ class ManagedProcess(threading.Thread):
                 # Read any remaining output
                 proc_results = communicator.communicate()
                 self.results = Results(
-                    proc_results[0], proc_results[1], proc.returncode, wrapped_ex, self.expect_stderr)
+                    proc_results[0],
+                    proc_results[1],
+                    proc.returncode,
+                    wrapped_ex,
+                    self.expect_stderr,
+                )
             except Exception as ex:
                 self.results = Results(
-                    proc_results[0], proc_results[1], proc.returncode, ex, self.expect_stderr)
+                    proc_results[0],
+                    proc_results[1],
+                    proc.returncode,
+                    ex,
+                    self.expect_stderr,
+                )
                 raise ex
             finally:
                 # This data is dumped to stdout so we capture this
                 # information no matter where a test fails.
                 print("Command line: {}".format(" ".join(self.cmd_line)))
                 print("Exit code: {}".format(proc.returncode))
-                print("Stdout: {}".format(
-                    proc_results[0].decode("utf-8", "backslashreplace")))
-                print("Stderr: {}".format(
-                    proc_results[1].decode("utf-8", "backslashreplace")))
+                print(
+                    "Stdout: {}".format(
+                        proc_results[0].decode("utf-8", "backslashreplace")
+                    )
+                )
+                print(
+                    "Stderr: {}".format(
+                        proc_results[1].decode("utf-8", "backslashreplace")
+                    )
+                )
 
     def kill(self):
         self.proc.kill()
@@ -411,7 +478,8 @@ class ManagedProcess(threading.Thread):
         """
         with self.results_condition:
             result = self.results_condition.wait_for(
-                self._results_ready, timeout=self.timeout)
+                self._results_ready, timeout=self.timeout
+            )
 
             if result is False:
                 raise Exception("Timeout")
