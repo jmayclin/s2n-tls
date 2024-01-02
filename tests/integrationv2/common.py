@@ -44,7 +44,13 @@ class AvailablePorts(object):
     """
 
     def __init__(self, low=8000, high=30000):
-        worker_count = int(os.getenv('PYTEST_XDIST_WORKER_COUNT'))
+        worker_count = os.getenv('PYTEST_XDIST_WORKER_COUNT')
+        # if we aren't running in parallel, then we can just use the entire port
+        # range.
+        if worker_count is None:
+            self.ports = iter(range(low, high))
+            return
+        worker_count = int(worker_count)
         chunk_size = int((high - low) / worker_count)
 
         # If xdist is being used, parse the workerid from the envvar. This can
