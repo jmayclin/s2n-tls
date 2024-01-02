@@ -637,7 +637,7 @@ class JavaSSL(Provider):
         return True
 
     def setup_server(self):
-        raise AssertionError("There is no JavaSSL Server Implementation")
+        raise NotImplementedError
 
     def setup_client(self):
         cmd_line = ['java', "-classpath", "bin", "SSLSocketClient"]

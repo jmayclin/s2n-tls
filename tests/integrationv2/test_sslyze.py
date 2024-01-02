@@ -1,6 +1,6 @@
 import pytest
-import sslyze
 import abc
+sslyze = pytest.importorskip("sslyze")
 from enum import Enum, auto
 
 from configuration import available_ports, ALL_TEST_CERTS

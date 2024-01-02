@@ -44,6 +44,7 @@ class AvailablePorts(object):
     """
 
     def __init__(self, low=8000, high=30000):
+        self.lock = threading.Lock()
         worker_count = os.getenv('PYTEST_XDIST_WORKER_COUNT')
         # if we aren't running in parallel, then we can just use the entire port
         # range.
@@ -68,8 +69,6 @@ class AvailablePorts(object):
         base_range = range(low + worker_offset, high)
         wrap_range = range(low, low + worker_offset)
         self.ports = iter(itertools.chain(base_range, wrap_range))
-
-        self.lock = threading.Lock()
 
     def __iter__(self):
         return self

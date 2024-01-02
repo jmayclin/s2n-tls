@@ -1,3 +1,5 @@
+import os
+import subprocess
 from global_flags import set_flag, S2N_PROVIDER_VERSION, S2N_FIPS_MODE, S2N_NO_PQ, S2N_USE_CRITERION
 
 
@@ -20,6 +22,35 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "uncollect_if(*, func): function to unselect tests from parametrization"
     )
+
+    bins = [
+        "s2nc",
+        "s2nd",
+        "openssl",
+        "gnutls-cli",
+    ]
+
+    s2n_available = bin_available("s2nd") and bin_available("s2nc")
+    if s2n_available:
+        raise "yay, s2n is available"
+    if not s2n_available:
+        # switch back to the closest s2n-tls directory
+        original_dir = os.getcwd()
+        current_dir = os.getcwd()
+        while (current_dir.split("/")[-1] != "s2n-tls"):
+            os.chdir("..")
+            current_dir = os.getcwd()
+
+        s2n_build = current_dir + "/build/bin/"
+        if not (bin_available(s2n_build + "s2nd") and bin_available(s2n_build + "s2nc")):
+            raise Exception("couldn't find s2nd or s2nc")
+
+        raise Exception("made it do the end")
+        # get the root pytest directory (s2n-tls/tests/integrationv2)
+        # s2nc and d should be at
+        # s2n-tls/build/bin/s2nc
+        # s2n-tls/build/bin/s2nd
+
 
     no_pq = config.getoption('no-pq', 0)
     fips_mode = config.getoption('fips-mode', 0)
@@ -49,3 +80,10 @@ def pytest_collection_modifyitems(config, items):
     if removed:
         config.hook.pytest_deselected(items=removed)
         items[:] = kept
+
+def bin_available(bin: str) -> bool:
+    try:
+        sp = subprocess.call(bin, timeout = 1.0)
+        return True
+    except:
+        return False
