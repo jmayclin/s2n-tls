@@ -637,7 +637,7 @@ class JavaSSL(Provider):
         return True
 
     def setup_server(self):
-        pytest.skip('JavaSSL does not support server mode at this time')
+        raise AssertionError("There is no JavaSSL Server Implementation")
 
     def setup_client(self):
         cmd_line = ['java', "-classpath", "bin", "SSLSocketClient"]
