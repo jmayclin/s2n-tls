@@ -1,10 +1,13 @@
 import os
 import subprocess
 from global_flags import set_flag, S2N_PROVIDER_VERSION, S2N_FIPS_MODE, S2N_NO_PQ
+from providers import S2N, OpenSSL, GnuTLS, JavaSSL
 
+'''
+The uncollect functionality is taken from the github thread here: https://github.com/pytest-dev/pytest/issues/3730#issuecomment-567142496
+'''
 
 def pytest_addoption(parser):
-    pass
     parser.addoption("--provider-version", action="store", dest="provider-version",
                      default=None, type=str, help="Set the version of the TLS provider", required=True)
     parser.addoption("--fips-mode", action="store_true", dest="fips-mode",
@@ -25,8 +28,8 @@ def pytest_configure(config):
 
     provider_status = {}
     # we will error out if s2n and openssl aren't available
-    provider_available["s2n"] = True
-    provider_available["openssl"] = True
+    provider_status[S2N] = True
+    provider_status[OpenSSL] = True
     # check on PATH
     if bin_available("s2nd") and bin_available("s2nc"):
         config.stash["s2n-fixture-path"] = ""
@@ -49,12 +52,15 @@ def pytest_configure(config):
     if not bin_available("openssl"):
         raise Exception("OpenSSL provider was not found")
 
-    provider_available["gnutls-cli"]
-    if config.getoption("force-gnutls") and not bin_available("gnutls-cli"):
+    provider_status[GnuTLS] = bin_available("gnutls-cli")
+    if config.getoption("force-gnutls") and not provider_status[GnuTLS]:
         raise Exception("GnuTLS was required with --force-gnutls, but was not found")
 
-    raise Exception(config.stash["s2n-fixture-path"])
+    provider_status[JavaSSL] = bin_available("????")
+    if config.getoption("force-javassl") and not provider_status[JavaSSL]:
+        raise Exception("javassl was required with --force-javassl, but was not found")
 
+    # raise Exception(config.stash["s2n-fixture-path"])
 
     no_pq = config.getoption('no-pq', 0)
     fips_mode = config.getoption('fips-mode', 0)
@@ -63,6 +69,7 @@ def pytest_configure(config):
     if fips_mode == 1:
         set_flag(S2N_FIPS_MODE, True)
 
+    config.stash["provider-availability"] = provider_status
     set_flag(S2N_PROVIDER_VERSION, config.getoption('provider-version', None))
 
 
@@ -76,7 +83,7 @@ def pytest_collection_modifyitems(config, items):
         m = item.get_closest_marker('uncollect_if')
         if m:
             func = m.kwargs['func']
-            if func(**item.callspec.params):
+            if func(config, **item.callspec.params):
                 removed.append(item)
                 continue
         kept.append(item)

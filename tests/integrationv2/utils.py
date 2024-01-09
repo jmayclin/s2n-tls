@@ -51,10 +51,11 @@ def get_parameter_name(item):
     return str(item)
 
 
-def invalid_test_parameters(*args, **kwargs):
+def invalid_test_parameters(config, *args, **kwargs):
     """
     Determine if the parameters chosen for a test makes sense.
-    This function returns True or False, indicating whether a
+    This function returns True to indicate a test should be
+    "deselcted" and false otherwise.
     test should be "deselected" based on the arguments.
     """
     protocol = kwargs.get('protocol')
@@ -66,9 +67,17 @@ def invalid_test_parameters(*args, **kwargs):
     curve = kwargs.get('curve')
     signature = kwargs.get('signature')
 
-    providers = [provider_ for provider_ in [provider, other_provider] if provider_]
+    providers = [p for p in [provider, other_provider] if p]
     # Always consider S2N
+    # but WHY 😭
     providers.append(S2N)
+
+    # print(f"config stash is {config.stash}")
+    # print(f"fixture path is {config.stash['s2n-fixture-path']}")
+
+    if not all([config.stash["provider-availability"][p] for p in providers]):
+        return True
+
 
     # Only TLS1.3 supports RSA-PSS-PSS certificates
     # (Earlier versions support RSA-PSS signatures, just via RSA-PSS-RSAE)

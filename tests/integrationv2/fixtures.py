@@ -8,6 +8,11 @@ from providers import Provider, CriterionS2N, S2N
 
 from common import ProviderOptions
 
+@pytest.fixture
+def config_stash(request: pytest.FixtureRequest):
+    print("populating the config stash fixture!Q!!!!!")
+    request.config.stash["provider-availability"]
+
 
 @pytest.fixture
 def managed_process():

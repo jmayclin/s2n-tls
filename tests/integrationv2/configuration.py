@@ -2,7 +2,7 @@ import collections
 
 from common import Certificates, Ciphers, Curves, Protocols, AvailablePorts
 from constants import TEST_SNI_CERT_DIRECTORY
-from providers import S2N, OpenSSL, JavaSSL
+from providers import S2N, GnuTLS, OpenSSL, JavaSSL
 
 
 # The boolean configuration will let a test run for True and False
@@ -20,7 +20,7 @@ PROTOCOLS = [
 
 
 # List of providers that will be tested.
-PROVIDERS = [S2N, OpenSSL, JavaSSL]
+PROVIDERS = [S2N, OpenSSL, JavaSSL, GnuTLS]
 
 
 # List of binary TLS13 settings
