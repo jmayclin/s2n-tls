@@ -27,12 +27,38 @@ int main(int argc, char **argv)
 {
     BEGIN_TEST();
 
+    /* s2n_cert_chain_and_key_load */
+    {
+        /* when loading a cert, all certs have a description associated with them and root is self-signed */
+        {
+            DEFER_CLEANUP(struct s2n_cert_chain_and_key *cert_chain = NULL,
+                    s2n_cert_chain_and_key_ptr_free);
+            EXPECT_SUCCESS(s2n_test_cert_permutation_load_server_chain(&cert_chain, "ec", "ecdsa",
+                    "p384", "sha256"));
+            struct s2n_cert *leaf = cert_chain->cert_chain->head;
+            EXPECT_EQUAL(leaf->description.self_signed, false);
+            EXPECT_EQUAL(leaf->description.signature_nid, NID_ecdsa_with_SHA256);
+            EXPECT_EQUAL(leaf->description.signature_digest_nid, NID_sha256);
+
+            struct s2n_cert *intermediate = leaf->next;
+            EXPECT_EQUAL(intermediate->description.self_signed, false);
+            EXPECT_EQUAL(intermediate->description.signature_nid, NID_ecdsa_with_SHA256);
+            EXPECT_EQUAL(intermediate->description.signature_digest_nid, NID_sha256);
+
+            struct s2n_cert *root = intermediate->next;
+            EXPECT_NULL(root->next);
+            EXPECT_EQUAL(root->description.self_signed, true);
+            EXPECT_EQUAL(root->description.signature_nid, NID_ecdsa_with_SHA256);
+            EXPECT_EQUAL(root->description.signature_digest_nid, NID_sha256);
+        };
+    };
+
     /* s2n_cert_get_cert_description */
     struct {
-        char *key_type;
-        char *signature;
-        char *key_size;
-        char *digest;
+        const char *key_type;
+        const char *signature;
+        const char *key_size;
+        const char *digest;
         int expected_signature_nid;
         int expected_digest_nid;
     } test_cases[] = {
@@ -72,8 +98,6 @@ int main(int argc, char **argv)
                 .digest = "sha384",
                 .expected_signature_nid = NID_sha384WithRSAEncryption,
                 .expected_digest_nid = NID_sha384 },
-/* openssl 1.0.* does not support rsapss signatures */
-#if S2N_OPENSSL_VERSION_AT_LEAST(1, 1, 0)
         { .key_type = "rsae",
                 .signature = "pss",
                 .key_size = "4096",
@@ -86,7 +110,6 @@ int main(int argc, char **argv)
                 .digest = "sha256",
                 .expected_signature_nid = NID_rsassaPss,
                 .expected_digest_nid = NID_undef },
-#endif
     };
     for (size_t i = 0; i < s2n_array_len(test_cases); i++) {
         /* print statement to help debugging in CI */
@@ -94,7 +117,7 @@ int main(int argc, char **argv)
         char pathbuffer[S2N_MAX_TEST_PEM_PATH_LENGTH] = { 0 };
         uint8_t cert_file[S2N_MAX_TEST_PEM_SIZE] = { 0 };
         EXPECT_SUCCESS(
-                s2n_test_cert_permutation_get_server_chain_path(&pathbuffer, test_cases[i].key_type,
+                s2n_test_cert_permutation_get_server_chain_path(&pathbuffer[0], test_cases[i].key_type,
                         test_cases[i].signature, test_cases[i].key_size, test_cases[i].digest));
         EXPECT_SUCCESS(s2n_read_test_pem(pathbuffer, (char *) cert_file, S2N_MAX_TEST_PEM_SIZE));
 

@@ -980,6 +980,7 @@ const struct s2n_security_policy security_policy_rfc9151 = {
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_rfc9151,
     .certificate_signature_preferences = &s2n_certificate_signature_preferences_rfc9151,
+    .certificate_preferences_apply_locally = true,
     .ecc_preferences = &s2n_ecc_preferences_20210816,
 };
 
@@ -1207,6 +1208,11 @@ int s2n_config_set_cipher_preferences(struct s2n_config *config, const char *ver
     /* If the security policy's minimum version is higher than what libcrypto supports, return an error. */
     POSIX_ENSURE((security_policy->minimum_protocol_version <= s2n_get_highest_fully_supported_tls_version()), S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
 
+    /* If the certificates loaded in the config are incompatible with the security 
+     * policy's certificate preferences, return an error. */
+    POSIX_ENSURE(
+            s2n_result_is_ok(s2n_config_validate_certificate_preferences(config, security_policy)),
+            S2N_ERR_CERT_TYPE_UNSUPPORTED);
     config->security_policy = security_policy;
     return 0;
 }
@@ -1223,6 +1229,14 @@ int s2n_connection_set_cipher_preferences(struct s2n_connection *conn, const cha
 
     /* If the security policy's minimum version is higher than what libcrypto supports, return an error. */
     POSIX_ENSURE((security_policy->minimum_protocol_version <= s2n_get_highest_fully_supported_tls_version()), S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
+
+    /* If the certificates loaded in the config are incompatible with the security 
+     * policy's certificate preferences, return an error. */
+    if (conn->config != NULL) {
+        POSIX_ENSURE(s2n_result_is_ok(s2n_config_validate_certificate_preferences(conn->config,
+                             security_policy)),
+                S2N_ERR_CERT_TYPE_UNSUPPORTED);
+    }
 
     conn->security_policy_override = security_policy;
     return 0;
@@ -1492,5 +1506,21 @@ S2N_RESULT s2n_security_policy_validate_certificate(const struct s2n_cert_descri
                 security_policy->certificate_signature_preferences));
     }
 
+    return S2N_RESULT_OK;
+}
+
+S2N_RESULT s2n_security_policy_validate_certificate_chain(
+        const struct s2n_security_policy *security_policy,
+        struct s2n_cert_chain_and_key *cert_key_pair)
+{
+    RESULT_ENSURE_REF(security_policy);
+    RESULT_ENSURE_REF(cert_key_pair);
+
+    struct s2n_cert *current = cert_key_pair->cert_chain->head;
+    while (current != NULL) {
+        RESULT_GUARD(
+                s2n_security_policy_validate_certificate(&current->description, security_policy));
+        current = current->next;
+    }
     return S2N_RESULT_OK;
 }

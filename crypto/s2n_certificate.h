@@ -27,7 +27,8 @@
 /**
  * This struct is used to enforce security policy certificate preferences. An
  * `s2n_cert_description` is constructed from an openssl `X509*` using
- * `s2n_cert_get_cert_description`.
+ * `s2n_cert_get_cert_description`. This happens both when loading certificates
+ * and when validating certificates received from a peer.
 */
 struct s2n_cert_description {
     int signature_nid;
@@ -40,6 +41,7 @@ struct s2n_cert {
     s2n_pkey_type pkey_type;
     uint16_t ec_curve_nid;
     s2n_cert_public_key public_key;
+    struct s2n_cert_description description;
     struct s2n_blob raw;
     struct s2n_cert *next;
 };
