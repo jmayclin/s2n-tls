@@ -134,7 +134,7 @@ impl OpenSslConfig {
 
         // load in all of the CA certs
 
-        context.set_ca_file(get_ca_path()).unwrap();
+        //context.set_ca_file(get_ca_path()).unwrap();
         context.set_verify(SslVerifyMode::NONE);
 
         Ok(Self {
