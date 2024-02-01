@@ -14,8 +14,8 @@ exclude = [
 ]
 
 [patches.crates-io]
-openssl = { path = "/home/ubuntu/workspace/rust-openssl/openssl", features = ["vendored"], optional = true }
-# openssl-sys = { path = "/home/ubuntu/workspace/rust-openssl/openssl-sys" }
+openssl = { path = "/home/ec2-user/workspace/rust-openssl/openssl", features = ["vendored"], optional = true }
+# openssl-sys = { path = "/home/ec2-user/workspace/rust-openssl/openssl-sys" }
 
 
 [profile.release]

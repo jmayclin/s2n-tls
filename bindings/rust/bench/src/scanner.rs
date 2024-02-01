@@ -1585,12 +1585,12 @@ mod test {
 }
 
 extern "C" {
-    fn OBJ_sn2nid(name: *const i8) -> i32;
+    fn OBJ_sn2nid(name: *const u8) -> i32;
 }
 
 #[cfg(test)]
 mod known_test {
-    use std::ffi::CString;
+    use std::ffi::{c_char, CString};
 
     use super::*;
 
