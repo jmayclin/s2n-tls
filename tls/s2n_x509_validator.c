@@ -799,7 +799,7 @@ S2N_RESULT s2n_x509_validator_validate_cert_stapled_ocsp_response(struct s2n_x50
      *# nextUpdate      The time at or before which newer information will be
      *#                 available about the status of the certificate.
      **/
-    ASN1_GENERALIZEDTIME *revtime, *thisupd, *nextupd;
+    ASN1_GENERALIZEDTIME *revtime = NULL, *thisupd = NULL, *nextupd = NULL;
     /* Actual verification of the response */
     const int ocsp_resp_find_status_res = OCSP_resp_find_status(basic_response, cert_id, &status, &reason, &revtime, &thisupd, &nextupd);
     OCSP_CERTID_free(cert_id);
@@ -869,7 +869,7 @@ S2N_RESULT s2n_validate_certificate_signature(struct s2n_connection *conn, X509 
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(x509_cert);
 
-    const struct s2n_security_policy *security_policy;
+    const struct s2n_security_policy *security_policy = NULL;
     RESULT_GUARD_POSIX(s2n_connection_get_security_policy(conn, &security_policy));
 
     /**

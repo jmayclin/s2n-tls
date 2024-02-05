@@ -449,7 +449,7 @@ int main(int argc, char **argv)
         conn->handshake.handshake_type = NEGOTIATED | FULL_HANDSHAKE | CLIENT_AUTH | NO_CLIENT_CERT | TLS12_PERFECT_FORWARD_SECRECY | OCSP_STATUS | WITH_SESSION_TICKET | WITH_NPN;
         EXPECT_STRING_EQUAL(all_flags_handshake_type_name, s2n_connection_get_handshake_type_name(conn));
 
-        const char *handshake_type_name;
+        const char *handshake_type_name = NULL;
         for (int i = 0; i < valid_tls12_handshakes_size; i++) {
             conn->handshake.handshake_type = valid_tls12_handshakes[i];
 
@@ -492,8 +492,8 @@ int main(int argc, char **argv)
 
     /* Test: A WITH_NPN form of every valid, negotiated handshake exists */
     {
-        uint32_t handshake_type_original, handshake_type_npn;
-        message_type_t *messages_original, *messages_npn;
+        uint32_t handshake_type_original = 0, handshake_type_npn = 0;
+        message_type_t *messages_original = NULL, *messages_npn = NULL;
 
         for (size_t i = 0; i < valid_tls12_handshakes_size; i++) {
             handshake_type_original = valid_tls12_handshakes[i];

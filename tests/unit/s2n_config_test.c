@@ -65,7 +65,7 @@ int main(int argc, char **argv)
 
     const s2n_mode modes[] = { S2N_CLIENT, S2N_SERVER };
 
-    const struct s2n_security_policy *default_security_policy, *tls13_security_policy, *fips_security_policy;
+    const struct s2n_security_policy *default_security_policy = NULL, *tls13_security_policy = NULL, *fips_security_policy = NULL;
     EXPECT_SUCCESS(s2n_find_security_policy_from_version("default_tls13", &tls13_security_policy));
     EXPECT_SUCCESS(s2n_find_security_policy_from_version("default_fips", &fips_security_policy));
     EXPECT_SUCCESS(s2n_find_security_policy_from_version("default", &default_security_policy));
@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 
     /* Test: s2n_config_new and tls13_default_config match */
     {
-        struct s2n_config *config, *default_config;
+        struct s2n_config *config = NULL, *default_config = NULL;
 
         EXPECT_NOT_NULL(config = s2n_config_new());
         EXPECT_NOT_NULL(default_config = s2n_fetch_default_config());
@@ -102,8 +102,8 @@ int main(int argc, char **argv)
     {
         /* For TLS1.2 */
         if (!s2n_is_in_fips_mode()) {
-            struct s2n_connection *conn;
-            const struct s2n_security_policy *security_policy;
+            struct s2n_connection *conn = NULL;
+            const struct s2n_security_policy *security_policy = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
 
             EXPECT_EQUAL(conn->config, s2n_fetch_default_config());
@@ -117,8 +117,8 @@ int main(int argc, char **argv)
         /* For TLS1.3 */
         {
             EXPECT_SUCCESS(s2n_enable_tls13_in_test());
-            struct s2n_connection *conn;
-            const struct s2n_security_policy *security_policy;
+            struct s2n_connection *conn = NULL;
+            const struct s2n_security_policy *security_policy = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
 
             EXPECT_EQUAL(conn->config, s2n_fetch_default_config());
@@ -132,8 +132,8 @@ int main(int argc, char **argv)
 
         /* For fips */
         if (s2n_is_in_fips_mode()) {
-            struct s2n_connection *conn;
-            const struct s2n_security_policy *security_policy;
+            struct s2n_connection *conn = NULL;
+            const struct s2n_security_policy *security_policy = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
 
             EXPECT_EQUAL(conn->config, s2n_fetch_default_config());
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
     /* Test for s2n_config_new() and tls 1.3 behavior */
     {
         if (!s2n_is_in_fips_mode()) {
-            struct s2n_config *config;
+            struct s2n_config *config = NULL;
             EXPECT_NOT_NULL(config = s2n_config_new());
             EXPECT_EQUAL(config->security_policy, default_security_policy);
             EXPECT_EQUAL(config->security_policy->cipher_preferences, &cipher_preferences_20170210);
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
             struct s2n_connection *conn = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
 
-            struct s2n_config *config;
+            struct s2n_config *config = NULL;
             uint8_t num_tickets = 1;
 
             EXPECT_NOT_NULL(config = s2n_config_new());

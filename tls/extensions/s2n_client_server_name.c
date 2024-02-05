@@ -65,11 +65,11 @@ static int s2n_client_server_name_check(struct s2n_connection *conn, struct s2n_
 {
     POSIX_ENSURE_REF(conn);
 
-    uint16_t size_of_all;
+    uint16_t size_of_all = 0;
     POSIX_GUARD(s2n_stuffer_read_uint16(extension, &size_of_all));
     POSIX_ENSURE_LTE(size_of_all, s2n_stuffer_data_available(extension));
 
-    uint8_t server_name_type;
+    uint8_t server_name_type = 0;
     POSIX_GUARD(s2n_stuffer_read_uint8(extension, &server_name_type));
     POSIX_ENSURE_EQ(server_name_type, S2N_NAME_TYPE_HOST_NAME);
 
@@ -90,12 +90,12 @@ static int s2n_client_server_name_recv(struct s2n_connection *conn, struct s2n_s
     }
 
     /* Ignore if malformed. We just won't use the server name. */
-    uint16_t server_name_len;
+    uint16_t server_name_len = 0;
     if (s2n_client_server_name_check(conn, extension, &server_name_len) != S2N_SUCCESS) {
         return S2N_SUCCESS;
     }
 
-    uint8_t *server_name;
+    uint8_t *server_name = NULL;
     POSIX_ENSURE_REF(server_name = s2n_stuffer_raw_read(extension, server_name_len));
     POSIX_CHECKED_MEMCPY(conn->server_name, server_name, server_name_len);
 

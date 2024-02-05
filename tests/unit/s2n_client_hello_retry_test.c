@@ -62,8 +62,8 @@ int main(int argc, char **argv)
     {
         /* s2n_server_hello_retry_recv must fail when a keyshare for a matching curve was already present */
         {
-            struct s2n_config *config;
-            struct s2n_connection *conn;
+            struct s2n_config *config = NULL;
+            struct s2n_connection *conn = NULL;
 
             EXPECT_NOT_NULL(config = s2n_config_new());
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
@@ -89,8 +89,8 @@ int main(int argc, char **argv)
 
         /* s2n_server_hello_retry_recv must fail for a connection with actual protocol version less than TLS13 */
         {
-            struct s2n_config *config;
-            struct s2n_connection *conn;
+            struct s2n_config *config = NULL;
+            struct s2n_connection *conn = NULL;
 
             EXPECT_NOT_NULL(config = s2n_config_new());
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
@@ -106,13 +106,13 @@ int main(int argc, char **argv)
 
         /* Test ECC success case for s2n_server_hello_retry_recv */
         {
-            struct s2n_config *server_config;
-            struct s2n_config *client_config;
+            struct s2n_config *server_config = NULL;
+            struct s2n_config *client_config = NULL;
 
-            struct s2n_connection *server_conn;
-            struct s2n_connection *client_conn;
+            struct s2n_connection *server_conn = NULL;
+            struct s2n_connection *client_conn = NULL;
 
-            struct s2n_cert_chain_and_key *tls13_chain_and_key;
+            struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
             char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
             char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
             };
 
             if (!s2n_pq_is_enabled()) {
-                struct s2n_connection *conn;
+                struct s2n_connection *conn = NULL;
                 EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
                 conn->actual_protocol_version = S2N_TLS13;
                 conn->security_policy_override = &test_security_policy;
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
             } else {
                 /* s2n_server_hello_retry_recv must fail when a keyshare for a matching PQ KEM was already present */
                 {
-                    struct s2n_connection *conn;
+                    struct s2n_connection *conn = NULL;
                     EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
                     conn->actual_protocol_version = S2N_TLS13;
                     conn->security_policy_override = &test_security_policy;
@@ -233,7 +233,7 @@ int main(int argc, char **argv)
                 };
                 /* Test failure if exactly one of {named_curve, kem_group} isn't non-null */
                 {
-                    struct s2n_connection *conn;
+                    struct s2n_connection *conn = NULL;
                     EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
                     conn->actual_protocol_version = S2N_TLS13;
                     conn->security_policy_override = &test_security_policy;
@@ -255,10 +255,10 @@ int main(int argc, char **argv)
                 uint32_t available_groups = 0;
                 EXPECT_OK(s2n_kem_preferences_groups_available(test_security_policy.kem_preferences, &available_groups));
                 if (available_groups >= 2) {
-                    struct s2n_config *config;
-                    struct s2n_connection *conn;
+                    struct s2n_config *config = NULL;
+                    struct s2n_connection *conn = NULL;
 
-                    struct s2n_cert_chain_and_key *tls13_chain_and_key;
+                    struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
                     char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
                     char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -309,13 +309,13 @@ int main(int argc, char **argv)
      * hash, and generates a synthetic message. This test verifies that transcript hash recreated is the same
      * on both the server and client side. */
     {
-        struct s2n_config *server_config;
-        struct s2n_config *client_config;
+        struct s2n_config *server_config = NULL;
+        struct s2n_config *client_config = NULL;
 
-        struct s2n_connection *server_conn;
-        struct s2n_connection *client_conn;
+        struct s2n_connection *server_conn = NULL;
+        struct s2n_connection *client_conn = NULL;
 
-        struct s2n_cert_chain_and_key *tls13_chain_and_key;
+        struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
         char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
         char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -409,13 +409,13 @@ int main(int argc, char **argv)
      *# HelloRetryRequest and send a second updated ClientHello.
      **/
     {
-        struct s2n_config *server_config;
-        struct s2n_config *client_config;
+        struct s2n_config *server_config = NULL;
+        struct s2n_config *client_config = NULL;
 
-        struct s2n_connection *server_conn;
-        struct s2n_connection *client_conn;
+        struct s2n_connection *server_conn = NULL;
+        struct s2n_connection *client_conn = NULL;
 
-        struct s2n_cert_chain_and_key *tls13_chain_and_key;
+        struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
         char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
         char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -474,13 +474,13 @@ int main(int argc, char **argv)
      *# server MUST respond with a HelloRetryRequest (Section 4.1.4) message.
      **/
     if (s2n_is_evp_apis_supported()) {
-        struct s2n_config *server_config;
-        struct s2n_config *client_config;
+        struct s2n_config *server_config = NULL;
+        struct s2n_config *client_config = NULL;
 
-        struct s2n_connection *server_conn;
-        struct s2n_connection *client_conn;
+        struct s2n_connection *server_conn = NULL;
+        struct s2n_connection *client_conn = NULL;
 
-        struct s2n_cert_chain_and_key *tls13_chain_and_key;
+        struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
         char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
         char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -545,13 +545,13 @@ int main(int argc, char **argv)
      *# handshake with an "unexpected_message" alert.
      **/
     {
-        struct s2n_config *server_config;
-        struct s2n_config *client_config;
+        struct s2n_config *server_config = NULL;
+        struct s2n_config *client_config = NULL;
 
-        struct s2n_connection *server_conn;
-        struct s2n_connection *client_conn;
+        struct s2n_connection *server_conn = NULL;
+        struct s2n_connection *client_conn = NULL;
 
-        struct s2n_cert_chain_and_key *tls13_chain_and_key;
+        struct s2n_cert_chain_and_key *tls13_chain_and_key = NULL;
         char tls13_cert_chain[S2N_MAX_TEST_PEM_SIZE] = { 0 };
         char tls13_private_key[S2N_MAX_TEST_PEM_SIZE] = { 0 };
 
@@ -625,7 +625,7 @@ int main(int argc, char **argv)
      *# it as described in Section 4.1.4).
      **/
     {
-        struct s2n_connection *conn;
+        struct s2n_connection *conn = NULL;
         EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
         const uint8_t not_hello_retry_request_random[S2N_TLS_RANDOM_DATA_LEN] = { 0 };
         EXPECT_MEMCPY_SUCCESS(conn->handshake_params.server_random, not_hello_retry_request_random,
@@ -648,8 +648,8 @@ int main(int argc, char **argv)
      *# otherwise abort the handshake with an "illegal_parameter" alert.
      **/
     {
-        struct s2n_connection *server_conn;
-        struct s2n_connection *client_conn;
+        struct s2n_connection *server_conn = NULL;
+        struct s2n_connection *client_conn = NULL;
 
         EXPECT_NOT_NULL(server_conn = s2n_connection_new(S2N_SERVER));
         EXPECT_NOT_NULL(client_conn = s2n_connection_new(S2N_CLIENT));
