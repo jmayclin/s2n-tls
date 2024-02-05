@@ -24,13 +24,7 @@
 
 #define S2N_CERT_TYPE_COUNT S2N_PKEY_TYPE_SENTINEL
 
-/**
- * This struct is used to enforce security policy certificate preferences. An
- * `s2n_cert_description` is constructed from an openssl `X509*` using
- * `s2n_cert_get_cert_description`. This happens both when loading certificates
- * and when validating certificates received from a peer.
-*/
-struct s2n_cert_description {
+struct s2n_cert_info {
     int signature_nid;
     /* This field is not populated for RSA_PSS signatures */
     int signature_digest_nid;
@@ -41,7 +35,7 @@ struct s2n_cert {
     s2n_pkey_type pkey_type;
     uint16_t ec_curve_nid;
     s2n_cert_public_key public_key;
-    struct s2n_cert_description description;
+    struct s2n_cert_info info;
     struct s2n_blob raw;
     struct s2n_cert *next;
 };
@@ -96,4 +90,3 @@ int s2n_cert_get_x509_extension_value_length(struct s2n_cert *cert, const uint8_
 int s2n_cert_get_x509_extension_value(struct s2n_cert *cert, const uint8_t *oid, uint8_t *ext_value, uint32_t *ext_value_len, bool *critical);
 int s2n_cert_get_utf8_string_from_extension_data_length(const uint8_t *extension_data, uint32_t extension_len, uint32_t *utf8_str_len);
 int s2n_cert_get_utf8_string_from_extension_data(const uint8_t *extension_data, uint32_t extension_len, uint8_t *out_data, uint32_t *out_len);
-S2N_RESULT s2n_cert_get_cert_description(X509 *cert, struct s2n_cert_description *description);

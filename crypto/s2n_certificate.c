@@ -32,8 +32,6 @@
 #include "utils/s2n_mem.h"
 #include "utils/s2n_safety.h"
 
-DEFINE_POINTER_CLEANUP_FUNC(EVP_PKEY *, EVP_PKEY_free);
-
 int s2n_cert_set_cert_type(struct s2n_cert *cert, s2n_pkey_type pkey_type)
 {
     POSIX_ENSURE_REF(cert);
@@ -360,7 +358,7 @@ int s2n_cert_chain_and_key_load(struct s2n_cert_chain_and_key *chain_and_key)
 
     DEFER_CLEANUP(X509 *leaf_cert = NULL, X509_free_pointer);
     POSIX_GUARD_RESULT(s2n_openssl_x509_parse(&head->raw, &leaf_cert));
-    POSIX_GUARD_RESULT(s2n_cert_get_cert_description(leaf_cert, &head->description));
+    POSIX_GUARD_RESULT(s2n_openssl_x509_get_cert_info(leaf_cert, &head->info));
 
     /* Parse the leaf cert for the public key and certificate type */
     DEFER_CLEANUP(struct s2n_pkey public_key = { 0 }, s2n_pkey_free);
@@ -391,7 +389,7 @@ int s2n_cert_chain_and_key_load(struct s2n_cert_chain_and_key *chain_and_key)
     while (current != NULL) {
         DEFER_CLEANUP(X509 *parsed_cert = NULL, X509_free_pointer);
         POSIX_GUARD_RESULT(s2n_openssl_x509_parse(&current->raw, &parsed_cert));
-        POSIX_GUARD_RESULT(s2n_cert_get_cert_description(parsed_cert, &current->description));
+        POSIX_GUARD_RESULT(s2n_openssl_x509_get_cert_info(parsed_cert, &current->info));
 
         current = current->next;
     }
@@ -895,35 +893,4 @@ int s2n_cert_get_x509_extension_value(struct s2n_cert *cert, const uint8_t *oid,
     POSIX_GUARD(s2n_parse_x509_extension(cert, oid, ext_value, ext_value_len, critical));
 
     return S2N_SUCCESS;
-}
-
-S2N_RESULT s2n_cert_get_cert_description(X509 *cert, struct s2n_cert_description *description)
-{
-    X509_NAME *issuer_name = X509_get_issuer_name(cert);
-    RESULT_ENSURE_REF(issuer_name);
-
-    X509_NAME *subject_name = X509_get_subject_name(cert);
-    RESULT_ENSURE_REF(subject_name);
-
-    if (X509_NAME_cmp(issuer_name, subject_name) == 0) {
-        description->self_signed = true;
-    } else {
-        description->self_signed = false;
-    }
-
-#if defined(LIBRESSL_VERSION_NUMBER) && (LIBRESSL_VERSION_NUMBER < 0x02070000f)
-    RESULT_ENSURE_REF(cert->sig_alg);
-    description->signature_nid = OBJ_obj2nid(cert->sig_alg->algorithm);
-#else
-    description->signature_nid = X509_get_signature_nid(cert);
-#endif
-
-    DEFER_CLEANUP(EVP_PKEY *pubkey = X509_get_pubkey(cert), EVP_PKEY_free_pointer);
-    RESULT_ENSURE_REF(pubkey);
-
-    RESULT_GUARD_OSSL(OBJ_find_sigid_algs(description->signature_nid,
-                              &description->signature_digest_nid, NULL),
-            S2N_ERR_CERT_TYPE_UNSUPPORTED);
-
-    return S2N_RESULT_OK;
 }
