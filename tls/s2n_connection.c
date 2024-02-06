@@ -284,9 +284,8 @@ int s2n_connection_set_config(struct s2n_connection *conn, struct s2n_config *co
     }
 
     if (conn->security_policy_override != NULL) {
-        POSIX_ENSURE(s2n_result_is_ok(s2n_config_validate_certificate_preferences(config,
-                             conn->security_policy_override)),
-                S2N_ERR_CERT_TYPE_UNSUPPORTED);
+        POSIX_GUARD_RESULT(s2n_config_validate_certificate_preferences(config,
+                conn->security_policy_override));
     }
 
     /* We only support one client certificate */

@@ -1210,9 +1210,7 @@ int s2n_config_set_cipher_preferences(struct s2n_config *config, const char *ver
 
     /* If the certificates loaded in the config are incompatible with the security 
      * policy's certificate preferences, return an error. */
-    POSIX_ENSURE(
-            s2n_result_is_ok(s2n_config_validate_certificate_preferences(config, security_policy)),
-            S2N_ERR_CERT_TYPE_UNSUPPORTED);
+    POSIX_GUARD_RESULT(s2n_config_validate_certificate_preferences(config, security_policy));
     config->security_policy = security_policy;
     return 0;
 }
@@ -1233,9 +1231,8 @@ int s2n_connection_set_cipher_preferences(struct s2n_connection *conn, const cha
     /* If the certificates loaded in the config are incompatible with the security 
      * policy's certificate preferences, return an error. */
     if (conn->config != NULL) {
-        POSIX_ENSURE(s2n_result_is_ok(s2n_config_validate_certificate_preferences(conn->config,
-                             security_policy)),
-                S2N_ERR_CERT_TYPE_UNSUPPORTED);
+        POSIX_GUARD_RESULT(
+                s2n_config_validate_certificate_preferences(conn->config, security_policy));
     }
 
     conn->security_policy_override = security_policy;
@@ -1490,7 +1487,8 @@ S2N_RESULT s2n_security_policy_validate_sig_scheme_supported(
     RESULT_BAIL(S2N_ERR_CERT_UNTRUSTED);
 }
 
-S2N_RESULT s2n_security_policy_validate_certificate(const struct s2n_security_policy *security_policy, const struct s2n_cert_info *info)
+S2N_RESULT s2n_security_policy_validate_certificate(
+        const struct s2n_security_policy *security_policy, const struct s2n_cert_info *info)
 {
     RESULT_ENSURE_REF(info);
     RESULT_ENSURE_REF(security_policy);
@@ -1500,7 +1498,8 @@ S2N_RESULT s2n_security_policy_validate_certificate(const struct s2n_security_po
     }
 
     if (security_policy->certificate_signature_preferences != NULL) {
-        RESULT_GUARD(s2n_security_policy_validate_sig_scheme_supported(security_policy->certificate_signature_preferences, info));
+        RESULT_GUARD(s2n_security_policy_validate_sig_scheme_supported(
+                security_policy->certificate_signature_preferences, info));
     }
 
     return S2N_RESULT_OK;
@@ -1508,15 +1507,15 @@ S2N_RESULT s2n_security_policy_validate_certificate(const struct s2n_security_po
 
 S2N_RESULT s2n_security_policy_validate_certificate_chain(
         const struct s2n_security_policy *security_policy,
-        struct s2n_cert_chain_and_key *cert_key_pair)
+        const struct s2n_cert_chain_and_key *cert_key_pair)
 {
     RESULT_ENSURE_REF(security_policy);
     RESULT_ENSURE_REF(cert_key_pair);
+    RESULT_ENSURE_REF(cert_key_pair->cert_chain);
 
     struct s2n_cert *current = cert_key_pair->cert_chain->head;
     while (current != NULL) {
-        RESULT_GUARD(
-                s2n_security_policy_validate_certificate(security_policy, &current->info));
+        RESULT_GUARD(s2n_security_policy_validate_certificate(security_policy, &current->info));
         current = current->next;
     }
     return S2N_RESULT_OK;

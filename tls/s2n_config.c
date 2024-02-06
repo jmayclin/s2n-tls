@@ -538,9 +538,8 @@ static int s2n_config_add_cert_chain_and_key_impl(struct s2n_config *config, str
     /* Validate that the certificate type is allowed by the security policy. */
     const struct s2n_security_policy *const security_policy = config->security_policy;
     if (security_policy->certificate_preferences_apply_locally) {
-        POSIX_ENSURE(s2n_result_is_ok(s2n_security_policy_validate_certificate_chain(
-                             config->security_policy, cert_key_pair)),
-                S2N_ERR_CERT_TYPE_UNSUPPORTED);
+        POSIX_GUARD_RESULT(s2n_security_policy_validate_certificate_chain(config->security_policy,
+                cert_key_pair));
     }
 
     s2n_pkey_type cert_type = s2n_cert_chain_and_key_get_pkey_type(cert_key_pair);

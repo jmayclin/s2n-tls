@@ -1097,7 +1097,9 @@ int main(int argc, char **argv)
                 S2N_KITTEN_SAN_KEY));
         EXPECT_SUCCESS(s2n_test_cert_permutation_load_server_chain(&ecdsa_p384_sha384, "ec",
                 "ecdsa", "p384", "sha384"));
-        /* rfc9151 doesn't allow SHA384 signatures, but does allow SHA256 signatures */
+
+        /* rfc9151 doesn't allow SHA256 signatures, but does allow SHA384 signatures, 
+         * so ecdsa_p384_sha256 is invalid and ecdsa_p384_sha384 is valid */
 
         /* valid certs are accepted */
         {
@@ -1107,7 +1109,7 @@ int main(int argc, char **argv)
                     s2n_config_validate_certificate_preferences(config, &security_policy_rfc9151));
         };
 
-        /* when cert preferences don't apply locally, validation succeeds */
+        /* when cert preferences don't apply locally, invalid certs are accepted */
         {
             const struct s2n_signature_scheme *const test_sig_scheme_list[] = {
                 &s2n_ecdsa_sha384,
@@ -1134,6 +1136,9 @@ int main(int argc, char **argv)
 
         /* certs in default_certs_by_type are validated */
         {
+            /* s2n_config_set_cert_chain_and_key_defaults populates default_certs_by_type 
+             * but doesn't populate domain_name_to_cert_map 
+             */
             DEFER_CLEANUP(struct s2n_config *config = s2n_config_new(), s2n_config_ptr_free);
             EXPECT_SUCCESS(
                     s2n_config_set_cert_chain_and_key_defaults(config, &ecdsa_p384_sha256, 1));
@@ -1151,17 +1156,23 @@ int main(int argc, char **argv)
 
         /* certs in the domain map are validated */
         {
+            /* default_certs_by_type will only hold the most recently added cert 
+             * of a particular cert type, but all certs with different SANs will
+             * be stored in domain_name_to_cert_map. */
             DEFER_CLEANUP(struct s2n_config *config = s2n_config_new(), s2n_config_ptr_free);
             EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, ecdsa_p384_sha384));
             EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, ecdsa_p384_sha256));
 
-            /* default_certs_by_type contains only valid certs */
-            uint32_t domain_certs_count = 0;
-            EXPECT_OK(s2n_map_size(config->domain_name_to_cert_map, &domain_certs_count));
-            EXPECT_EQUAL(domain_certs_count, 2);
+            /* default_certs_by_type contains a single valid cert. */
             EXPECT_EQUAL(s2n_config_get_num_default_certs(config), 1);
             EXPECT_EQUAL(config->default_certs_by_type.certs[S2N_PKEY_TYPE_ECDSA],
                     ecdsa_p384_sha384);
+
+            /* domain_name_to_cert_map contains two certs and therefore must hold
+             * an invalid cert. */
+            uint32_t domain_certs_count = 0;
+            EXPECT_OK(s2n_map_size(config->domain_name_to_cert_map, &domain_certs_count));
+            EXPECT_EQUAL(domain_certs_count, 2);
 
             /* certs in domain_map are validated */
             EXPECT_ERROR(
