@@ -404,7 +404,7 @@ S2N_RESULT s2n_x509_validator_read_asn1_cert(struct s2n_stuffer *cert_chain_in_s
 * Validates that each certificate in a peer's cert chain contains only signature algorithms in a security policy's
 * certificate_signatures_preference list.
 */
-S2N_RESULT s2n_validator_check_cert_preferences(struct s2n_connection *conn, X509 *cert)
+S2N_RESULT s2n_x509_validator_check_cert_preferences(struct s2n_connection *conn, X509 *cert)
 {
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(cert);
@@ -443,18 +443,19 @@ S2N_RESULT s2n_validator_check_cert_preferences(struct s2n_connection *conn, X50
     struct s2n_cert_info info = { 0 };
     RESULT_GUARD(s2n_openssl_x509_get_cert_info(cert, &info));
 
+    if (info.self_signed) {
+        return S2N_RESULT_OK;
+    }
+
     /* Ensure that the certificate signature does not use SHA-1. While this check
      * would ideally apply to all connections, we only enforce it when certificate
      * preferences exist to stay backwards compatible.
      */
-    if (conn->actual_protocol_version == S2N_TLS13 && !info.self_signed) {
+    if (conn->actual_protocol_version == S2N_TLS13) {
         RESULT_ENSURE(info.signature_digest_nid != NID_sha1, S2N_ERR_CERT_UNTRUSTED);
     }
 
-    if (!info.self_signed) {
-        RESULT_GUARD(s2n_security_policy_validate_sig_scheme_supported(
-                security_policy->certificate_signature_preferences, &info));
-    }
+    RESULT_GUARD(s2n_security_policy_validate_cert_signature(security_policy, &info));
 
     return S2N_RESULT_OK;
 }
@@ -488,7 +489,7 @@ static S2N_RESULT s2n_x509_validator_read_cert_chain(struct s2n_x509_validator *
         }
 
         if (!validator->skip_cert_validation) {
-            RESULT_GUARD(s2n_validator_check_cert_preferences(conn, cert));
+            RESULT_GUARD(s2n_x509_validator_check_cert_preferences(conn, cert));
         }
 
         /* add the cert to the chain */
