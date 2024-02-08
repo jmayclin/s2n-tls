@@ -39,8 +39,8 @@ fn main() {
 
     let (tx, rx) = std::sync::mpsc::channel();
 
-    let thread_pool_size = TARGET_TPS / MAX_ENDPOINT_TPS;
-    let thread_pool_size = max(thread_pool_size, 1);
+    let mut thread_pool_size = TARGET_TPS / MAX_ENDPOINT_TPS;
+    thread_pool_size = max(thread_pool_size, 1);
     log::info!("Thread Pool Size: {}", thread_pool_size);
     for i in 0..thread_pool_size {
         // create the clones to be moved into the thread
