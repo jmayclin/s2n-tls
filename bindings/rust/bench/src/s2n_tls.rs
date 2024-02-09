@@ -9,7 +9,7 @@ use crate::{
     PemType::{self, *},
     SigType,
 };
-use openssl::bn::BigNum;
+
 use s2n_tls::{
     callbacks::{SessionTicketCallback, VerifyHostNameCallback},
     config::Builder,
@@ -26,7 +26,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,
-    time::{SystemTime, Instant},
+    time::{Instant, SystemTime},
 };
 use strum::IntoEnumIterator;
 
@@ -106,19 +106,22 @@ impl S2NConfig {
                 //let dh_pem = dh.params_to_pem().unwrap();
                 // I could not get any of these generations to work
                 /* 4096 -> 5 - 10 seconds check
-                   2048 -> 1 second check
------BEGIN DH PARAMETERS-----
-MIIBCAKCAQEAqxMGKZB8YNV8WQnbJWwwwmifc+PfVRtd1FN5v5aQSsf6dpjX3Zlh
-N1NmgecsQyg4u2EWe4Umta10QzCgYaxf6QdTCg7iprLzFNw7IvWYbQ6du12NMGDr
-hmwA6KQKwbTgPL6mSlSlcK2wTP2FzxDTNffFu10cB/6Fj4kdQjPG0c1Koz/z7OOq
-BuDElJLClS8rjp3z1xvrc7gX95dFa2KaKgOAYDkpe8tfHRhHfJeIVS/whH9hzx6r
-OBg+E5K9JyvayrUoKgPeptRKCqo8A4YevtMLpRxMup0nMUgAIv6+BGTwPAFpwgl/
-8UIVcvjh1v95PwGDM/Q8yvIBJznBYk/e2wIBAg==
------END DH PARAMETERS-----
-                 */
+                                   2048 -> 1 second check
+                -----BEGIN DH PARAMETERS-----
+                MIIBCAKCAQEAqxMGKZB8YNV8WQnbJWwwwmifc+PfVRtd1FN5v5aQSsf6dpjX3Zlh
+                N1NmgecsQyg4u2EWe4Umta10QzCgYaxf6QdTCg7iprLzFNw7IvWYbQ6du12NMGDr
+                hmwA6KQKwbTgPL6mSlSlcK2wTP2FzxDTNffFu10cB/6Fj4kdQjPG0c1Koz/z7OOq
+                BuDElJLClS8rjp3z1xvrc7gX95dFa2KaKgOAYDkpe8tfHRhHfJeIVS/whH9hzx6r
+                OBg+E5K9JyvayrUoKgPeptRKCqo8A4YevtMLpRxMup0nMUgAIv6+BGTwPAFpwgl/
+                8UIVcvjh1v95PwGDM/Q8yvIBJznBYk/e2wIBAg==
+                -----END DH PARAMETERS-----
+                                 */
                 let start = Instant::now();
                 builder.add_dhparams(&dh_params()).unwrap();
-                println!("dh params successfully loaded, and it took {} ms", start.elapsed().as_millis());
+                println!(
+                    "dh params successfully loaded, and it took {} ms",
+                    start.elapsed().as_millis()
+                );
                 builder.load_pem(&cert, &key).unwrap();
                 builder.build().unwrap()
             })

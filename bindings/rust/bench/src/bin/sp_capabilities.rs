@@ -61,7 +61,6 @@ fn main() {
     let mut sp = Vec::from_iter(sp.iter().cloned());
     sp.sort_by_key(|s| s.to_owned());
 
-
     let total = sp.len();
 
     let progress = AtomicU32::new(total as u32);

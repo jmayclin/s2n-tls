@@ -27,7 +27,7 @@ pub trait ComplianceRegime {
     /// is SHA384 or SHA512. This method should return a descriptive error message,
     /// something like "The certificate is invalid because RFC9151 doesn't allow for
     /// RSA key sizes smaller than 3072 bits".
-    fn validate_certificate(cert: &Certificate) -> Result<(), String> {
+    fn validate_certificate(_cert: &Certificate) -> Result<(), String> {
         Ok(())
     }
 
@@ -172,10 +172,7 @@ impl ComplianceRegime for RFC9151 {
     }
 
     fn protocols() -> Vec<Protocol> {
-        vec![
-            Protocol::TLS_1_3,
-            Protocol::TLS_1_2,
-        ]
+        vec![Protocol::TLS_1_3, Protocol::TLS_1_2]
     }
 
     fn ciphers() -> Vec<Cipher> {
@@ -189,11 +186,7 @@ impl ComplianceRegime for RFC9151 {
     }
 
     fn groups() -> Vec<KxGroup> {
-        vec![
-            KxGroup::ffdhe3072,
-            KxGroup::ffdhe4096,
-            KxGroup::P_384,
-        ]
+        vec![KxGroup::ffdhe3072, KxGroup::ffdhe4096, KxGroup::P_384]
     }
 
     fn signatures() -> Vec<Signature> {

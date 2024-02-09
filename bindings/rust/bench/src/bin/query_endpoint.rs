@@ -4,7 +4,7 @@ fn main() {
         .try_init()
         .unwrap();
     let query = bench::scanner::QueryEngine::construct_engine();
-    let endpoint = "dynamodb.cn-north-1.amazonaws.com.cn";
+    let endpoint = "email-smtp-fips.us-west-1.amazonaws.com";
     let r = query.inspect_endpoint(endpoint).unwrap();
     r.cert_information();
     println!("{}", serde_json::to_string(&r).unwrap());

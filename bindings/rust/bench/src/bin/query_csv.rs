@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bench::scanner::{Report, MAX_ENDPOINT_TPS};
@@ -11,6 +11,8 @@ use rayon::prelude::*;
 
 use rand::{seq::SliceRandom, thread_rng};
 
+// with 16,000 -> network unreachable
+// with 4,000 -> still some network unreachable errors
 const TARGET_TPS: usize = 4000;
 const CHECKPOINT_FREQUENCY: usize = 250;
 
@@ -19,6 +21,8 @@ fn main() {
         .filter_level(log::LevelFilter::Info)
         .try_init()
         .unwrap();
+
+    let query_start = Instant::now();
 
     let engine = bench::scanner::QueryEngine::construct_engine();
     let engine = Arc::new(engine);
@@ -47,9 +51,9 @@ fn main() {
     // rx (receive) handle.
     let (tx, rx) = std::sync::mpsc::channel();
 
-    // We set a "target TPS" for the entire instance to avoid being too spammy. 
-    // We also set a MAX_ENDPOINT_TPS which will make sure that we never overload 
-    // a single endpoint with too much traffic. This allows us to run our scan in 
+    // We set a "target TPS" for the entire instance to avoid being too spammy.
+    // We also set a MAX_ENDPOINT_TPS which will make sure that we never overload
+    // a single endpoint with too much traffic. This allows us to run our scan in
     // a highly parallel manner while minimizing the scan impact on endpoints.
     let mut thread_pool_size = TARGET_TPS / MAX_ENDPOINT_TPS;
     thread_pool_size = max(thread_pool_size, 1);
@@ -68,9 +72,9 @@ fn main() {
         let engine_handle = Arc::clone(&engine);
         thread::spawn(move || {
             log::info!("thread {i} created");
-            // The only purpose of this pause is to make the log statements 
-            // easier to read.
-            std::thread::sleep(Duration::from_secs(1));
+            // When parallelism is set too high we get throttled by DNS. This 
+            // creates some natural jitter/ramp up to appease the DNS gods.
+            std::thread::sleep(Duration::from_millis((i * 100) as u64));
 
             // get the next element to be queried, or return if there are none left
             // don't use let/while, because it holds the lock :(
@@ -123,6 +127,7 @@ fn main() {
         }
     }
     write_reports(&reports, &failures);
+    log::info!("finished querying {total_endpoints} in {} seconds", query_start.elapsed().as_secs());
 }
 
 fn write_reports(reports: &Vec<Report>, failures: &Vec<(String, String)>) {

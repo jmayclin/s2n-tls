@@ -2,7 +2,7 @@ use std::sync::atomic::AtomicU32;
 
 use bench::scanner::{
     compliance::{ComplianceRegime, CryptoRecommendation20231130},
-    params::{KeyExchange, KxGroup, Protocol, Sig, Signature, Cipher},
+    params::{Cipher, KeyExchange, KxGroup, Protocol, Sig, Signature},
     Report,
 };
 use rayon::prelude::*;
@@ -84,7 +84,7 @@ impl Table {
                         .iter()
                         .filter_map(|c| match c {
                             Cipher::Tls13(_) => None,
-                            Cipher::Legacy(legacy) => Some(legacy)
+                            Cipher::Legacy(legacy) => Some(legacy),
                         })
                         .any(|c| c.key_exchange() == Some(KeyExchange::RSA))
                 },

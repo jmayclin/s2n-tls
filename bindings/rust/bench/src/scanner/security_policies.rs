@@ -1,4 +1,4 @@
-pub const SECURITY_POLICIES: [&'static str; 106] = [
+pub const SECURITY_POLICIES: [&str; 106] = [
     "default",
     "default_tls13",
     "default_fips",

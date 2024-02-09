@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bench::scanner::Report;
+use bench::scanner::{compliance::{ComplianceRegime, RFC9151}, Report};
 use rayon::prelude::*;
 
 /// The query.rs binary can be used to write a full list of the capabilities of
@@ -31,20 +31,16 @@ fn main() {
 
     log::info!("there are {} distinct fingerprints", fingerprints.len());
 
-    for (f, v) in fingerprints {
-        if v.len() > 1 {
-            log::info!("similar security policies");
-            for sp in v {
-                log::info!("\t{}", sp.endpoint);
-            }
-        }
+    // map from endpoints -> compliance
+    let mut rfc9151: Vec<(Vec<String>, Result<(), Vec<String>>)> = Vec::new();
+    for similar_reports in fingerprints.values() {
+        let endpoints = similar_reports.iter().map(|r| r.endpoint.clone()).collect();
+        let compliance = RFC9151::compliance(similar_reports.first().unwrap());
+        rfc9151.push((endpoints, compliance));
     }
 
-    for r in reports {
-        std::fs::write(
-            format!("capabilities/{}.json", r.endpoint),
-            serde_json::to_string_pretty(&r).unwrap().as_bytes(),
-        )
-        .unwrap()
-    }
+    std::fs::write(
+        "rfc9151-compliance.json",
+        serde_json::to_string_pretty(&rfc9151).unwrap(),
+    ).unwrap();
 }

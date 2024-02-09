@@ -1,10 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeSet, HashMap, VecDeque},
-    error::Error,
-    sync::{Once, RwLock},
-    time::{Duration, Instant},
+    collections::{hash_map::DefaultHasher, BTreeSet, HashMap, VecDeque}, error::Error, net::ToSocketAddrs, sync::{Once, RwLock}, time::{Duration, Instant}
 };
 
 use log::error;
@@ -25,7 +22,6 @@ use params::{Cipher, LegacyCipher, Tls13Cipher};
 
 use self::params::{
     all_parameters, Hash, KeyExchange, KxGroup, ParameterType, Protocol, Sig, Signature,
-    SignatureScheme,
 };
 pub mod compliance;
 pub mod security_policies;
@@ -158,8 +154,8 @@ pub struct Report {
     pub groups: BTreeSet<KxGroup>,
     pub signatures: BTreeSet<Signature>,
     // PEM encoded
-    // This is a Vec of certificates because a single endpoint might return 
-    // multiple certificate chains. For example a an endpoint might serve both 
+    // This is a Vec of certificates because a single endpoint might return
+    // multiple certificate chains. For example a an endpoint might serve both
     // an ECDSA cert chain and an RSA cert chain.
     pub cert_chain: BTreeSet<Vec<Certificate>>,
 }
@@ -184,12 +180,11 @@ impl Certificate {
     fn from_ossl(cert: &X509Ref) -> Self {
         let subject = format!("{:?}", cert.subject_name());
         let issuer = format!("{:?}", cert.issuer_name());
-        let expiration_days = cert
+        let expiration_days = -cert
             .not_after()
             .diff(&Asn1Time::from_unix(0).unwrap())
             .unwrap()
-            .days
-            * -1;
+            .days;
         let pub_key = cert.public_key().unwrap();
         let pub_key = if pub_key.id() == Id::RSA {
             let size = pub_key.bits();
@@ -251,7 +246,7 @@ impl Report {
             None => return Err("no certificate chain found"),
         };
 
-        let pem_vec: Vec<Certificate> = chain.iter().map(|c| Certificate::from_ossl(c)).collect();
+        let pem_vec: Vec<Certificate> = chain.iter().map(Certificate::from_ossl).collect();
         self.cert_chain.insert(pem_vec);
         // there won't be a peer temp key when RSA transport is used
         if let Ok(key) = connection.peer_tmp_key() {
@@ -325,7 +320,7 @@ impl Report {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn ecdsa_cert(&self) -> bool {
@@ -334,7 +329,7 @@ impl Report {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn supports_13(&self) -> bool {
@@ -359,6 +354,12 @@ pub struct QueryEngine {
 
 pub struct TokenBucket {
     queries: VecDeque<Instant>,
+}
+
+impl Default for TokenBucket {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TokenBucket {
@@ -492,16 +493,19 @@ impl QueryEngine {
             let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
             // can't load MD5 because legacy isn't there yet
             assert!(fetch.is_err());
+            
+            // if the legacy provider is dropped then it is unloaded and will
+            // have no impact. Therefore we "forget" the legacy provider to keep
+            // it around for the entire lifetime of the program.
             let load = openssl::provider::Provider::try_load(None, "legacy", false).unwrap();
             std::mem::forget(load);
-            //let load = openssl::provider::Provider::try_load(None, "default", false).unwrap();
-            //let provider = load.unwrap();
 
+            // as a sanity check, we should now be able to load MD5 since the 
+            // legacy provider is available
             let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
             assert!(fetch.is_ok());
         });
-        let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
-        assert!(fetch.is_ok());
+
         let query = TlsQuery::default();
 
         // panic if the default parameters aren't supported
@@ -518,7 +522,7 @@ impl QueryEngine {
             .filter(|query| {
                 let result = OpenSslConfig::tls_security_query(query);
                 log::trace!("{:?}", result.as_ref().err());
-                !result.is_ok()
+                result.is_err()
             })
             .map(|query| query.interest)
             .collect();
@@ -557,14 +561,22 @@ impl QueryEngine {
             let config = OpenSslConfig::tls_security_query(&query).unwrap();
             (query, config)
         });
+        // do a single DNS query, because otherwise DNS will throttle us :(
+        let lookup = format!("{endpoint}:443");
+        log::trace!("trying to check {lookup}");
+        let ips = lookup.to_socket_addrs().unwrap();
+        // to be polite, spread scans out among all of the available IP addresses
+        let mut ips = ips.cycle();
         log::trace!("beginning the querying");
         for (query, config) in query_iter {
-            // sleep to try and make the network a bit less angry. maximum of 200 TPS
+            // This is a very naive way of ensuring that we stay beneath MAX_ENDPOINT_TPS.
+            // it causes us to undershoot it, but that's generally fine.
             std::thread::sleep(Duration::from_millis(1_000 / MAX_ENDPOINT_TPS as u64));
 
             // we should always be able to connect to the endpoint and create the SslStream
             // if this fails then we have not successfully queried the endpoint
-            let stream = std::net::TcpStream::connect(format!("{endpoint}:443"))?;
+            let stream = std::net::TcpStream::connect_timeout(&ips.next().unwrap(), Duration::from_secs(10))?;
+
             let mut ssl = config.create();
             // this must be set otherwise certain wicker endpoints fail to connect
             ssl.set_hostname(endpoint).unwrap();
@@ -613,7 +625,7 @@ impl QueryEngine {
                     // that this might fail for signature algorithms, but it is unexpected that
                     // it would fail for anything else.
                     // assert_state(client, server, query)
-                    if let ParameterType::Signature(Signature::SigHash(s, h)) = query.interest {
+                    if let ParameterType::Signature(Signature::SigHash(_s, _h)) = query.interest {
                         // this means we were interested in a sig hash thing, which might have fallen prey to silly
                         // parameter defaults (which I despise, btw, in case that wasn't clear). STOP PUTTING DEFAULT VALUES
                         // IN YOUR PROTOCOLS DAMN IT.
@@ -685,17 +697,16 @@ pub mod params {
 
     pub fn all_parameters() -> Vec<ParameterType> {
         Protocol::iter()
-            .map(|p| ParameterType::Protocol(p))
+            .map(ParameterType::Protocol)
             .chain(Tls13Cipher::iter().map(|c| ParameterType::Cipher(Cipher::Tls13(c))))
             .chain(LegacyCipher::iter().map(|c| ParameterType::Cipher(Cipher::Legacy(c))))
-            .chain(KxGroup::iter().map(|g| ParameterType::Group(g)))
+            .chain(KxGroup::iter().map(ParameterType::Group))
             .chain(
                 Sig::iter()
-                    .map(|s| {
+                    .flat_map(|s| {
                         Hash::iter()
                             .map(move |h| ParameterType::Signature(Signature::SigHash(s, h)))
-                    })
-                    .flatten(),
+                    }),
             )
             .chain(
                 SignatureScheme::iter()
@@ -868,7 +879,7 @@ pub mod params {
     impl Display for Sig {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                Self::RSA_PSS => write!(f, "{}", "RSA-PSS"),
+                Self::RSA_PSS => write!(f, "RSA-PSS"),
                 _ => write!(f, "{:?}", self),
             }
         }
@@ -1500,14 +1511,6 @@ mod test {
                 LegacyCipher::TLS_RSA_WITH_RC4_128_SHA
             ))));
 
-        // make sure md5 hashes are being queried for
-        // TODO: query for empty stuff
-        // assert!(!qe
-        //     .unsupported_params
-        //     .contains(&ParameterType::Signature(Signature::SigHash(
-        //         Sig::RSA,
-        //         Hash::MD5
-        //     ))));
         assert_eq!(queries.len(), 128);
     }
 
@@ -1594,6 +1597,8 @@ extern "C" {
 #[cfg(test)]
 mod known_test {
     use std::ffi::{c_char, CString};
+
+    use known_test::params::SignatureScheme;
 
     use super::*;
 

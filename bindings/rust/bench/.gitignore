@@ -2,3 +2,4 @@
 *.svg
 !historical-perf-*.svg
 *.zst
+*endpoints.csv

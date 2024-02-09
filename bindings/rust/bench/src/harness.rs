@@ -9,7 +9,7 @@ use std::{
     fs::read_to_string,
     io::{ErrorKind, Read, Write},
     rc::Rc,
-    sync::{Once, Mutex, RwLock},
+    sync::{Once, RwLock},
 };
 use strum::EnumIter;
 
@@ -67,7 +67,7 @@ impl Debug for SigType {
 }
 
 pub fn get_ca_path() -> String {
-    format!("certs/ca-collection.pem")
+    "certs/ca-collection.pem".to_string()
 }
 
 pub fn get_cert_path(pem_type: PemType, sig_type: SigType) -> String {
@@ -91,7 +91,11 @@ static DH_READ: Once = Once::new();
 // pem encoded dh params
 pub fn dh_params() -> Vec<u8> {
     // we only read in the bytes a single time
-    DH_READ.call_once(|| DH.write().unwrap().append(&mut std::fs::read("certs/dh.pem").unwrap()));
+    DH_READ.call_once(|| {
+        DH.write()
+            .unwrap()
+            .append(&mut std::fs::read("certs/dh.pem").unwrap())
+    });
     DH.read().unwrap().clone()
 }
 
@@ -223,8 +227,8 @@ pub struct TlsConnPair<C: TlsConnection, S: TlsConnection> {
 impl<C: TlsConnection, S: TlsConnection> TlsConnPair<C, S> {
     pub fn new(client_config: &C::Config, server_config: &S::Config) -> TlsConnPair<C, S> {
         let connected_buffer = ConnectedBuffer::default();
-        let client = C::new_from_config(&client_config, connected_buffer.clone_inverse()).unwrap();
-        let server = S::new_from_config(&server_config, connected_buffer).unwrap();
+        let client = C::new_from_config(client_config, connected_buffer.clone_inverse()).unwrap();
+        let server = S::new_from_config(server_config, connected_buffer).unwrap();
         Self { client, server }
     }
 }
