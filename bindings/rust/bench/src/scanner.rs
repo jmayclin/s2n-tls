@@ -158,6 +158,9 @@ pub struct Report {
     pub groups: BTreeSet<KxGroup>,
     pub signatures: BTreeSet<Signature>,
     // PEM encoded
+    // This is a Vec of certificates because a single endpoint might return 
+    // multiple certificate chains. For example a an endpoint might serve both 
+    // an ECDSA cert chain and an RSA cert chain.
     pub cert_chain: BTreeSet<Vec<Certificate>>,
 }
 

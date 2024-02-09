@@ -3,19 +3,24 @@ use std::collections::HashMap;
 use bench::scanner::Report;
 use rayon::prelude::*;
 
+/// The query.rs binary can be used to write a full list of the capabilities of
+/// security policies.
 fn main() {
     env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
         .try_init()
         .unwrap();
-    let query = bench::scanner::QueryEngine::construct_engine();
-    log::info!("Query engine capabilities: {:?}", query);
 
-    let reports: Vec<Report> = bench::scanner::security_policies::SECURITY_POLICIES
-        .par_iter()
-        .map(|sp| query.inspect_security_policy(*sp))
-        .collect();
+    // read in the report that was obtained by running `query_csv.rs`
+    // "endpoint-capabilities.json"
+    let reports = std::fs::read_to_string("endpoint-capabilities.json").unwrap();
+    let reports: Vec<Report> = serde_json::from_str(&reports).unwrap();
 
+    log::info!("there are {} distinct reports", reports.len());
+
+    // fingerprint each report by it's capabilities and group them together. TLS
+    // endpoints that share the same fingerprint are likely using the same TLS
+    // termination configuration/solution.
     let mut fingerprints: HashMap<u64, Vec<Report>> = HashMap::new();
     for r in reports.iter() {
         fingerprints
@@ -24,14 +29,7 @@ fn main() {
             .push(r.clone());
     }
 
-    log::info!(
-        "there are {} security policies",
-        bench::scanner::security_policies::SECURITY_POLICIES.len()
-    );
-    log::info!(
-        "there are {} distinct security policies",
-        fingerprints.len()
-    );
+    log::info!("there are {} distinct fingerprints", fingerprints.len());
 
     for (f, v) in fingerprints {
         if v.len() > 1 {

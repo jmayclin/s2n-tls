@@ -19,6 +19,7 @@ fn main() {
         .filter_level(log::LevelFilter::Info)
         .try_init()
         .unwrap();
+
     let engine = bench::scanner::QueryEngine::construct_engine();
     let engine = Arc::new(engine);
     let endpoints = std::fs::read_to_string("endpoints.csv").unwrap();
@@ -35,10 +36,21 @@ fn main() {
     let total_endpoints = endpoints.len();
     //let mut endpoints = endpoints[0..100].to_vec();
 
+    // endpoints is a vec of String that is used as a queue for the worked threadpool.
+    // After each worker thread has finished it's query, it will just pop off the next
+    // element on `endpoints` and generate a report for that endpoint.
     let endpoints = Arc::new(Mutex::new(endpoints));
 
+    // These are multi-producer, single-consumer channels. So each worker thread will
+    // receive a "transmit" handle that it will use to submit the final endpoint report.
+    // All of these reports will be received by the single main thread from the single
+    // rx (receive) handle.
     let (tx, rx) = std::sync::mpsc::channel();
 
+    // We set a "target TPS" for the entire instance to avoid being too spammy. 
+    // We also set a MAX_ENDPOINT_TPS which will make sure that we never overload 
+    // a single endpoint with too much traffic. This allows us to run our scan in 
+    // a highly parallel manner while minimizing the scan impact on endpoints.
     let mut thread_pool_size = TARGET_TPS / MAX_ENDPOINT_TPS;
     thread_pool_size = max(thread_pool_size, 1);
     log::info!("Thread Pool Size: {}", thread_pool_size);
@@ -46,11 +58,18 @@ fn main() {
         // create the clones to be moved into the thread
         let tx_handle = tx.clone();
         let queue_handle = Arc::clone(&endpoints);
+        // The engine is never mutated, so we can easily share it among all the threads.
+        // The engine is essentially a static list of capabilities that the underlying
+        // libcrypto supports (which is the list of capabilities that we can query for)
+        // Many threads can read from this memory at once without any safety issues.
+        // The only reason that we don't use a raw reference is because of some fancy stuff
+        // we do for local security policy scanning, which isn't used for internet endpoint
+        // scanning.
         let engine_handle = Arc::clone(&engine);
         thread::spawn(move || {
             log::info!("thread {i} created");
-            // just pause so I can more accurate count threads because I currently have
-            // bad logging hygiene
+            // The only purpose of this pause is to make the log statements 
+            // easier to read.
             std::thread::sleep(Duration::from_secs(1));
 
             // get the next element to be queried, or return if there are none left
@@ -59,13 +78,14 @@ fn main() {
                 let mut handle = queue_handle.lock().unwrap();
                 let endpoint = match handle.pop() {
                     Some(e) => e,
+                    // if there are no elements left in the queue, then exit
                     None => return,
                 };
                 drop(handle);
                 let start = std::time::Instant::now();
                 let query_result = engine_handle.inspect_endpoint(&endpoint);
                 log::info!(
-                    "thread {i} sending a result for {endpoint}, the query took {:?} ms",
+                    "thread {i} finished query -> endpoint:{endpoint} duration:{:?} ms",
                     start.elapsed().as_millis()
                 );
                 tx_handle.send((endpoint, query_result)).unwrap();
@@ -74,16 +94,18 @@ fn main() {
     }
     drop(tx);
 
-    let mut reports: HashMap<u64, Vec<Report>> = HashMap::new();
+    let mut reports: Vec<Report> = Vec::new();
     let mut failures = Vec::new();
 
-    let mut counter = 0;
+    // Here we collect all of the reports that the worker threads generate.
     // recv will return none once all of the rx handles have been dropped
     // beware that some endpoints seems to have a 5 minute timeout set :(
     // TODO: handle the timeout on our side
     while let Ok((endpoint, result)) = rx.recv() {
         let report = match result {
             Ok(r) => r,
+            // We need to know if we aren't successfully looking at any endpoints,
+            // so log the error to lookat later.
             Err(e) => {
                 log::error!("failure for {}, {:?}", endpoint, e);
                 failures.push((endpoint, format!("{:?}", e)));
@@ -91,28 +113,20 @@ fn main() {
             }
         };
 
-        counter += 1;
+        reports.push(report);
 
-        reports
-            .entry(report.security_policy_fingerprint())
-            .or_default()
-            .push(report);
-
-        if counter % CHECKPOINT_FREQUENCY == 0 {
-            log::info!("checkpoint: {counter}/{total_endpoints}");
+        // Since it's nice to be able to look at things as they are happening, we
+        // dump the reports to disk every CHECKPOINT_FREQUENCY reports.
+        if reports.len() % CHECKPOINT_FREQUENCY == 0 {
+            log::info!("checkpoint: {}/{total_endpoints}", reports.len());
             write_reports(&reports, &failures);
         }
     }
     write_reports(&reports, &failures);
 }
 
-fn write_reports(reports: &HashMap<u64, Vec<Report>>, failures: &Vec<(String, String)>) {
-    let mut dump: Vec<Report> = reports
-        .values()
-        .map(|reports| reports.iter())
-        .flatten()
-        .cloned()
-        .collect();
+fn write_reports(reports: &Vec<Report>, failures: &Vec<(String, String)>) {
+    let mut dump: Vec<Report> = reports.clone();
     dump.sort_by_key(|r| r.endpoint.clone());
 
     std::fs::write(
