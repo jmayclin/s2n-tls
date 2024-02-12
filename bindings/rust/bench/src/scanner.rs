@@ -564,7 +564,7 @@ impl QueryEngine {
         // do a single DNS query, because otherwise DNS will throttle us :(
         let lookup = format!("{endpoint}:443");
         log::trace!("trying to check {lookup}");
-        let ips = lookup.to_socket_addrs().unwrap();
+        let ips = lookup.to_socket_addrs()?;
         // to be polite, spread scans out among all of the available IP addresses
         let mut ips = ips.cycle();
         log::trace!("beginning the querying");

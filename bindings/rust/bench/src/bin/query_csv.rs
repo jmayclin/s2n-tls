@@ -13,7 +13,7 @@ use rand::{seq::SliceRandom, thread_rng};
 
 // with 16,000 -> network unreachable
 // with 4,000 -> still some network unreachable errors
-const TARGET_TPS: usize = 4000;
+const TARGET_TPS: usize = 2000;
 const CHECKPOINT_FREQUENCY: usize = 250;
 
 fn main() {
@@ -74,7 +74,7 @@ fn main() {
             log::info!("thread {i} created");
             // When parallelism is set too high we get throttled by DNS. This 
             // creates some natural jitter/ramp up to appease the DNS gods.
-            std::thread::sleep(Duration::from_millis((i * 100) as u64));
+            std::thread::sleep(Duration::from_secs(i as u64));
 
             // get the next element to be queried, or return if there are none left
             // don't use let/while, because it holds the lock :(
