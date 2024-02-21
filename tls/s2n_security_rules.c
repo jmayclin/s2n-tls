@@ -18,6 +18,7 @@
 #include <stdarg.h>
 
 #include "crypto/s2n_fips.h"
+#include "crypto/s2n_rfc_9151_rules.h"
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_signature_scheme.h"
 #include "utils/s2n_result.h"
@@ -94,6 +95,14 @@ const struct s2n_security_rule security_rule_definitions[] = {
             .validate_curve = s2n_fips_validate_curve,
             .validate_version = s2n_fips_validate_version,
     },
+    [S2N_RFC_9151] = {
+        .name = "RFC 9151",
+        .validate_cipher_suite = s2n_rfc_9151_validate_cipher_suite,
+        .validate_sig_scheme = s2n_rfc_9151_validate_transcript_signature_scheme,
+        .validate_cert_sig_scheme = s2n_rfc_9151_validate_certificate_signature_scheme,
+        .validate_curve = s2n_rfc_9151_validate_curve,
+        .validate_version = s2n_rfc_9151_validate_version,    
+    }
 };
 
 S2N_RESULT s2n_security_rule_validate_policy(const struct s2n_security_rule *rule,
