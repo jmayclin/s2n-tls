@@ -17,6 +17,8 @@
 
 #include <openssl/objects.h>
 
+#include "utils/s2n_safety.h"
+
 const struct s2n_certificate_key s2n_rsa_rsae_1024 = {
     .public_key_libcrypto_nid = NID_rsaEncryption,
     .bits = 1024,
@@ -70,4 +72,15 @@ const struct s2n_certificate_key s2n_ec_p384 = {
 const struct s2n_certificate_key s2n_ec_p521 = {
     .public_key_libcrypto_nid = NID_secp521r1,
     .bits = 521,
+};
+
+const struct s2n_certificate_key *s2n_rfc9151_key_preference_list[] = {
+    &s2n_ec_p384,
+    &s2n_rsa_rsae_3072,
+    &s2n_rsa_rsae_4096,
+};
+
+struct s2n_certificate_key_preferences s2n_rfc9151_key_preferences = {
+    .count = s2n_array_len(s2n_rfc9151_key_preference_list),
+    .certificate_keys = s2n_rfc9151_key_preference_list,
 };

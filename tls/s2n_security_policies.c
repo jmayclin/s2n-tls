@@ -981,6 +981,8 @@ const struct s2n_security_policy security_policy_rfc9151 = {
     .kem_preferences = &kem_preferences_null,
     .signature_preferences = &s2n_signature_preferences_rfc9151,
     .certificate_signature_preferences = &s2n_certificate_signature_preferences_rfc9151,
+    .certificate_key_preferences = &s2n_rfc9151_key_preferences,
+    .certificate_preferences_apply_locally = true,
     .ecc_preferences = &s2n_ecc_preferences_20210816,
 };
 
