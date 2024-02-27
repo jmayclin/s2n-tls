@@ -173,6 +173,7 @@ pub struct Certificate {
     subject: String,
     issuer: String,
     expiration_days: i32,
+    signature: String, // ossl nid long name
     pub_key: CertificatePublicKey,
 }
 
@@ -201,10 +202,12 @@ impl Certificate {
             assert_eq!(pub_key.id(), Id::EC);
             CertificatePublicKey::ECDSA(pub_key.bits())
         };
+        let signature = cert.signature_algorithm().object().nid().long_name().unwrap().to_owned();
         Certificate {
             subject,
             issuer,
             expiration_days,
+            signature,
             pub_key,
         }
     }
@@ -1602,14 +1605,15 @@ mod known_test {
 
     use super::*;
 
-    #[test]
-    fn call_ossl() {
-        let arg = CString::new("MD5").unwrap();
-        let ret = unsafe { OBJ_sn2nid(arg.as_ptr()) };
-        println!("ret :{:?}", ret);
-        assert_ne!(ret, 0);
-        //assert!(false);
-    }
+    // this does work but char is platform specific do don't bother dealing with this
+    // #[test]
+    // fn call_ossl() {
+    //     let arg = CString::new("MD5").unwrap();
+    //     let ret = unsafe { OBJ_sn2nid(arg.as_ptr()) };
+    //     println!("ret :{:?}", ret);
+    //     assert_ne!(ret, 0);
+    //     //assert!(false);
+    // }
 
     // coverage: groups without TLS 1.3
     #[test]

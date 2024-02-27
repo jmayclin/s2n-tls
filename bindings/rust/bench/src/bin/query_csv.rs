@@ -18,7 +18,7 @@ const CHECKPOINT_FREQUENCY: usize = 250;
 
 fn main() {
     env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Debug)
         .try_init()
         .unwrap();
 
@@ -26,15 +26,18 @@ fn main() {
 
     let engine = bench::scanner::QueryEngine::construct_engine();
     let engine = Arc::new(engine);
-    let endpoints = std::fs::read_to_string("endpoints.csv").unwrap();
-    let mut endpoints: Vec<String> = endpoints
-        .lines()
-        // get the domain name
-        .map(|s| s.split_once(",").unwrap().0)
-        // remove the string quotes
-        .map(|s| &s[1..(s.len() - 1)])
-        .map(|s| s.to_string())
-        .collect();
+    // let endpoints = std::fs::read_to_string("endpoints.csv").unwrap();
+    // let mut endpoints: Vec<String> = endpoints
+    //     .lines()
+    //     // get the domain name
+    //     .map(|s| s.split_once(",").unwrap().0)
+    //     // remove the string quotes
+    //     .map(|s| &s[1..(s.len() - 1)])
+    //     .map(|s| s.to_string())
+    //     .collect();
+    // endpoints.shuffle(&mut thread_rng());
+    let endpoints: Vec<(String, String)> = serde_json::from_str(&std::fs::read_to_string("endpoints.json").unwrap()).unwrap();
+    let endpoints: Vec<String> = endpoints.into_iter().map(|(_name, endpoint)| endpoint).collect();
     endpoints.shuffle(&mut thread_rng());
     // println!("endpoint: {:?}", endpoints);
     let total_endpoints = endpoints.len();
@@ -121,10 +124,10 @@ fn main() {
 
         // Since it's nice to be able to look at things as they are happening, we
         // dump the reports to disk every CHECKPOINT_FREQUENCY reports.
-        if reports.len() % CHECKPOINT_FREQUENCY == 0 {
+        //if reports.len() % CHECKPOINT_FREQUENCY == 0 {
             log::info!("checkpoint: {}/{total_endpoints}", reports.len());
             write_reports(&reports, &failures);
-        }
+        //}
     }
     write_reports(&reports, &failures);
     log::info!("finished querying {total_endpoints} in {} seconds", query_start.elapsed().as_secs());

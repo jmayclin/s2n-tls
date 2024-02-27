@@ -200,4 +200,8 @@ impl ComplianceRegime for RFC9151 {
             Signature::SigHash(Sig::RSA_PSS, Hash::SHA384),
         ]
     }
+
+    fn validate_certificate(_cert: &Certificate) -> Result<(), String> {
+        Ok(())
+    }
 }
