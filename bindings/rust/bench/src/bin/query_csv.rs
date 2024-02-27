@@ -36,9 +36,13 @@ fn main() {
     //     .map(|s| s.to_string())
     //     .collect();
     // endpoints.shuffle(&mut thread_rng());
-    let endpoints: Vec<(String, String)> = serde_json::from_str(&std::fs::read_to_string("endpoints.json").unwrap()).unwrap();
-    let endpoints: Vec<String> = endpoints.into_iter().map(|(_name, endpoint)| endpoint).collect();
-    endpoints.shuffle(&mut thread_rng());
+    let endpoints: Vec<(String, String)> =
+        serde_json::from_str(&std::fs::read_to_string("endpoints.json").unwrap()).unwrap();
+    let endpoints: Vec<String> = endpoints
+        .into_iter()
+        .map(|(_name, endpoint)| endpoint)
+        .collect();
+    //endpoints.shuffle(&mut thread_rng());
     // println!("endpoint: {:?}", endpoints);
     let total_endpoints = endpoints.len();
     //let mut endpoints = endpoints[0..100].to_vec();
@@ -75,7 +79,7 @@ fn main() {
         let engine_handle = Arc::clone(&engine);
         thread::spawn(move || {
             log::info!("thread {i} created");
-            // When parallelism is set too high we get throttled by DNS. This 
+            // When parallelism is set too high we get throttled by DNS. This
             // creates some natural jitter/ramp up to appease the DNS gods.
             std::thread::sleep(Duration::from_secs(i as u64));
 
@@ -125,12 +129,15 @@ fn main() {
         // Since it's nice to be able to look at things as they are happening, we
         // dump the reports to disk every CHECKPOINT_FREQUENCY reports.
         //if reports.len() % CHECKPOINT_FREQUENCY == 0 {
-            log::info!("checkpoint: {}/{total_endpoints}", reports.len());
-            write_reports(&reports, &failures);
+        log::info!("checkpoint: {}/{total_endpoints}", reports.len());
+        write_reports(&reports, &failures);
         //}
     }
     write_reports(&reports, &failures);
-    log::info!("finished querying {total_endpoints} in {} seconds", query_start.elapsed().as_secs());
+    log::info!(
+        "finished querying {total_endpoints} in {} seconds",
+        query_start.elapsed().as_secs()
+    );
 }
 
 fn write_reports(reports: &Vec<Report>, failures: &Vec<(String, String)>) {

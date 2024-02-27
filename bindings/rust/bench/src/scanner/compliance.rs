@@ -2,7 +2,7 @@ use crate::scanner::params::{Hash, Sig, SignatureScheme};
 
 use super::{
     params::{Cipher, KxGroup, LegacyCipher, Protocol, Signature, Tls13Cipher},
-    Certificate, Report,
+    Certificate, CertificatePublicKey, Report,
 };
 
 pub trait ComplianceRegime {
@@ -27,7 +27,11 @@ pub trait ComplianceRegime {
     /// is SHA384 or SHA512. This method should return a descriptive error message,
     /// something like "The certificate is invalid because RFC9151 doesn't allow for
     /// RSA key sizes smaller than 3072 bits".
-    fn validate_certificate(_cert: &Certificate) -> Result<(), String> {
+    fn validate_certificate_key(chain: &Vec<Certificate>) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn validate_certificate_signature(chain: &Vec<Certificate>) -> Result<(), String> {
         Ok(())
     }
 
@@ -74,15 +78,13 @@ pub trait ComplianceRegime {
             }
         }
 
+        // I think this cert chain would miss an improper root of trust :(
         for chain in &report.cert_chain {
-            for cert in chain {
-                if let Err(error_message) = Self::validate_certificate(cert) {
-                    errors.push(format!(
-                        "ERROR: {} violation - {}",
-                        Self::regime(),
-                        error_message
-                    ))
-                }
+            if let Err(error_message) = Self::validate_certificate_key(chain) {
+                errors.push(error_message);
+            }
+            if let Err(error_message) = Self::validate_certificate_signature(chain) {
+                errors.push(error_message);
             }
         }
 
@@ -201,7 +203,49 @@ impl ComplianceRegime for RFC9151 {
         ]
     }
 
-    fn validate_certificate(_cert: &Certificate) -> Result<(), String> {
+    fn validate_certificate_key(chain: &Vec<Certificate>) -> Result<(), String> {
+        let allowed_signatures = vec![
+            // technically RSAPSS stuff is allowed, but pretty much no one uses that
+            // so I'm not gonna deal with that here
+            "sha384WithRSAEncryption",
+            "ecdsa-with-SHA384",
+        ];
+        for c in chain {
+            if !allowed_signatures.contains(&c.signature.as_str()) {
+                let error = format!(
+                    "ERROR: {} violation - uses unallowed certificate signature: {}",
+                    Self::regime(),
+                    c.signature,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_certificate_signature(chain: &Vec<Certificate>) -> Result<(), String> {
+        for c in chain {
+            match c.pub_key {
+                CertificatePublicKey::RSA(size, exponent) => {
+                    if !(size == 3072 || size == 4096) {
+                        let error = format!(
+                            "ERROR: {} violation - uses unallowed RSA Cert: {}",
+                            Self::regime(),
+                            size,
+                        );
+                    }
+                }
+                CertificatePublicKey::ECDSA(curve) => {
+                    if curve != 384 {
+                        let error = format!(
+                            "ERROR: {} violation - uses unallowed ECDSA Cert: {}",
+                            Self::regime(),
+                            curve,
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }

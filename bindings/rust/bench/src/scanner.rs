@@ -1,7 +1,11 @@
 #![allow(non_camel_case_types)]
 
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeSet, HashMap, VecDeque}, error::Error, net::ToSocketAddrs, sync::{Once, RwLock}, time::{Duration, Instant}
+    collections::{hash_map::DefaultHasher, BTreeSet, HashMap, VecDeque},
+    error::Error,
+    net::ToSocketAddrs,
+    sync::{Once, RwLock},
+    time::{Duration, Instant},
 };
 
 use log::error;
@@ -26,7 +30,7 @@ use self::params::{
 pub mod compliance;
 pub mod security_policies;
 
-pub const MAX_ENDPOINT_TPS: usize = 1;
+pub const MAX_ENDPOINT_TPS: usize = 10;
 
 /// This struct represents a query for some particular capability in a peer (server).
 /// The query of interest is the `interest` field. TLS Parameters interact in a lot
@@ -202,7 +206,13 @@ impl Certificate {
             assert_eq!(pub_key.id(), Id::EC);
             CertificatePublicKey::ECDSA(pub_key.bits())
         };
-        let signature = cert.signature_algorithm().object().nid().long_name().unwrap().to_owned();
+        let signature = cert
+            .signature_algorithm()
+            .object()
+            .nid()
+            .long_name()
+            .unwrap()
+            .to_owned();
         Certificate {
             subject,
             issuer,
@@ -496,14 +506,14 @@ impl QueryEngine {
             let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
             // can't load MD5 because legacy isn't there yet
             assert!(fetch.is_err());
-            
+
             // if the legacy provider is dropped then it is unloaded and will
             // have no impact. Therefore we "forget" the legacy provider to keep
             // it around for the entire lifetime of the program.
             let load = openssl::provider::Provider::try_load(None, "legacy", false).unwrap();
             std::mem::forget(load);
 
-            // as a sanity check, we should now be able to load MD5 since the 
+            // as a sanity check, we should now be able to load MD5 since the
             // legacy provider is available
             let fetch = openssl::md::Md::fetch(None, "WHIRLPOOL", None);
             assert!(fetch.is_ok());
@@ -578,7 +588,10 @@ impl QueryEngine {
 
             // we should always be able to connect to the endpoint and create the SslStream
             // if this fails then we have not successfully queried the endpoint
-            let stream = std::net::TcpStream::connect_timeout(&ips.next().unwrap(), Duration::from_secs(10))?;
+            let stream = std::net::TcpStream::connect_timeout(
+                &ips.next().unwrap(),
+                Duration::from_secs(10),
+            )?;
 
             let mut ssl = config.create();
             // this must be set otherwise certain wicker endpoints fail to connect
@@ -704,13 +717,9 @@ pub mod params {
             .chain(Tls13Cipher::iter().map(|c| ParameterType::Cipher(Cipher::Tls13(c))))
             .chain(LegacyCipher::iter().map(|c| ParameterType::Cipher(Cipher::Legacy(c))))
             .chain(KxGroup::iter().map(ParameterType::Group))
-            .chain(
-                Sig::iter()
-                    .flat_map(|s| {
-                        Hash::iter()
-                            .map(move |h| ParameterType::Signature(Signature::SigHash(s, h)))
-                    }),
-            )
+            .chain(Sig::iter().flat_map(|s| {
+                Hash::iter().map(move |h| ParameterType::Signature(Signature::SigHash(s, h)))
+            }))
             .chain(
                 SignatureScheme::iter()
                     .map(|s| ParameterType::Signature(Signature::SignatureScheme(s))),

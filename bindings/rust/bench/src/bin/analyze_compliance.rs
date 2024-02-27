@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use bench::scanner::{compliance::{ComplianceRegime, RFC9151}, Report};
+use bench::scanner::{
+    compliance::{ComplianceRegime, RFC9151},
+    Report,
+};
 use rayon::prelude::*;
 
 /// The query.rs binary can be used to write a full list of the capabilities of
@@ -42,5 +45,6 @@ fn main() {
     std::fs::write(
         "rfc9151-compliance.json",
         serde_json::to_string_pretty(&rfc9151).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 }
