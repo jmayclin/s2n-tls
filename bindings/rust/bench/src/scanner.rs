@@ -26,7 +26,7 @@ use self::params::{
 pub mod compliance;
 pub mod security_policies;
 
-pub const MAX_ENDPOINT_TPS: usize = 10;
+pub const MAX_ENDPOINT_TPS: usize = 1;
 
 /// This struct represents a query for some particular capability in a peer (server).
 /// The query of interest is the `interest` field. TLS Parameters interact in a lot

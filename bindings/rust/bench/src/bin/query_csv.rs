@@ -13,7 +13,7 @@ use rand::{seq::SliceRandom, thread_rng};
 
 // with 16,000 -> network unreachable
 // with 4,000 -> still some network unreachable errors
-const TARGET_TPS: usize = 2000;
+const TARGET_TPS: usize = 100;
 const CHECKPOINT_FREQUENCY: usize = 250;
 
 fn main() {
