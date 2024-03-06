@@ -436,6 +436,79 @@ mod tests {
         }
     }
 
+    // write all of these as multiple tests so that they are run in parallel
+    #[test]
+    fn large_data_download_s2n() {
+        large_data_download::<S2NConnection>()
+    }
+
+    #[test]
+    fn large_data_download_openssl() {
+        large_data_download::<OpenSslConnection>()
+    }
+
+    #[test]
+    fn large_data_download_rustls() {
+        large_data_download::<RustlsConnection>()
+    }
+
+    // simulate a C client downloading a large amount of data from an s2n server.
+    // This test verifies that a key update message was sent and correctly handled.
+    fn large_data_download<C>() 
+    where
+        C: TlsConnection,
+        C::Config: TlsBenchConfig,
+    {
+        const APP_REQUEST: &str = "gimme data";
+        const APP_THANKS: &str = "thanks for the data";
+        const SERVER_ACK: &str = "no problem, i gotchu";
+        const MB: usize = 1_000_000;
+        const GB: usize = 1_000_000_000;
+
+        let crypto_config =
+                CryptoConfig::new(CipherSuite::default(), KXGroup::default(), SigType::default());
+        let mut conn_pair =
+            TlsConnPair::<C, S2NConnection>::new_bench_pair(crypto_config, HandshakeType::default())
+                .unwrap();
+        conn_pair.handshake().unwrap();
+        let (mut client, mut server) = conn_pair.split();
+        let mut buffer: Vec<u8> = vec![0; 256];
+        client.send(APP_REQUEST.as_bytes()).unwrap();
+        server.recv(&mut buffer[0..APP_REQUEST.len()]).unwrap();
+        // assert that the request was received
+        assert_eq!(APP_REQUEST.as_bytes(), &buffer[0..APP_REQUEST.len()]);
+
+        // let's send data in 1 MB chunks from server -> client
+        // dummy data that isn't all 0's
+        let dummy_send = vec![0x56u8; 1_000_000];
+        let mut recv_buffer = vec![0; 1_000_000];
+
+        // send 200 GB
+        for _ in 0..(200 * (GB/MB)) {
+            server.send(&dummy_send).unwrap();
+            client.recv(recv_buffer.as_mut_slice()).unwrap();
+        }
+
+        // a key update should have been sent
+        let (send, recv) = server.connection().key_updates().unwrap();
+        // the server send lots of data, but received very little
+        assert_eq!(send, 1);
+        assert_eq!(recv, 0);
+
+        // sanity checks: the connection is still in a good state and we can still send/recv
+
+        // client send
+        client.send(APP_THANKS.as_bytes()).unwrap();
+        server.recv(&mut buffer[0..APP_THANKS.len()]).unwrap();
+        assert_eq!(APP_THANKS.as_bytes(), &buffer[0..APP_THANKS.len()]);
+
+        // server send
+        server.send(SERVER_ACK.as_bytes()).unwrap();
+        client.recv(&mut buffer[0..SERVER_ACK.len()]).unwrap();
+        assert_eq!(SERVER_ACK.as_bytes(), &buffer[0..SERVER_ACK.len()]);
+        
+    }
+
     #[test]
     fn test_all() {
         test_type::<S2NConnection, S2NConnection>();
