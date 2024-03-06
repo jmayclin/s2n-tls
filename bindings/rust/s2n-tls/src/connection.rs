@@ -760,6 +760,15 @@ impl Connection {
         version.try_into()
     }
 
+    pub fn key_updates(&self) -> Result<(u8, u8), Error> {
+        let mut send_key_updates = 0;
+        let mut recv_key_updates = 0;
+        unsafe {
+            s2n_connection_get_key_update_counts(self.connection.as_ptr(), &mut send_key_updates, &mut recv_key_updates).into_result()?;
+        }
+        Ok((send_key_updates, recv_key_updates))
+    }
+
     pub fn handshake_type(&self) -> Result<&str, Error> {
         let handshake = unsafe {
             s2n_connection_get_handshake_type_name(self.connection.as_ptr()).into_result()?
