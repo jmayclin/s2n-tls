@@ -47,7 +47,7 @@
  * S2N_TLS13_MAXIMUM_RECORD_NUMBER is 2^24.5 rounded down to the nearest whole number
  * minus 1 for the key update message.
  */
-#define S2N_TLS13_AES_GCM_MAXIMUM_RECORD_NUMBER ((uint64_t) 23726565)
+#define S2N_TLS13_AES_GCM_MAXIMUM_RECORD_NUMBER ((uint64_t) 237)
 
 typedef enum {
     S2N_AUTHENTICATION_RSA = 0,

@@ -20,6 +20,8 @@ public class SSLSocketClient {
     static final String TLS_13 = "TLSv1.3";
     static final String APP_REQUEST = "gimme data";
     public static void main(String[] args) throws Exception {
+        System.setProperty("javax.net.debug", "ssl");
+
         int port = 9004;
         String certificatePath = "/home/ec2-user/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/ca-cert.pem";
         String[] protocolList = new String[] {TLS_13};
@@ -42,9 +44,14 @@ public class SSLSocketClient {
             socket.setEnabledProtocols(protocolList);
             socket.setEnabledCipherSuites(cipherList);
             socket.startHandshake();
+            // this helps prevent the mixing of handshake and application data
+            // this should be handled properly but that is not my current goal
+            Thread.sleep(1_000);
             System.out.println("Starting handshake");
+            
             // "request" the data from the peer
             out.write(APP_REQUEST.getBytes());
+            System.out.println("Wrote the app request");
             out.flush();
 
             // read in 200 GB from the server

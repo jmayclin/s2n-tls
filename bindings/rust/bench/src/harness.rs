@@ -179,10 +179,10 @@ pub trait TlsConnection: Sized {
     /// server connections because of rustls API limitations.
     fn resumed_connection(&self) -> bool;
 
-    /// Send application data to ConnectedBuffer
+    /// take `data`, encrypt it, and write to the ConnectedBuffer
     fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>>;
 
-    /// Read application data from ConnectedBuffer
+    /// Read application data from ConnectedBuffer, decrypt it, and store in `data`.
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
 
     /// Shrink buffers owned by the connection
@@ -387,6 +387,7 @@ impl ConnectedBuffer {
 }
 
 impl Read for ConnectedBuffer {
+    // read the data in ConnectionBuffer into `dest`.
     fn read(&mut self, dest: &mut [u8]) -> Result<usize, std::io::Error> {
         let res = self.recv.borrow_mut().read(dest);
         match res {
@@ -399,6 +400,7 @@ impl Read for ConnectedBuffer {
 }
 
 impl Write for ConnectedBuffer {
+    // write `src` into the ConnectionBuffer
     fn write(&mut self, src: &[u8]) -> Result<usize, std::io::Error> {
         self.send.borrow_mut().write(src)
     }
