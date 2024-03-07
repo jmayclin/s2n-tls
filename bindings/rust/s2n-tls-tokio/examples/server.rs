@@ -5,11 +5,11 @@ use clap::Parser;
 use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
 use s2n_tls_tokio::TlsAcceptor;
 use std::{error::Error, fs};
-use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
 
 /// NOTE: this certificate and key are to be used for demonstration purposes only!
-const DEFAULT_CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/certs/cert.pem");
-const DEFAULT_KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/certs/key.pem");
+const DEFAULT_CERT: &str = "/home/ec2-user/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-chain.pem";
+const DEFAULT_KEY: &str = "/home/ec2-user/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-key.pem";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -17,7 +17,7 @@ struct Args {
     cert: String,
     #[clap(short, long, requires = "cert", default_value_t = String::from(DEFAULT_KEY))]
     key: String,
-    #[clap(short, long, default_value_t = String::from("127.0.0.1:0"))]
+    #[clap(short, long, default_value_t = String::from("127.0.0.1:9004"))]
     addr: String,
 }
 
@@ -57,9 +57,22 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
             let mut tls = server.accept(stream).await?;
             println!("{:#?}", tls);
 
-            // Copy data from the client to stdout
-            let mut stdout = tokio::io::stdout();
-            tokio::io::copy(&mut tls, &mut stdout).await?;
+            // read in the initial message
+            let mut buffer = vec![0x56; 1_000_000];
+            let read = tls.read(buffer.as_mut_slice()).await.unwrap();
+
+            assert_eq!(read, "gimme data".len());
+            assert_eq!(&buffer[0..read], "gimme data".as_bytes());
+            println!("the java client said hello to me. Nice fellow");
+
+            // write 200 Gb to client
+            for i in 0..(200 * 1_000) {
+                println!("writing mb {}", i);
+                tls.write_all(&buffer).await.unwrap();
+            }
+
+
+
             tls.shutdown().await?;
             println!("Connection from {:?} closed", peer_addr);
 

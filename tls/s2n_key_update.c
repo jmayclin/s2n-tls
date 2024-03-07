@@ -73,6 +73,7 @@ int s2n_key_update_send(struct s2n_connection *conn, s2n_blocked_status *blocked
     POSIX_GUARD(s2n_check_record_limit(conn, &sequence_number));
 
     if (s2n_atomic_flag_test(&conn->key_update_pending)) {
+        printf("s2n-tls is sending a key update message. Woooo!\n");
         POSIX_ENSURE(!conn->ktls_send_enabled, S2N_ERR_KTLS_KEY_LIMIT);
 
         /* Flush any buffered records to ensure an empty output buffer.
