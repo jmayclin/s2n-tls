@@ -67,7 +67,8 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
 
             // write 200 Gb to client
             for i in 0..(200 * 1_000) {
-                println!("writing mb {}", i);
+                let update = tls.as_ref().key_updates().unwrap();
+                println!("writing mb {}, send and recv updates: {:?}", i, update);
                 tls.write_all(&buffer).await.unwrap();
             }
 
