@@ -59,7 +59,7 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
             let mut tls = server.accept(stream).await?;
             let target = 100; // Gb
             let allowed_records = (target * GB / 8_192) as u64; // 8_192 is default s2n record size;
-            tls.as_mut().set_encryption_limit(allowed_records).unwrap();
+            //tls.as_mut().set_encryption_limit(allowed_records).unwrap();
             println!("{:#?}", tls);
 
             // read in the initial message
@@ -73,6 +73,9 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
             // write 200 Gb to client
             for i in 0..(200 * 1_000) {
                 let update = tls.as_ref().key_updates().unwrap();
+                if i % (25 * 1_000) == 0 {
+                    tls.as_mut().request_key_update(s2n_tls::enums::PeerKeyUpdate::KeyUpdateNotRequested).unwrap();
+                }
                 println!("writing mb {}, send and recv updates: {:?}", i, update);
                 tls.write_all(&buffer).await.unwrap();
             }

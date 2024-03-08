@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.nio.charset.StandardCharsets;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.SSLSocketFactory;
@@ -64,7 +65,7 @@ public class SSLSocketClient {
             }
 
             // read in the server message
-            byte[] final_buffer = out.readNBytes(SERVER_FINAL.length());
+            byte[] final_buffer = in.readNBytes(SERVER_FINAL.length());
             String str = new String(final_buffer, StandardCharsets.UTF_8);
             System.out.println("the final message was " + str);
 
