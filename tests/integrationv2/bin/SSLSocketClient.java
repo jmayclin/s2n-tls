@@ -19,6 +19,7 @@ import javax.net.ssl.SSLSocket;
 public class SSLSocketClient {
     static final String TLS_13 = "TLSv1.3";
     static final String APP_REQUEST = "gimme data";
+    static final String SERVER_FINAL = "thats all for now folks";
     public static void main(String[] args) throws Exception {
         System.setProperty("javax.net.debug", "ssl");
 
@@ -62,8 +63,10 @@ public class SSLSocketClient {
                 }
             }
 
-            // thank the server for it's efforts
-            out.write("thanks!".getBytes());
+            // read in the server message
+            byte[] final_buffer = out.readNBytes(SERVER_FINAL.length());
+            String str = new String(final_buffer, StandardCharsets.UTF_8);
+            System.out.println("the final message was " + str);
 
             // closed the things
             in.close();

@@ -11,6 +11,7 @@ use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
 const DEFAULT_CERT: &str = "/home/ec2-user/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-chain.pem";
 const DEFAULT_KEY: &str = "/home/ec2-user/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-key.pem";
 
+const GB: usize = 1_000_000_000;
 #[derive(Parser, Debug)]
 struct Args {
     #[clap(short, long, requires = "key", default_value_t = String::from(DEFAULT_CERT))]
@@ -56,6 +57,9 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
         let server = server.clone();
         tokio::spawn(async move {
             let mut tls = server.accept(stream).await?;
+            let target = 100; // Gb
+            let allowed_records = (target * GB / 8_192) as u64; // 8_192 is default s2n record size;
+            tls.as_mut().set_encryption_limit(allowed_records).unwrap();
             println!("{:#?}", tls);
 
             // read in the initial message
@@ -73,7 +77,7 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
                 tls.write_all(&buffer).await.unwrap();
             }
 
-
+            tls.write_all("thats all for now folks".as_bytes()).await.unwrap();
 
             tls.shutdown().await?;
             println!("Connection from {:?} closed", peer_addr);
