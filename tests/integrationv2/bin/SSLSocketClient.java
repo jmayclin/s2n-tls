@@ -58,7 +58,7 @@ public class SSLSocketClient {
             for (int i = 0; i < 200 * 1000; i++) {
                 byte[] buffer = in.readNBytes(1_000_000);
                 if (i % 1_000 == 0) {
-                    System.out.println("Read in " + i / 1_000 + "Gb");
+                    System.out.println("Read in " + i / 1_000 + "Gb, and the first byte was " + buffer[0]);
                 }
             }
 
