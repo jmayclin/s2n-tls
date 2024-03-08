@@ -231,6 +231,13 @@ impl Connection {
         Ok(self)
     }
 
+    pub fn request_key_update(&mut self, peer_request: PeerKeyUpdate) -> Result<&mut Self, Error> {
+        unsafe {
+            s2n_connection_request_key_update(self.connection.as_ptr(), peer_request.into()).into_result()
+        }?;
+        Ok(self)
+    }
+
     /// provides a smooth transition from s2n_connection_prefer_low_latency to s2n_connection_prefer_throughput.
     ///
     /// s2n_send uses small TLS records that fit into a single TCP segment for the resize_threshold
