@@ -8,6 +8,8 @@ pub mod openssl;
 pub mod rustls;
 pub mod s2n_tls;
 
+pub mod java;
+
 #[cfg(feature = "openssl")]
 pub use crate::openssl::OpenSslConnection;
 #[cfg(feature = "rustls")]
