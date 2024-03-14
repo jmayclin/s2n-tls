@@ -75,7 +75,7 @@ pub fn read_to_bytes(pem_type: PemType, sig_type: SigType) -> Vec<u8> {
         .into_bytes()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Mode {
     Client,
     Server,
@@ -179,10 +179,11 @@ pub trait TlsConnection: Sized {
     /// server connections because of rustls API limitations.
     fn resumed_connection(&self) -> bool;
 
-    /// Send application data to ConnectedBuffer
+    /// Encrypt plaintext `data` and write the ciphertext to the internal connected buffer
     fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>>;
 
-    /// Read application data from ConnectedBuffer
+    /// Read ciphertext from the internal connected buffer and write the plaintext to
+    /// `data`
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
 
     /// Shrink buffers owned by the connection
@@ -420,8 +421,9 @@ mod tests {
     use crate::OpenSslConnection;
     #[cfg(feature = "rustls")]
     use crate::RustlsConnection;
-    use crate::{S2NConnection, TlsConnPair};
+    use crate::{java::JavaConnection, S2NConnection, TlsConnPair};
     use std::path::Path;
+    use duchess::Jvm;
     use strum::IntoEnumIterator;
 
     #[test]
@@ -443,6 +445,21 @@ mod tests {
         test_type::<RustlsConnection, RustlsConnection>();
         #[cfg(feature = "openssl")]
         test_type::<OpenSslConnection, OpenSslConnection>();
+    }
+
+    #[test]
+    fn java_client_s2n_server() {
+        Jvm::builder()
+            .custom("-Djavax.net.debug=ssl")
+            .try_launch();
+        let crypto_config = CryptoConfig::default();
+        let mut conn_pair = TlsConnPair::<JavaConnection, S2NConnection>::new_bench_pair(
+            crypto_config,
+            HandshakeType::ServerAuth,
+        )
+        .unwrap();
+        conn_pair.handshake().unwrap();
+        assert!(conn_pair.handshake_completed());
     }
 
     fn test_type<C, S>()

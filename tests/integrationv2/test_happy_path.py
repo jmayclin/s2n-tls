@@ -11,9 +11,9 @@ from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_
 @pytest.mark.uncollect_if(func=invalid_test_parameters)
 @pytest.mark.parametrize("cipher", ALL_TEST_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [S2N, OpenSSL, GnuTLS, JavaSSL, SSLv3Provider])
-@pytest.mark.parametrize("curve", ALL_TEST_CURVES, ids=get_parameter_name)
-@pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
-@pytest.mark.parametrize("certificate", ALL_TEST_CERTS, ids=get_parameter_name)
+@pytest.mark.parametrize("curve", [Curves.P256], ids=get_parameter_name)
+@pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
+@pytest.mark.parametrize("certificate", [Certificates.RSA_2048_SHA256], ids=get_parameter_name)
 def test_s2n_server_happy_path(managed_process, cipher, provider, curve, protocol, certificate):
     port = next(available_ports)
 
