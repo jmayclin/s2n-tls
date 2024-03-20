@@ -1,1 +1,0 @@
-/home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/target/debug/server: /home/ec2-user/workspace/s2n-tls/tests/interop/common/src/lib.rs /home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/src/bin/server.rs /home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/src/lib.rs

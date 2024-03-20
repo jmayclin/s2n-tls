@@ -22,6 +22,7 @@ tests/fuzz/*_test
 tests/fuzz/*.txt
 tests/fuzz/fuzz-*.log
 tests/benchmark/*_benchmark
+tests/interop/*/target
 bin/s2nc
 bin/s2nd
 util-linux-*

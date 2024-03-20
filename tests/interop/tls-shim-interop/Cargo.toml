@@ -1,0 +1,13 @@
+[package]
+name = "tls-shim-interop"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "3", features = ["derive"] }
+common = {path = "../common" }
+s2n-tls = "0.1.6"
+s2n-tls-tokio = "0.1.6"
+tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }

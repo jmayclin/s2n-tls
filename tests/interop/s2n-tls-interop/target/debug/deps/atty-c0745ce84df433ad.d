@@ -1,7 +1,0 @@
-/home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/target/debug/deps/libatty-c0745ce84df433ad.rmeta: /home/ec2-user/.cargo/registry/src/index.crates.io-6f17d22bba15001f/atty-0.2.14/src/lib.rs
-
-/home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/target/debug/deps/libatty-c0745ce84df433ad.rlib: /home/ec2-user/.cargo/registry/src/index.crates.io-6f17d22bba15001f/atty-0.2.14/src/lib.rs
-
-/home/ec2-user/workspace/s2n-tls/tests/interop/s2n-tls-interop/target/debug/deps/atty-c0745ce84df433ad.d: /home/ec2-user/.cargo/registry/src/index.crates.io-6f17d22bba15001f/atty-0.2.14/src/lib.rs
-
-/home/ec2-user/.cargo/registry/src/index.crates.io-6f17d22bba15001f/atty-0.2.14/src/lib.rs:
