@@ -564,8 +564,6 @@ dependencies = [
 [[package]]
 name = "s2n-tls"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d49e7ff0a2f7fa23816ba41e8cd6a04d3e06c28d6a0bd6e572702c7a8be9abd"
 dependencies = [
  "errno",
  "hex",
@@ -577,8 +575,6 @@ dependencies = [
 [[package]]
 name = "s2n-tls-sys"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7252540b5c58110aec78ebaeac0fe7268ab6f5b301e78bed9f8085b858513ef2"
 dependencies = [
  "aws-lc-rs",
  "cc",
@@ -588,8 +584,6 @@ dependencies = [
 [[package]]
 name = "s2n-tls-tokio"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c38db9b4b25b5d1c4f07b085a0c723035dc405567aef269e4275036732b8e7e1"
 dependencies = [
  "errno",
  "libc",

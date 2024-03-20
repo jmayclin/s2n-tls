@@ -17,7 +17,7 @@ struct Args {
     cert: String,
     #[clap(short, long, requires = "cert", default_value_t = String::from(DEFAULT_KEY))]
     key: String,
-    #[clap(short, long, default_value_t = String::from("127.0.0.1:0"))]
+    #[clap(short, long, default_value_t = String::from("127.0.0.1:9001"))]
     addr: String,
 }
 
