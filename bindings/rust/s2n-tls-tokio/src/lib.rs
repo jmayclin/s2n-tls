@@ -381,7 +381,7 @@ where
         };
 
         let tcp_result = ready!(Pin::new(&mut self.as_mut().stream).poll_shutdown(ctx));
-
+        println!("the tcp shutdown result was {:?}", tcp_result);
         if let Some(err) = self.shutdown_error.take() {
             // poll methods shouldn't be called again after returning Ready, but
             // nothing actually prevents it so poll_shutdown should handle it.

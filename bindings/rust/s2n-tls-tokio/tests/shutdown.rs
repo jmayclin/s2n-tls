@@ -4,10 +4,7 @@
 use s2n_tls::error;
 use s2n_tls_tokio::{TlsAcceptor, TlsConnector, TlsStream};
 use std::{
-    convert::TryFrom,
-    io,
-    sync::Arc,
-    task::Poll::{Pending, Ready},
+    convert::TryFrom, error::Error, io, sync::Arc, task::Poll::{Pending, Ready}
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -35,6 +32,45 @@ async fn write_until_shutdown<S: AsyncWrite + Unpin>(stream: &mut S) -> Result<(
         }
     }
     stream.shutdown().await
+}
+
+#[tokio::test]
+async fn simple_spawn_shutdown() -> Result<(), Box<dyn std::error::Error>> {
+    let (server_stream, client_stream) = common::get_streams().await?;
+    let client = TlsConnector::new(common::client_config()?.build()?);
+    let server = TlsAcceptor::new(common::server_config()?.build()?);
+
+    let (mut client, mut server) =
+        common::run_negotiate(&client, client_stream, &server, server_stream).await?;
+
+    let client_handle = tokio::spawn(async move {
+        client.shutdown().await?;
+        Ok::<(), Box<dyn Error + Send + Sync>>(())
+    });
+
+    let server_handle = tokio::spawn(async move {
+        server.shutdown().await?;
+        Ok::<(), Box<dyn Error + Send + Sync>>(())
+    });
+
+    let client_result = client_handle.await?;
+    let server_result = server_handle.await?;
+    assert!(client_result.is_ok());
+    assert!(server_result.is_ok()); // This line fails 😭
+    Ok(())
+}
+
+#[tokio::test]
+async fn simple_in_task_shutdown() -> Result<(), Box<dyn std::error::Error>> {
+    let (server_stream, client_stream) = common::get_streams().await?;
+    let client = TlsConnector::new(common::client_config()?.build()?);
+    let server = TlsAcceptor::new(common::server_config()?.build()?);
+
+    let (mut client, mut server) =
+        common::run_negotiate(&client, client_stream, &server, server_stream).await?;
+
+    tokio::try_join!(client.shutdown(), server.shutdown())?;
+    Ok(())
 }
 
 #[tokio::test]
