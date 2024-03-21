@@ -1,15 +1,9 @@
 use clap::Parser;
-use common::{InteropTest, CLIENT_GREETING, SERVER_GREETING};
-use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
+use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETING};
+use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::{DEFAULT, DEFAULT_TLS13}};
 use s2n_tls_tokio::TlsAcceptor;
 use std::{
-    env,
-    error::Error,
-    fmt::Debug,
-    fs,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    pin::Pin,
-    time::Duration,
+    env, error::Error, fmt::{format, Debug}, fs, net::{Ipv4Addr, SocketAddr, SocketAddrV4}, path::Display, pin::Pin, time::Duration
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -20,6 +14,12 @@ use tokio::{
 use crate::{ClientTLS, ServerTLS};
 
 pub struct ShimS2nTls;
+
+impl std::fmt::Display for ShimS2nTls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "s2n-tls")
+    }
+}
 
 // T is generally a tokio::TcpStream or a turmoil::TcpStream
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for ShimS2nTls
@@ -49,24 +49,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for ShimS2nTls
         Ok(client.connect("localhost", transport_stream).await?)
     }
 
-    async fn handle_client_connection(
-        test: InteropTest,
-        mut stream: Self::Stream,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match test {
-            InteropTest::Handshake => { /* no data exchange in the handshake case */ }
-            InteropTest::Greeting => {
-                let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
-                stream.write_all(CLIENT_GREETING.as_bytes()).await?;
-                stream.read_exact(&mut server_greeting_buffer).await?;
-                assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
-            }
-            InteropTest::LargeDataDownload => todo!(),
-            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
-        }
-        stream.shutdown().await?;
-        Ok(())
-    }
+    // async fn handle_client_connection(
+    //     test: InteropTest,
+    //     mut stream: Self::Stream,
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     match test {
+    //         InteropTest::Handshake => { /* no data exchange in the handshake case */ }
+    //         InteropTest::Greeting => {
+    //             let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
+    //             stream.write_all(CLIENT_GREETING.as_bytes()).await?;
+    //             stream.read_exact(&mut server_greeting_buffer).await?;
+    //             assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
+    //         }
+    //         InteropTest::LargeDataDownload => todo!(),
+    //         InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+    //     }
+    //     stream.shutdown().await?;
+    //     Ok(())
+    // }
     
 }
 
@@ -102,15 +102,31 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match test {
-            InteropTest::Handshake => { /* no data exchange in the handshake case */ }
+            InteropTest::Handshake => { println!("server executing the handshake scenario");/* no data exchange in the handshake case */ },
             InteropTest::Greeting => {
+                tracing::info!("server executing the greeting scenario");
                 let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                stream.read_exact(&mut server_greeting_buffer).await?;
+                tracing::info!("reading the data");
+                stream.read(&mut server_greeting_buffer).await?;
+                tracing::info!("asserting equal");
                 assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
                 
                 stream.write_all(SERVER_GREETING.as_bytes()).await?;
-            }
-            InteropTest::LargeDataDownload => todo!(),
+            },
+            InteropTest::LargeDataDownload => {
+                let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+                stream.read_exact(&mut server_greeting_buffer).await?;
+                assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
+
+                let mut data_buffer = vec![0; 1_000_000];
+                // for each GB
+                for i in 0..LARGE_DATA_DOWNLOAD_GB {
+                    data_buffer[0] = (i % u8::MAX as u64) as u8;
+                    for _ in 0..1_000 {
+                        stream.write_all(&data_buffer).await?;
+                    }
+                }
+            },
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
         }
         //stream.shutdown().await?;

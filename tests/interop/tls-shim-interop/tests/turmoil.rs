@@ -4,6 +4,7 @@ use s2n_tls::{
     enums::Version,
     security::{Policy, DEFAULT_TLS13},
 };
+use tracing::Level;
 use std::{
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddrV4},
@@ -11,7 +12,6 @@ use std::{
 };
 use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, ClientTLS, ServerTLS};
 use turmoil::net::*;
-
 
 struct TurmoilClock {
     start: tokio::time::Instant,
@@ -33,37 +33,99 @@ impl MonotonicClock for TurmoilClock {
 
 const PORT: u16 = 1738;
 
-// fn server_config(animal: &str) -> s2n_tls::config::Config {
-//     let cert_path = format!("{}/certs/{}-chain.pem", env!("CARGO_MANIFEST_DIR"), animal);
-//     let key_path = format!("{}/certs/{}-key.pem", env!("CARGO_MANIFEST_DIR"), animal);
-//     let cert = std::fs::read(cert_path).unwrap();
-//     let key = std::fs::read(key_path).unwrap();
-//     let mut config = s2n_tls::config::Builder::new();
+async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>> {
+    let cert_pem = fs::read(common::pem_file_path(common::PemType::ServerChain))?;
+    let key_pem = fs::read(common::pem_file_path(common::PemType::ServerKey))?;
+    let config = <ShimS2nTls as ServerTLS<turmoil::net::TcpStream>>::get_server_config(
+        test, &cert_pem, &key_pem,
+    )?
+    .unwrap();
 
-//     // we can set different policies for different configs. "20190214" doesn't
-//     // support TLS 1.3, so any customer requesting www.wombat.com won't be able
-//     // to negoatiate TLS 1.3
-//     let security_policy = match animal {
-//         "wombat" => Policy::from_version("20190214").unwrap(),
-//         _ => DEFAULT_TLS13,
-//     };
-//     config.set_security_policy(&security_policy).unwrap();
-//     config.load_pem(&cert, &key).unwrap();
-//     config.set_monotonic_clock(TurmoilClock::new()).unwrap();
-//     config.build().unwrap()
-// }
+    let server = <ShimS2nTls as ServerTLS<turmoil::net::TcpStream>>::acceptor(config);
 
-// pub fn client_config() -> s2n_tls::config::Config {
-//     let mut config = s2n_tls::config::Config::builder();
-//     let ca: Vec<u8> =
-//         std::fs::read(env!("CARGO_MANIFEST_DIR").to_owned() + "/certs/ca-cert.pem").unwrap();
-//     config.set_security_policy(&DEFAULT_TLS13).unwrap();
-//     config.trust_pem(&ca).unwrap();
-//     config.build().unwrap()
-// }
+    // Bind to an address and listen for connections.
+    // ":0" can be used to automatically assign a port.
+    println!("creating the server listener");
+    let listener =
+        turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
 
+    println!("the server listener was created");
+    // Wait for a client to connect.
+    let (stream, peer_addr) = listener.accept().await?;
+    println!("Connection from {:?}", peer_addr);
+
+    // Spawn a new task to handle the connection.
+    // We probably want to spawn the task BEFORE calling TcpAcceptor::accept,
+    // because the TLS handshake can be slow.
+    let server_clone = server.clone();
+    println!("accepting the TLS connection");
+    let tls = ShimS2nTls::accept(&server_clone, stream).await.unwrap();
+    println!("now handling the TLS connection");
+    ShimS2nTls::handle_server_connection(test, tls)
+        .await
+        .unwrap();
+    Ok(())
+}
+
+async fn client_loop(
+    test: InteropTest,
+    server_domain: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
+    let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
+
+    let client = <RustlsShim as ClientTLS<TcpStream>>::connector(config);
+
+    // Bind to an address and listen for connections.
+    // ":0" can be used to automatically assign a port.
+    println!("trying to make the TCP stream");
+    let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
+
+    println!("client trying to connect");
+    let tls = RustlsShim::connect(&client, transport_stream)
+        .await
+        .unwrap();
+    println!("client connected");
+    RustlsShim::handle_client_connection(test, tls)
+        .await
+        .unwrap();
+    Ok(())
+}
+
+async fn s2n_client_loop(
+    test: InteropTest,
+    server_domain: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
+    let config = <ShimS2nTls as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
+
+    let client = <ShimS2nTls as ClientTLS<TcpStream>>::connector(config);
+
+    // Bind to an address and listen for connections.
+    // ":0" can be used to automatically assign a port.
+    println!("trying to make the TCP stream");
+    let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
+
+    println!("client trying to connect");
+    let tls = ShimS2nTls::connect(&client, transport_stream)
+        .await
+        .unwrap();
+    println!("client connected");
+    ShimS2nTls::handle_client_connection(test, tls)
+        .await
+        .unwrap();
+    Ok(())
+}
+
+// note that there is a gap in this Turmoil testing setup. If a client uses the 
+// Handshake scenario to call a Greeting server, we would naively expect a failure.
+// However this test will actually succeed because
+// 1. Handshake completes successfully, both assert on that
+// 2. client immediately calls shutdown
+// 3. 
 #[test]
 fn scenario() -> turmoil::Result {
+    let subscriber = tracing_subscriber::fmt::fmt().with_max_level(Level::TRACE).init();
     // turmoil is a network simulator, so we can simulate running a single and
     // two servers without having to spin up multiple processes or wait for
     // real time to elapse
@@ -71,58 +133,45 @@ fn scenario() -> turmoil::Result {
 
     // we can attach the server to all of the things
 
-    sim.host("s2n-tls-server-greeting", || async {
-        let cert_pem = fs::read(common::pem_file_path(common::PemType::ServerChain))?;
-        let key_pem = fs::read(common::pem_file_path(common::PemType::ServerKey))?;
-        let config = <ShimS2nTls as ServerTLS<turmoil::net::TcpStream>>::get_server_config(
-            common::InteropTest::Greeting,
-            &cert_pem,
-            &key_pem,
-        )?
-        .unwrap();
-
-        let server = <ShimS2nTls as ServerTLS<turmoil::net::TcpStream>>::acceptor(config);
-
-        // Bind to an address and listen for connections.
-        // ":0" can be used to automatically assign a port.
-        println!("creating the server listener");
-        let listener =
-            turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
-
-        println!("the server listener was created");
-        // Wait for a client to connect.
-        let (stream, peer_addr) = listener.accept().await?;
-        println!("Connection from {:?}", peer_addr);
-
-        // Spawn a new task to handle the connection.
-        // We probably want to spawn the task BEFORE calling TcpAcceptor::accept,
-        // because the TLS handshake can be slow.
-        let server_clone = server.clone();
-        let tls = ShimS2nTls::accept(&server_clone, stream).await.unwrap();
-        ShimS2nTls::handle_server_connection(InteropTest::Greeting, tls)
-            .await
-            .unwrap();
-        Ok(())
+    sim.host("s2n-tls-server-greeting", || {
+        server_loop(InteropTest::Greeting)
     });
+    // sim.host("s2n-tls-server-handshake", || {
+    //     server_loop(InteropTest::Handshake)
+    // });
 
-    sim.client("rustls-client", async {
-        //let mut stream = TcpStream::connect(("s2n-tls-server-greeting", PORT)).await?;
-        let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-        let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(InteropTest::Greeting, &ca_pem)?.unwrap();
+    sim.client(
+        "rustls-client-greeting",
+        s2n_client_loop(InteropTest::Handshake, "s2n-tls-server-greeting"),
+    );
 
-        let client = <RustlsShim as ClientTLS<TcpStream>>::connector(config);
+    // sim.client("rustls-client-handshake", async {
+    //     //let mut stream = TcpStream::connect(("s2n-tls-server-greeting", PORT)).await?;
+    //     let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
+    //     let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(
+    //         InteropTest::Handshake,
+    //         &ca_pem,
+    //     )?
+    //     .unwrap();
 
-        // Bind to an address and listen for connections.
-        // ":0" can be used to automatically assign a port.
-        println!("trying to make the TCP stream");
-        let transport_stream = turmoil::net::TcpStream::connect(("s2n-tls-server-greeting", PORT)).await?;
-    
-        println!("client trying to connect");
-        let tls = RustlsShim::connect(&client, transport_stream).await.unwrap();
-        println!("client connected");
-        RustlsShim::handle_client_connection(InteropTest::Greeting, tls).await.unwrap();
-        Ok(())
-    });
+    //     let client = <RustlsShim as ClientTLS<TcpStream>>::connector(config);
+
+    //     // Bind to an address and listen for connections.
+    //     // ":0" can be used to automatically assign a port.
+    //     println!("trying to make the TCP stream");
+    //     let transport_stream =
+    //         turmoil::net::TcpStream::connect(("s2n-tls-server-handshake", PORT)).await?;
+
+    //     println!("client trying to connect");
+    //     let tls = RustlsShim::connect(&client, transport_stream)
+    //         .await
+    //         .unwrap();
+    //     println!("client connected");
+    //     RustlsShim::handle_client_connection(InteropTest::Handshake, tls)
+    //         .await
+    //         .unwrap();
+    //     Ok(())
+    // });
 
     sim.run()
 }

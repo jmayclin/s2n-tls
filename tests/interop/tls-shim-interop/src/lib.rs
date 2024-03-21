@@ -11,10 +11,10 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::{TcpListener, TcpSocket, TcpStream},
+    net::{TcpListener, TcpSocket, TcpStream}, time::sleep,
 };
 
-use common::InteropTest;
+use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETING};
 
 pub mod s2n_tls_shim;
 pub mod rustls_shim;
@@ -78,10 +78,47 @@ pub trait ClientTLS<T> {
         transport_stream: T,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
     
-    fn handle_client_connection(
+    // fn handle_client_connection(
+    //     test: InteropTest,
+    //     stream: Self::Stream,
+    // ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
+
+    /// This is essentially the event loop, and will be invoked once on each stream 
+    /// that is yielded form the the `connect` method. Generally implementors should 
+    /// prefer to implement the individual method overrides rather than overriding
+    /// the entire event loop.
+    async fn handle_client_connection(
         test: InteropTest,
-        stream: Self::Stream,
-    ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
+        mut stream: Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match test {
+            InteropTest::Handshake => { println!("Client executing handshake scenario")/* no data exchange in the handshake case */ }
+            InteropTest::Greeting => {
+                let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
+                stream.write_all(CLIENT_GREETING.as_bytes()).await?;
+                //stream.read_exact(&mut server_greeting_buffer).await?;
+                //assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
+            }
+            InteropTest::LargeDataDownload => {
+                stream.write_all(CLIENT_GREETING.as_bytes()).await?;
+
+                let mut recv_buffer = vec![0; 1_000_000];
+                for i in 0..LARGE_DATA_DOWNLOAD_GB {
+                    let tag = (i % u8::MAX as u64) as u8;
+                    // 1_000 Mb in a Gb
+                    for _ in 0..1_000 {
+                        stream.read_exact(&mut recv_buffer).await?;
+                        assert_eq!(recv_buffer[0], tag);
+                    }
+                }
+            },
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+        }
+        tracing::info!("client is shutting down");
+        //sleep(std::time::Duration::from_secs(1)).await;
+        stream.shutdown().await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

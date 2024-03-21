@@ -13,4 +13,6 @@ s2n-tls = {path = "../../../bindings/rust/s2n-tls" }
 s2n-tls-tokio = {path = "../../../bindings/rust/s2n-tls-tokio" }
 tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }
 tokio-rustls = "0.25"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 turmoil = "0.6.1"
