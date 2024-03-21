@@ -13,7 +13,8 @@ impl ClientTLS for RustlsShim {
 
     type Connector = tokio_rustls::TlsConnector;
 
-    type Stream = tokio_rustls::client::TlsStream<TcpStream>;
+    type TransportStream = TcpStream;
+    type Stream = tokio_rustls::client::TlsStream<Self::TransportStream>;
 
     fn get_client_config(
         test: common::InteropTest,
@@ -64,4 +65,5 @@ impl ClientTLS for RustlsShim {
         stream.shutdown().await?;
         Ok(())
     }
+    
 }

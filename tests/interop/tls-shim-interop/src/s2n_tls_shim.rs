@@ -19,10 +19,16 @@ use tokio::{
 
 use crate::{ClientTLS, ServerTLS};
 
-impl ClientTLS for ShimS2nTls {
+pub struct ShimS2nTls<T>;
+
+// T is generally a tokio::TcpStream or a turmoil::TcpStream
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS for ShimS2nTls<T>
+{
     type Config = s2n_tls::config::Config;
     type Connector = s2n_tls_tokio::TlsConnector;
-    type Stream = s2n_tls_tokio::TlsStream<TcpStream>;
+    type Stream = s2n_tls_tokio::TlsStream<T>;
+    type TransportStream = T;
+
 
     fn get_client_config(
         test: common::InteropTest,
@@ -40,7 +46,7 @@ impl ClientTLS for ShimS2nTls {
 
     async fn connect(
         client: &Self::Connector,
-        transport_stream: tokio::net::TcpStream,
+        transport_stream: T,
     ) -> Result<Self::Stream, Box<dyn Error + Send + Sync>> {
         Ok(client.connect("localhost", transport_stream).await?)
     }
@@ -63,14 +69,14 @@ impl ClientTLS for ShimS2nTls {
         stream.shutdown().await?;
         Ok(())
     }
+    
 }
 
-pub struct ShimS2nTls;
-
-impl ServerTLS for ShimS2nTls {
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS for ShimS2nTls<T> {
     type Config = s2n_tls::config::Config;
     type Acceptor = s2n_tls_tokio::TlsAcceptor;
-    type Stream = s2n_tls_tokio::TlsStream<TcpStream>;
+    type TransportStream = T;
+    type Stream = s2n_tls_tokio::TlsStream<Self::TransportStream>;
 
     fn get_server_config(
         test: InteropTest,
@@ -89,7 +95,7 @@ impl ServerTLS for ShimS2nTls {
 
     async fn accept(
         server: &Self::Acceptor,
-        transport_stream: tokio::net::TcpStream,
+        transport_stream: T,
     ) -> Result<Self::Stream, Box<dyn Error + Send + Sync>> {
         Ok(server.accept(transport_stream).await?)
     }
@@ -146,4 +152,5 @@ impl ServerTLS for ShimS2nTls {
         println!("the result of the tls shutdown was {:?}", res);
         Ok(())
     }
+    
 }

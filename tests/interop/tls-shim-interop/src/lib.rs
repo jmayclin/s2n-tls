@@ -23,13 +23,14 @@ pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
 
-
 pub trait ServerTLS {
     type Config;
     // `'static` means that the Acceptor types contains no references which have a lifetime
     // shorter than `'static`. This is a bit of a lie, which I should fix later.
     type Acceptor: Clone + Send + 'static;
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
+    type TransportStream: AsyncRead + AsyncWrite + Unpin + Send;
+
 
     fn get_server_config(
         test: InteropTest,
@@ -42,7 +43,7 @@ pub trait ServerTLS {
     // the async fn (Future) will violently resist implementing Send
     fn accept(
         server: &Self::Acceptor,
-        transport_stream: tokio::net::TcpStream,
+        transport_stream: Self::TransportStream,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
     
     fn handle_server_connection(
@@ -57,6 +58,7 @@ pub trait ClientTLS {
     // shorter than `'static`. This is a bit of a lie, which I should fix later.
     type Connector: Clone + Send + 'static;
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
+    type TransportStream: AsyncRead + AsyncWrite + Unpin + Send;
 
     fn get_client_config(
         test: InteropTest,
@@ -69,7 +71,7 @@ pub trait ClientTLS {
     // the async fn (Future) will violently resist implementing Send
     fn connect(
         client: &Self::Connector,
-        transport_stream: tokio::net::TcpStream,
+        transport_stream: Self::TransportStream,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
     
     fn handle_client_connection(
