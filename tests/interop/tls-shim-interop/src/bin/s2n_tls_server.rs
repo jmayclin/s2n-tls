@@ -32,10 +32,8 @@ async fn run_server<Tls: ServerTLS>(config: Tls::Config, port: u16, test: Intero
         // because the TLS handshake can be slow.
         let server_clone = server.clone();
         tokio::spawn(async move {
-            let mut tls = Tls::accept(&server_clone, stream).await?;
-            //let mut tls = server.accept(stream).await?;
-            let handle_fut = Tls::handle_server_connection(tls).await.unwrap();
-            //Tls::handle_connection(tls).await.unwrap();
+            let tls = Tls::accept(&server_clone, stream).await?;
+            Tls::handle_server_connection(test, tls).await?;
             Ok::<(), Box<dyn Error + Send + Sync>>(())
         });
     }

@@ -10,7 +10,7 @@ use std::{
     fs,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
 };
-use tls_shim_interop::{s2n_tls_shim::ShimS2nTls, ClientTLS};
+use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, ClientTLS};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -31,7 +31,7 @@ async fn run_client<Tls: ClientTLS>(
         TcpStream::connect(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).await?;
 
     let tls = Tls::connect(&client, transport_stream).await.unwrap();
-    Tls::handle_client_connection(tls).await.unwrap();
+    Tls::handle_client_connection(test, tls).await.unwrap();
     Ok(())
 }
 
@@ -39,7 +39,7 @@ async fn run_client<Tls: ClientTLS>(
 async fn main() -> Result<(), Box<dyn Error>> {
     let (test, port) = common::parse_server_arguments();
     let ca_cert = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = ShimS2nTls::get_client_config(test, &ca_cert)?.unwrap();
-    run_client::<ShimS2nTls>(config, port, test).await?;
+    let config = RustlsShim::get_client_config(test, &ca_cert)?.unwrap();
+    run_client::<RustlsShim>(config, port, test).await?;
     Ok(())
 }

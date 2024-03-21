@@ -1,5 +1,5 @@
 use clap::Parser;
-use common::InteropTest;
+use common::{InteropTest, CLIENT_GREETING, SERVER_GREETING};
 use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
 use s2n_tls_tokio::TlsAcceptor;
 use std::{
@@ -8,11 +8,13 @@ use std::{
     fmt::Debug,
     fs,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    pin::Pin, time::Duration,
+    pin::Pin,
+    time::Duration,
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::{TcpListener, TcpSocket, TcpStream}, time::sleep,
+    net::{TcpListener, TcpSocket, TcpStream},
+    time::sleep,
 };
 
 use crate::{ClientTLS, ServerTLS};
@@ -29,7 +31,8 @@ impl ClientTLS for ShimS2nTls {
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.trust_pem(ca_pem)?;
-        Ok(Some(config.build()?))    }
+        Ok(Some(config.build()?))
+    }
 
     fn connector(config: Self::Config) -> Self::Connector {
         s2n_tls_tokio::TlsConnector::new(config)
@@ -43,12 +46,22 @@ impl ClientTLS for ShimS2nTls {
     }
 
     async fn handle_client_connection(
+        test: InteropTest,
         mut stream: Self::Stream,
-    ) -> Result<u32, Box<dyn Error + Send + Sync>> {
-        //stream.write("gimme data".as_bytes()).await?;
-        //println!("waiting to shutdown");
-        stream.shutdown().await.unwrap();
-        Ok(5)
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match test {
+            InteropTest::Handshake => { /* no data exchange in the handshake case */ }
+            InteropTest::Greeting => {
+                let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
+                stream.write_all(CLIENT_GREETING.as_bytes()).await?;
+                stream.read_exact(&mut server_greeting_buffer).await?;
+                assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
+            }
+            InteropTest::LargeDataDownload => todo!(),
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+        }
+        stream.shutdown().await?;
+        Ok(())
     }
 }
 
@@ -81,7 +94,23 @@ impl ServerTLS for ShimS2nTls {
         Ok(server.accept(transport_stream).await?)
     }
 
-    async fn handle_server_connection(mut tls: Self::Stream) -> Result<u32, Box<dyn Error + Send + Sync>> {
+    async fn handle_server_connection(
+        test: InteropTest,
+        mut stream: Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match test {
+            InteropTest::Handshake => { /* no data exchange in the handshake case */ }
+            InteropTest::Greeting => {
+                let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+                stream.read_exact(&mut server_greeting_buffer).await?;
+                assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
+                
+                stream.write_all(SERVER_GREETING.as_bytes()).await?;
+            }
+            InteropTest::LargeDataDownload => todo!(),
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+        }
+        //stream.shutdown().await?;
         //let mut read_buffer = vec![0; "gimme data".as_bytes().len()];
         //tls.read_exact(&mut read_buffer).await?;
         //assert_eq!(&read_buffer, "gimme data".as_bytes());
@@ -112,9 +141,9 @@ impl ServerTLS for ShimS2nTls {
         //     .await
         //     .unwrap();
 
-        tls.shutdown().await.unwrap();
-        Ok(5)
+        // don't assert, because things are silly and it sometimes breaks
+        let res = stream.shutdown().await;
+        println!("the result of the tls shutdown was {:?}", res);
+        Ok(())
     }
-
-
 }

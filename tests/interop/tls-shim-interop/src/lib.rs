@@ -17,6 +17,7 @@ use tokio::{
 use common::InteropTest;
 
 pub mod s2n_tls_shim;
+pub mod rustls_shim;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -45,8 +46,9 @@ pub trait ServerTLS {
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
     
     fn handle_server_connection(
+        test: InteropTest,
         stream: Self::Stream,
-    ) -> impl std::future::Future<Output = Result<u32, Box<dyn Error + Send + Sync>>> + Send;
+    ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
 }
 
 pub trait ClientTLS {
@@ -71,8 +73,9 @@ pub trait ClientTLS {
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
     
     fn handle_client_connection(
+        test: InteropTest,
         stream: Self::Stream,
-    ) -> impl std::future::Future<Output = Result<u32, Box<dyn Error + Send + Sync>>> + Send;
+    ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
 }
 
 #[cfg(test)]

@@ -3,6 +3,9 @@ use std::env;
 // `Common` provides a crate with functionality that other TLS implementors might find useful if they are implementing a 
 // rust shim.
 
+pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
+pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
@@ -37,6 +40,7 @@ pub fn parse_server_arguments() -> (InteropTest, u16) {
 #[derive(Copy, Clone)]
 pub enum InteropTest {
     Handshake,
+    Greeting,
     LargeDataDownload,
     LargeDataDownloadWithFrequentKeyUpdates,
 }
@@ -45,6 +49,7 @@ impl InteropTest {
     fn parse_test(argument: &str) -> Self {
         match argument {
             "handshake" => InteropTest::Handshake,
+            "greeting" => InteropTest::Greeting,
             "large_data_download" => InteropTest::LargeDataDownload,
             _ => panic!("unrecognized test type: {}", argument),
         }
