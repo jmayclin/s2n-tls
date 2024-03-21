@@ -4,13 +4,14 @@ use s2n_tls::{
     enums::Version,
     security::{Policy, DEFAULT_TLS13},
 };
-use tracing::Level;
 use std::{
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
 use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, ClientTLS, ServerTLS};
+use tokio_rustls::client;
+use tracing::Level;
 use turmoil::net::*;
 
 struct TurmoilClock {
@@ -67,14 +68,17 @@ async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-async fn client_loop(
+async fn client_loop<T>(
     test: InteropTest,
-    server_domain: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+    server_domain: String,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    T: ClientTLS<TcpStream>,
+{
     let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
+    let config = T::get_client_config(test, &ca_pem)?.unwrap();
 
-    let client = <RustlsShim as ClientTLS<TcpStream>>::connector(config);
+    let client = T::connector(config);
 
     // Bind to an address and listen for connections.
     // ":0" can be used to automatically assign a port.
@@ -82,96 +86,104 @@ async fn client_loop(
     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
 
     println!("client trying to connect");
-    let tls = RustlsShim::connect(&client, transport_stream)
+    let tls = T::connect(&client, transport_stream)
         .await
         .unwrap();
     println!("client connected");
-    RustlsShim::handle_client_connection(test, tls)
+    T::handle_client_connection(test, tls)
         .await
         .unwrap();
     Ok(())
 }
 
-async fn s2n_client_loop(
-    test: InteropTest,
-    server_domain: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = <ShimS2nTls as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
+// async fn s2n_client_loop(
+//     test: InteropTest,
+//     server_domain: String,
+// ) -> Result<(), Box<dyn std::error::Error>> {
+//     let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
+//     let config = <ShimS2nTls as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
 
-    let client = <ShimS2nTls as ClientTLS<TcpStream>>::connector(config);
+//     let client = <ShimS2nTls as ClientTLS<TcpStream>>::connector(config);
 
-    // Bind to an address and listen for connections.
-    // ":0" can be used to automatically assign a port.
-    println!("trying to make the TCP stream");
-    let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
+//     // Bind to an address and listen for connections.
+//     // ":0" can be used to automatically assign a port.
+//     println!("trying to make the TCP stream");
+//     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
 
-    println!("client trying to connect");
-    let tls = ShimS2nTls::connect(&client, transport_stream)
-        .await
-        .unwrap();
-    println!("client connected");
-    ShimS2nTls::handle_client_connection(test, tls)
-        .await
-        .unwrap();
-    Ok(())
-}
+//     println!("client trying to connect");
+//     let tls = ShimS2nTls::connect(&client, transport_stream)
+//         .await
+//         .unwrap();
+//     println!("client connected");
+//     ShimS2nTls::handle_client_connection(test, tls)
+//         .await
+//         .unwrap();
+//     Ok(())
+// }
 
-// note that there is a gap in this Turmoil testing setup. If a client uses the 
+// note that there is a gap in this Turmoil testing setup. If a client uses the
 // Handshake scenario to call a Greeting server, we would naively expect a failure.
 // However this test will actually succeed because
 // 1. Handshake completes successfully, both assert on that
 // 2. client immediately calls shutdown
-// 3. 
+// 3. this results in transmitting a TCP FIN to the server
+// 4. at which point turmoil consider the client "done"
+// 5. the simulation is then done
+// 5. the server is never polled
+// 6. so the server asserts are never triggered. We'd need to use poll_shutdown instead of
+// 7. poll_shutdown_send in order to get the real close behavior
+// We can probably add an assert on the read call returning 0, but I'm unwilling to make an s2n-tls
+// specific event loop at the moment. The tests are still relatively useful
 #[test]
-fn scenario() -> turmoil::Result {
-    let subscriber = tracing_subscriber::fmt::fmt().with_max_level(Level::TRACE).init();
+fn s2n_tls_server_rustls_client() -> turmoil::Result {
+    let subscriber = tracing_subscriber::fmt::fmt()
+        .with_max_level(Level::INFO)
+        .try_init();
     // turmoil is a network simulator, so we can simulate running a single and
     // two servers without having to spin up multiple processes or wait for
     // real time to elapse
     let mut sim = turmoil::Builder::new().build();
 
     // we can attach the server to all of the things
+    // turmoil's send function seems to be quadratic somewhere. Sending 1 Gb takes approximately 229 seconds
+    // so don't enable the large data test
+    let tests = vec![
+        InteropTest::Greeting,
+        InteropTest::Handshake, /*InteropTest::LargeDataDownload */
+    ];
+    for t in tests {
+        let server_name = format!("s2n-tls-server-{}", t);
+        let client_name = format!("rustls-client-{}", t);
+        sim.host(server_name.as_str(), move || server_loop(t));
+        sim.client(client_name.as_str(), client_loop::<RustlsShim>(t, server_name));
+    }
 
-    sim.host("s2n-tls-server-greeting", || {
-        server_loop(InteropTest::Greeting)
-    });
-    // sim.host("s2n-tls-server-handshake", || {
-    //     server_loop(InteropTest::Handshake)
-    // });
+    sim.run()
+}
 
-    sim.client(
-        "rustls-client-greeting",
-        s2n_client_loop(InteropTest::Handshake, "s2n-tls-server-greeting"),
-    );
+#[test]
+fn s2n_tls_server_s2n_tls_client() -> turmoil::Result {
+    let subscriber = tracing_subscriber::fmt::fmt()
+        .with_max_level(Level::INFO)
+        .try_init();
+    // turmoil is a network simulator, so we can simulate running a single and
+    // two servers without having to spin up multiple processes or wait for
+    // real time to elapse
+    let mut sim = turmoil::Builder::new().build();
 
-    // sim.client("rustls-client-handshake", async {
-    //     //let mut stream = TcpStream::connect(("s2n-tls-server-greeting", PORT)).await?;
-    //     let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    //     let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(
-    //         InteropTest::Handshake,
-    //         &ca_pem,
-    //     )?
-    //     .unwrap();
-
-    //     let client = <RustlsShim as ClientTLS<TcpStream>>::connector(config);
-
-    //     // Bind to an address and listen for connections.
-    //     // ":0" can be used to automatically assign a port.
-    //     println!("trying to make the TCP stream");
-    //     let transport_stream =
-    //         turmoil::net::TcpStream::connect(("s2n-tls-server-handshake", PORT)).await?;
-
-    //     println!("client trying to connect");
-    //     let tls = RustlsShim::connect(&client, transport_stream)
-    //         .await
-    //         .unwrap();
-    //     println!("client connected");
-    //     RustlsShim::handle_client_connection(InteropTest::Handshake, tls)
-    //         .await
-    //         .unwrap();
-    //     Ok(())
-    // });
+    // we can attach the server to all of the things
+    // turmoil's send function seems to be quadriatic somewhere. Sending 1 Gb takes approximately 229 seconds
+    // so don't enable the large data test
+    let tests = vec![
+        InteropTest::Greeting,
+        InteropTest::Handshake, /*InteropTest::LargeDataDownload */
+    ];
+    for t in tests {
+        let server_name = format!("s2n-tls-server-{}", t);
+        let client_name = format!("rustls-client-{}", t);
+        sim.host(server_name.as_str(), move || server_loop(t));
+        sim.client(client_name.as_str(), client_loop::<ShimS2nTls>(t, server_name));
+    }
 
     sim.run()
 }

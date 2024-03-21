@@ -40,5 +40,3 @@ build/
 result
 result-*
 *.class
-*.rustc_info.json
-*Cargo.lock

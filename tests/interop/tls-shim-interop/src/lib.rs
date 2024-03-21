@@ -94,10 +94,11 @@ pub trait ClientTLS<T> {
         match test {
             InteropTest::Handshake => { println!("Client executing handshake scenario")/* no data exchange in the handshake case */ }
             InteropTest::Greeting => {
-                let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
-                //stream.read_exact(&mut server_greeting_buffer).await?;
-                //assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
+                
+                let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];
+                stream.read_exact(&mut server_greeting_buffer).await?;
+                assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
             }
             InteropTest::LargeDataDownload => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;

@@ -7,7 +7,7 @@ pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
 
 /// amount of data that will be downloaded by the large download test
-pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;
+pub const LARGE_DATA_DOWNLOAD_GB: u64 = 1;//256;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

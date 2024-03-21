@@ -122,7 +122,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
                 // for each GB
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
                     data_buffer[0] = (i % u8::MAX as u64) as u8;
-                    for _ in 0..1_000 {
+                    for j in 0..1_000 {
+                        tracing::info!("{}-{}", i, j);
                         stream.write_all(&data_buffer).await?;
                     }
                 }
