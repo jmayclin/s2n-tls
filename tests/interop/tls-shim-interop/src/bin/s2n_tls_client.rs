@@ -18,7 +18,7 @@ use tokio::{
 
 use common::InteropTest;
 
-async fn run_client<Tls: ClientTLS>(
+async fn run_client<Tls: ClientTLS<TcpStream>>(
     config: Tls::Config,
     port: u16,
     test: InteropTest,
@@ -39,7 +39,7 @@ async fn run_client<Tls: ClientTLS>(
 async fn main() -> Result<(), Box<dyn Error>> {
     let (test, port) = common::parse_server_arguments();
     let ca_cert = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = ShimS2nTls::get_client_config(test, &ca_cert)?.unwrap();
+    let config = <ShimS2nTls as ClientTLS<TcpStream>>::get_client_config(test, &ca_cert)?.unwrap();
     run_client::<ShimS2nTls>(config, port, test).await?;
     Ok(())
 }

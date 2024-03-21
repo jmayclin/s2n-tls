@@ -6,11 +6,11 @@ use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DE
 use s2n_tls_tokio::TlsAcceptor;
 use tls_shim_interop::{s2n_tls_shim::ShimS2nTls, ServerTLS};
 use std::{env, error::Error, fs, net::{Ipv4Addr, SocketAddr, SocketAddrV4}};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 use common::InteropTest;
 
-async fn run_server<Tls: ServerTLS>(config: Tls::Config, port: u16, test: InteropTest) -> Result<(), Box<dyn Error>> {
+async fn run_server<Tls: ServerTLS<TcpStream>>(config: Tls::Config, port: u16, test: InteropTest) -> Result<(), Box<dyn Error>> {
     let server = Tls::acceptor(config);
 
     // Bind to an address and listen for connections.
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (test, port) = common::parse_server_arguments();
     let cert_pem = fs::read(common::pem_file_path(common::PemType::ServerChain))?;
     let key_pem = fs::read(common::pem_file_path(common::PemType::ServerKey))?;
-    let config = ShimS2nTls::get_server_config(test, &cert_pem, &key_pem)?.unwrap();
+    let config = <ShimS2nTls as ServerTLS<TcpStream>>::get_server_config(test, &cert_pem, &key_pem)?.unwrap();
     run_server::<ShimS2nTls>(config, port, test).await?;
     Ok(())
 }
