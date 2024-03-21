@@ -19,16 +19,14 @@ use tokio::{
 
 use crate::{ClientTLS, ServerTLS};
 
-pub struct ShimS2nTls<T>;
+pub struct ShimS2nTls;
 
 // T is generally a tokio::TcpStream or a turmoil::TcpStream
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS for ShimS2nTls<T>
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for ShimS2nTls
 {
     type Config = s2n_tls::config::Config;
     type Connector = s2n_tls_tokio::TlsConnector;
     type Stream = s2n_tls_tokio::TlsStream<T>;
-    type TransportStream = T;
-
 
     fn get_client_config(
         test: common::InteropTest,
@@ -72,11 +70,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS for ShimS2nTls<T>
     
 }
 
-impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS for ShimS2nTls<T> {
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
     type Config = s2n_tls::config::Config;
     type Acceptor = s2n_tls_tokio::TlsAcceptor;
-    type TransportStream = T;
-    type Stream = s2n_tls_tokio::TlsStream<Self::TransportStream>;
+    type Stream = s2n_tls_tokio::TlsStream<T>;
 
     fn get_server_config(
         test: InteropTest,

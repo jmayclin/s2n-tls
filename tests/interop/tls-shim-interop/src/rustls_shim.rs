@@ -1,20 +1,17 @@
-use std::{io::BufReader, sync::Arc};
+use std::{fmt::Debug, io::BufReader, sync::Arc};
 
 use common::{InteropTest, CLIENT_GREETING, SERVER_GREETING};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
+use tokio::{io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}, net::TcpStream};
 use tokio_rustls::{rustls::{self, pki_types}, TlsConnector};
 
 use crate::ClientTLS;
 
 pub struct RustlsShim;
 
-impl ClientTLS for RustlsShim {
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsShim {
     type Config = Arc<tokio_rustls::rustls::ClientConfig>;
-
     type Connector = tokio_rustls::TlsConnector;
-
-    type TransportStream = TcpStream;
-    type Stream = tokio_rustls::client::TlsStream<Self::TransportStream>;
+    type Stream = tokio_rustls::client::TlsStream<T>;
 
     fn get_client_config(
         test: common::InteropTest,
@@ -40,7 +37,7 @@ impl ClientTLS for RustlsShim {
 
     async fn connect(
         client: &Self::Connector,
-        transport_stream: tokio::net::TcpStream,
+        transport_stream: T,
     ) -> Result<Self::Stream, Box<dyn std::error::Error + Send + Sync>> {
         let domain = "localhost";
         let server_name = pki_types::ServerName::try_from(domain)?;
