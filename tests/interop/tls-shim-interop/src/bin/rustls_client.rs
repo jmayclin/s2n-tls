@@ -4,6 +4,7 @@
 use clap::Parser;
 use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
 use s2n_tls_tokio::TlsAcceptor;
+use tracing::Level;
 use std::{
     env,
     error::Error,
@@ -37,6 +38,9 @@ async fn run_client<Tls: ClientTLS<TcpStream>>(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt::fmt()
+        .with_max_level(Level::INFO)
+        .init();
     let (test, port) = common::parse_server_arguments();
     let ca_cert = fs::read(common::pem_file_path(common::PemType::CaCert))?;
     let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(test, &ca_cert)?.unwrap();

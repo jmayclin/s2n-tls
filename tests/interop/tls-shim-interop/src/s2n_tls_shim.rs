@@ -32,6 +32,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for ShimS2nTls
         test: common::InteropTest,
         ca_pem: &[u8],
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
+        if test == InteropTest::LargeDataDownloadWithFrequentKeyUpdates {
+            return Ok(None);
+        }
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.trust_pem(ca_pem)?;
@@ -80,6 +83,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         cert_pem: &[u8],
         key_pem: &[u8],
     ) -> Result<Option<s2n_tls::config::Config>, Box<dyn Error>> {
+        if test == InteropTest::LargeDataDownloadWithFrequentKeyUpdates {
+            return Ok(None);
+        }
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.load_pem(cert_pem, key_pem)?;
@@ -102,7 +108,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match test {
-            InteropTest::Handshake => { println!("server executing the handshake scenario");/* no data exchange in the handshake case */ },
+            InteropTest::Handshake => { tracing::info!("server executing the handshake scenario");/* no data exchange in the handshake case */ },
             InteropTest::Greeting => {
                 tracing::info!("server executing the greeting scenario");
                 let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
@@ -123,7 +129,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
                     data_buffer[0] = (i % u8::MAX as u64) as u8;
                     for j in 0..1_000 {
-                        tracing::info!("{}-{}", i, j);
+                        tracing::trace!("{}-{}", i, j);
                         stream.write_all(&data_buffer).await?;
                     }
                 }
@@ -137,7 +143,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         // let target = 100; // Gb
         //                   //let allowed_records = (target * GB / 8_192) as u64; // 8_192 is default s2n record size;
         //                   //tls.as_mut().set_encryption_limit(allowed_records).unwrap();
-        // println!("{:#?}", tls);
+        // tracing::info!("{:#?}", tls);
 
         // // read in the initial message
         // let mut buffer = vec![0x56; 1_000_000];
@@ -145,7 +151,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
 
         // assert_eq!(read, "gimme data".len());
         // assert_eq!(&buffer[0..read], "gimme data".as_bytes());
-        // println!("the java client said hello to me. Nice fellow");
+        // tracing::info!("the java client said hello to me. Nice fellow");
 
         // // write 200 Gb to client
         // for i in 0..(200 * 1_000) {
@@ -153,7 +159,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         //     if i % (25 * 1_000) == 0 {
         //         //tls.as_mut().request_key_update(s2n_tls::enums::PeerKeyUpdate::KeyUpdateNotRequested).unwrap();
         //     }
-        //     //println!("writing mb {}, send and recv updates: {:?}", i, update);
+        //     //tracing::info!("writing mb {}, send and recv updates: {:?}", i, update);
         //     tls.write_all(&buffer).await.unwrap();
         // }
 
@@ -163,7 +169,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
 
         // don't assert, because things are silly and it sometimes breaks
         let res = stream.shutdown().await;
-        println!("the result of the tls shutdown was {:?}", res);
+        tracing::info!("the result of the tls shutdown was {:?}", res);
         Ok(())
     }
     

@@ -46,22 +46,22 @@ async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>
 
     // Bind to an address and listen for connections.
     // ":0" can be used to automatically assign a port.
-    println!("creating the server listener");
+    tracing::info!("creating the server listener");
     let listener =
         turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
 
-    println!("the server listener was created");
+    tracing::info!("the server listener was created");
     // Wait for a client to connect.
     let (stream, peer_addr) = listener.accept().await?;
-    println!("Connection from {:?}", peer_addr);
+    tracing::info!("Connection from {:?}", peer_addr);
 
     // Spawn a new task to handle the connection.
     // We probably want to spawn the task BEFORE calling TcpAcceptor::accept,
     // because the TLS handshake can be slow.
     let server_clone = server.clone();
-    println!("accepting the TLS connection");
+    tracing::info!("accepting the TLS connection");
     let tls = ShimS2nTls::accept(&server_clone, stream).await.unwrap();
-    println!("now handling the TLS connection");
+    tracing::info!("now handling the TLS connection");
     ShimS2nTls::handle_server_connection(test, tls)
         .await
         .unwrap();
@@ -82,44 +82,19 @@ where
 
     // Bind to an address and listen for connections.
     // ":0" can be used to automatically assign a port.
-    println!("trying to make the TCP stream");
+    tracing::info!("trying to make the TCP stream");
     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
 
-    println!("client trying to connect");
+    tracing::info!("client trying to connect");
     let tls = T::connect(&client, transport_stream)
         .await
         .unwrap();
-    println!("client connected");
+    tracing::info!("client connected");
     T::handle_client_connection(test, tls)
         .await
         .unwrap();
     Ok(())
 }
-
-// async fn s2n_client_loop(
-//     test: InteropTest,
-//     server_domain: String,
-// ) -> Result<(), Box<dyn std::error::Error>> {
-//     let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-//     let config = <ShimS2nTls as ClientTLS<TcpStream>>::get_client_config(test, &ca_pem)?.unwrap();
-
-//     let client = <ShimS2nTls as ClientTLS<TcpStream>>::connector(config);
-
-//     // Bind to an address and listen for connections.
-//     // ":0" can be used to automatically assign a port.
-//     println!("trying to make the TCP stream");
-//     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
-
-//     println!("client trying to connect");
-//     let tls = ShimS2nTls::connect(&client, transport_stream)
-//         .await
-//         .unwrap();
-//     println!("client connected");
-//     ShimS2nTls::handle_client_connection(test, tls)
-//         .await
-//         .unwrap();
-//     Ok(())
-// }
 
 // note that there is a gap in this Turmoil testing setup. If a client uses the
 // Handshake scenario to call a Greeting server, we would naively expect a failure.

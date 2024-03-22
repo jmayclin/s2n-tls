@@ -23,6 +23,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
         test: common::InteropTest,
         ca_pem: &[u8],
     ) -> Result<Option<Self::Config>, Box<dyn std::error::Error>> {
+        if test == InteropTest::LargeDataDownloadWithFrequentKeyUpdates {
+            return Ok(None);
+        }
+        
         let mut root_store = rustls::RootCertStore::empty();
 
         //let certs = rustls_pemfile::certs(&mut BufReader::new(ca_pem)).collect();

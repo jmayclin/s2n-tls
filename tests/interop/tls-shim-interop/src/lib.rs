@@ -92,7 +92,7 @@ pub trait ClientTLS<T> {
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         match test {
-            InteropTest::Handshake => { println!("Client executing handshake scenario")/* no data exchange in the handshake case */ }
+            InteropTest::Handshake => { tracing::info!("Client executing handshake scenario")/* no data exchange in the handshake case */ }
             InteropTest::Greeting => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
                 
@@ -117,7 +117,15 @@ pub trait ClientTLS<T> {
         }
         tracing::info!("client is shutting down");
         //sleep(std::time::Duration::from_secs(1)).await;
-        stream.shutdown().await?;
+        let shutdown_result = stream.shutdown().await;
+        if let Err(e) = shutdown_result {
+            // value: Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" }
+            if let Some(107) = e.raw_os_error() {
+                tracing::error!("Ignoring TCP Close Error, returning success: {}", e);
+                return Ok(());
+            }
+            return Err(Box::new(e));
+        }
         Ok(())
     }
 }

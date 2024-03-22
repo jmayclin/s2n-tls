@@ -20,20 +20,19 @@ The only available client implementations are
 - s2n-tls
 - rustls
 - java
-And the only server implementations are
+And the only server implementation is
 - s2n-tls
-- rustls
 
 The interop runner defines a number of test cases. Binaries are invoked with the following arguments
 ```
 client_binary $TEST_CASE $SERVER_PORT
 ```
 ```
-server_binary $TEST_CASE
+server_binary $TEST_CASE $SERVER_PORT
 ```
 
 ## Tests
-All tests currently use TLS 1.3. Acceptable cipher suites/groups are notspecified
+All tests currently use TLS 1.3. Acceptable cipher suites/groups are not specified
 
 - Handshake (`handshake`): 
 - Large Data Download (`large_data_download`): 

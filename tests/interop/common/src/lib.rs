@@ -7,7 +7,7 @@ pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
 
 /// amount of data that will be downloaded by the large download test
-pub const LARGE_DATA_DOWNLOAD_GB: u64 = 1;//256;
+pub const LARGE_DATA_DOWNLOAD_GB: u64 = 5;//256;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -56,7 +56,7 @@ pub fn parse_server_arguments() -> (InteropTest, u16) {
 
 /// This enum contains all of the defined Interop Test types. See the readme for more
 /// details.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InteropTest {
     Handshake,
     Greeting,
@@ -85,6 +85,7 @@ impl FromStr for InteropTest {
             "handshake" => InteropTest::Handshake,
             "greeting" => InteropTest::Greeting,
             "large_data_download" => InteropTest::LargeDataDownload,
+            "large_data_download_with_frequent_key_updates" => InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
             _ => return Err(format!("unrecognized test type: {}", s)),
         };
         Ok(name)
@@ -97,7 +98,7 @@ impl Display for InteropTest {
             InteropTest::Handshake => "handshake",
             InteropTest::Greeting => "greeting",
             InteropTest::LargeDataDownload => "large_data_download",
-            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => "large_data_download_with_frequent_key_updates",
         };
         write!(f, "{}", name)
     }
