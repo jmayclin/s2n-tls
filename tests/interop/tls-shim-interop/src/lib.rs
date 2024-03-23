@@ -100,7 +100,7 @@ pub trait ClientTLS<T> {
                 stream.read_exact(&mut server_greeting_buffer).await?;
                 assert_eq!(server_greeting_buffer, SERVER_GREETING.as_bytes());
             }
-            InteropTest::LargeDataDownload => {
+            InteropTest::LargeDataDownload | InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
 
                 let mut recv_buffer = vec![0; 1_000_000];
@@ -113,7 +113,6 @@ pub trait ClientTLS<T> {
                     }
                 }
             },
-            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
         }
         tracing::info!("client is shutting down");
         //sleep(std::time::Duration::from_secs(1)).await;

@@ -241,6 +241,11 @@ dependencies = [
 [[package]]
 name = "common"
 version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "dunce"
@@ -897,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "s2n-tls"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "errno",
  "hex",
@@ -908,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "s2n-tls-sys"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aws-lc-rs",
  "cc",
@@ -917,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "s2n-tls-tokio"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "errno",
  "libc",

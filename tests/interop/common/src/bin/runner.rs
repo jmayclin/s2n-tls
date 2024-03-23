@@ -1,8 +1,8 @@
 // PORT_START: u16 = 9_000;
 // PORT_END: u16 = 9_100;
 
-use std::{result, thread::sleep};
-
+use std::{fs::File, io, process::Stdio, result, thread::sleep};
+use tracing::Level;
 use common::InteropTest;
 
 #[derive(Debug, Copy, Clone)]
@@ -52,19 +52,82 @@ enum TestResult {
     Unimplemented,
 }
 
+struct TestScenario {
+    client: Client,
+    server: Server,
+    test_case: InteropTest,
+}
+
+impl TestScenario {
+    async fn execute(&mut self, port: u16) -> TestResult {
+        let test_case_name = format!("{}", self.test_case);
+
+        let server_log = format!(
+            "{}_s:{:?}_c:{:?}_server.log",
+            self.test_case, self.server, self.client
+        );
+        let client_log = format!(
+            "{}_s:{:?}_c:{:?}_client.log",
+            self.test_case, self.server, self.client
+        );
+        let mut server_log = tokio::fs::File::create(server_log).await.unwrap();
+        let mut client_log = tokio::fs::File::create(client_log).await.unwrap();
+
+        let mut server = tokio::process::Command::new(self.server.executable_path())
+            .args([&test_case_name, &port.to_string()])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut server_stdout = server.stdout.take().unwrap();
+
+        // let the server start up and start listening
+        sleep(std::time::Duration::from_secs(1));
+
+        let mut client = tokio::process::Command::new(self.client.executable_path())
+            .args([&test_case_name, &port.to_string()])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut client_stdout = client.stdout.take().unwrap();
+
+        let (c_status, s_status, _, _) = tokio::join!(
+            client.wait(),
+            server.wait(),
+            tokio::io::copy(&mut client_stdout, &mut client_log),
+            tokio::io::copy(&mut server_stdout, &mut server_log),
+        );
+        let c_status = c_status.unwrap().code().unwrap();
+        let s_status = s_status.unwrap().code().unwrap();
+
+        if c_status == 127 || s_status == 127 {
+            TestResult::Unimplemented
+        } else if c_status == 0 && s_status == 0 {
+            TestResult::Success
+        } else {
+            TestResult::Failure
+        }
+    }
+}
+
 fn print_results_table(results: Vec<(InteropTest, Server, Client, TestResult)>) {
     for (t, s, c, r) in results {
         println!("{} | {:?} | {:?} -> {:?}", t, s, c, r);
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::fmt()
+        .with_max_level(Level::INFO)
+        .with_ansi(false)
+        .init();
+
     let clients = vec![Client::S2nTls, Client::Rustls];
     let servers = vec![Server::S2nTls];
     let tests = vec![
-        InteropTest::Handshake,
-        InteropTest::Greeting,
-        InteropTest::LargeDataDownload,
+        //InteropTest::Handshake,
+        //InteropTest::Greeting,
+        //InteropTest::LargeDataDownload,
         InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
     ];
 
@@ -75,27 +138,14 @@ fn main() {
         let test_arg = format!("{}", t);
         for s in servers.iter() {
             for c in clients.iter() {
-                let mut server = std::process::Command::new(s.executable_path());
-                let mut client = std::process::Command::new(c.executable_path());
-                server.args([&test_arg, &port.to_string()]);
-                client.args([&test_arg, &port.to_string()]);
-                port += 1;
-
-                println!("for {}, {:?}, {:?}", t, s, c);
-
-                let mut server_handle = server.spawn().unwrap();
-                sleep(std::time::Duration::from_secs(1));
-                let mut client_handle = client.spawn().unwrap();
-
-                let client_exit = client_handle.wait().unwrap().code().unwrap();
-                let server_exit = server_handle.wait().unwrap().code().unwrap();
-                let result = if client_exit == 127 || server_exit == 127 {
-                    TestResult::Unimplemented
-                } else if client_exit == 0 && server_exit == 0 {
-                    TestResult::Success
-                } else {
-                    TestResult::Failure
+                let mut scenario = TestScenario {
+                    client: *c,
+                    server: *s,
+                    test_case: t,
                 };
+                let result = scenario.execute(port).await;
+                println!("the result was {:?}", result);
+                port += 1;
                 results.push((t, s.clone(), c.clone(), result.clone()));
             }
         }

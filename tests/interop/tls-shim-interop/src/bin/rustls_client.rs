@@ -40,6 +40,7 @@ async fn run_client<Tls: ClientTLS<TcpStream>>(
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
+        .with_ansi(false)
         .init();
     let (test, port) = common::parse_server_arguments();
     let ca_cert = fs::read(common::pem_file_path(common::PemType::CaCert))?;

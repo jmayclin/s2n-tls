@@ -32,9 +32,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for ShimS2nTls
         test: common::InteropTest,
         ca_pem: &[u8],
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
-        if test == InteropTest::LargeDataDownloadWithFrequentKeyUpdates {
-            return Ok(None);
-        }
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.trust_pem(ca_pem)?;
@@ -83,9 +80,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
         cert_pem: &[u8],
         key_pem: &[u8],
     ) -> Result<Option<s2n_tls::config::Config>, Box<dyn Error>> {
-        if test == InteropTest::LargeDataDownloadWithFrequentKeyUpdates {
-            return Ok(None);
-        }
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.load_pem(cert_pem, key_pem)?;
@@ -127,14 +121,45 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
                 let mut data_buffer = vec![0; 1_000_000];
                 // for each GB
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
+                    if i % 10 == 0 {
+                        tracing::info!("GB sent: {}, key updates: {:?}", i, stream.as_ref().key_update_counts()?);
+
+                    }
                     data_buffer[0] = (i % u8::MAX as u64) as u8;
                     for j in 0..1_000 {
                         tracing::trace!("{}-{}", i, j);
                         stream.write_all(&data_buffer).await?;
                     }
                 }
+
+                let (send, recv) = stream.as_ref().key_update_counts()?;
+                assert!(send > 0);
             },
-            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => todo!(),
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
+                let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+                stream.read_exact(&mut server_greeting_buffer).await?;
+                assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
+
+                let mut data_buffer = vec![0; 1_000_000];
+                // for each GB
+                for i in 0..LARGE_DATA_DOWNLOAD_GB {
+                    // send a key update with each gigabyte
+                    stream.as_mut().request_key_update(s2n_tls::enums::PeerKeyUpdate::KeyUpdateNotRequested)?;
+                    if i % 10 == 0 {
+                        tracing::info!("GB sent: {}, key updates: {:?}", i, stream.as_ref().key_update_counts()?);
+
+                    }
+                    data_buffer[0] = (i % u8::MAX as u64) as u8;
+                    for j in 0..1_000 {
+                        tracing::trace!("{}-{}", i, j);
+                        stream.write_all(&data_buffer).await?;
+                    }
+                }
+
+
+                let (send, recv) = stream.as_ref().key_update_counts()?;
+                assert!(send > 0);
+            },
         }
         //stream.shutdown().await?;
         //let mut read_buffer = vec![0; "gimme data".as_bytes().len()];

@@ -47,6 +47,7 @@ async fn run_server<Tls: ServerTLS<TcpStream>>(config: Tls::Config, port: u16, t
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
+        .with_ansi(false)
         .init();
     
     let (test, port) = common::parse_server_arguments();
