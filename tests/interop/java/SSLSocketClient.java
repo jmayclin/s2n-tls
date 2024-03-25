@@ -19,8 +19,8 @@ import javax.net.ssl.SSLSocket;
 public class SSLSocketClient {
     static final int LARGE_DATA_DOWNLOAD_GB = 256;
     static final String TLS_13 = "TLSv1.3";
-    static final String APP_REQUEST = "gimme data";
-
+    static final String CLIENT_GREETING = "i am the client. nice to meet you server.";
+    static final String SERVER_GREETING = "i am the server. a pleasure to make your acquaintance.";
 
     public static void main(String[] args) throws Exception {
         // enable debug logging for all of the ssl related things
@@ -36,7 +36,7 @@ public class SSLSocketClient {
 
         String certificatePath = "../certificates/ca-cert.pem";
         SSLSocketFactory socketFactory = createSocketFactory(certificatePath, TLS_13);
-
+        System.out.println("opening the socket");
         try (
             SSLSocket socket = (SSLSocket)socketFactory.createSocket(host, port);
         ) {
@@ -45,15 +45,26 @@ public class SSLSocketClient {
             //socket.setEnabledProtocols(protocolList);
             //socket.setEnabledCipherSuites(cipher);
             socket.startHandshake();
-
+            System.out.println("FINISHED THE HANDSHAKE");
+            System.out.println(testCase);
             if (testCase == "handshake") {
                 // no action required for handshake case
             }
-            if (testCase == "greeting") {
-                out.write(APP_REQUEST.getBytes());
+            if (testCase.equals("greeting")) {
+                System.out.println("doing the greeting");
+                out.write(CLIENT_GREETING.getBytes());
+                out.flush();
+                System.out.println("wrote the client greeting");
 
+                byte[] buffer = in.readNBytes(SERVER_GREETING.getBytes().length);
+                System.out.println("read the server greeting");
+                
+                String s = new String(buffer);
+                if (!s.equals(SERVER_GREETING)) {
+                    throw new Exception("Unexpected server greeting");
+                }
             } else if (testCase == "large_data_download" || testCase == "large_data_download_with_frequent_key_updates") {
-                out.write(APP_REQUEST.getBytes());
+                out.write(CLIENT_GREETING.getBytes());
 
                 // read in 200 GB from the server
                 for (int i = 0; i < LARGE_DATA_DOWNLOAD_GB; i++) {
