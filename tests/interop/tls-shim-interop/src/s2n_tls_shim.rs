@@ -114,10 +114,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
                 stream.write_all(SERVER_GREETING.as_bytes()).await?;
             },
             InteropTest::LargeDataDownload => {
+                tracing::info!("waiting for client greeting");
                 let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
                 stream.read_exact(&mut server_greeting_buffer).await?;
                 assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
-
                 let mut data_buffer = vec![0; 1_000_000];
                 // for each GB
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
@@ -136,6 +136,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for ShimS2nTls {
                 assert!(send > 0);
             },
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
+                tracing::info!("waiting for client greeting");
                 let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
                 stream.read_exact(&mut server_greeting_buffer).await?;
                 assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());

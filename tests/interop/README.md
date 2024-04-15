@@ -5,13 +5,13 @@ The goal of the tests in this category is to test interoperability with other TL
 ## Why Another Framework
 > s2n-tls already has unit tests, integration tests, and _more_ integration tests in the rust bindings. Why is it necessary to write new ones?
 
-Well it's true that our existing test frameworks are capable of reproducing and asserting on most issues, the goal is to find issues before we are aware of them. Our existing integration tests have some very limiting and specific assumptions that are not found in existing applications.
+While it's true that our existing test frameworks are capable of reproducing and asserting on most issues, the goal is to find issues before we are aware of them. Our existing integration tests have some very limiting and specific assumptions that are not found in existing applications.
 
 Our [integrationv2](../integrationv2/README.md) tests use `s2nd` as a server component which has an "echo" io loop which will always alterate reads with writes. In contrast, most applications servers will drive `send` to it's completion before pausing to read again.
 
 Our [benchmark harnesses](../../bindings/rust/bench/README.md) communicate using shared memory rather than using an actual TCP connection. This means that it will be unable to reproduce issues related to TCP socket buffers/flow control, since a write to shared memory won't fail until you have written enough to cause an out-of-memory error.
 
-We hope to expand these tests to cover a wide variety of implementations in the future, including 
+We hope to expand these tests to cover a wide variety of implementations in the future.
 
 ## Structure
 The interop tests are largely inspired by the work done by the [Quic Interop Runner](https://interop.seemann.io). Currently their feature set is significantly smaller.

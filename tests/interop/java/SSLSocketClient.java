@@ -47,10 +47,9 @@ public class SSLSocketClient {
             socket.startHandshake();
             System.out.println("FINISHED THE HANDSHAKE");
             System.out.println(testCase);
-            if (testCase == "handshake") {
+            if (testCase.equals("handshake")) {
                 // no action required for handshake case
-            }
-            if (testCase.equals("greeting")) {
+            } else if (testCase.equals("greeting")) {
                 System.out.println("doing the greeting");
                 out.write(CLIENT_GREETING.getBytes());
                 out.flush();
@@ -63,8 +62,9 @@ public class SSLSocketClient {
                 if (!s.equals(SERVER_GREETING)) {
                     throw new Exception("Unexpected server greeting");
                 }
-            } else if (testCase == "large_data_download" || testCase == "large_data_download_with_frequent_key_updates") {
+            } else if (testCase.equals("large_data_download") || testCase.equals("large_data_download_with_frequent_key_updates")) {
                 out.write(CLIENT_GREETING.getBytes());
+                out.flush();
 
                 // read in 200 GB from the server
                 for (int i = 0; i < LARGE_DATA_DOWNLOAD_GB; i++) {

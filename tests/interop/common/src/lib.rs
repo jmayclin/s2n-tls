@@ -9,6 +9,8 @@ pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acqu
 /// amount of data that will be downloaded by the large download test
 pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;//256;
 
+pub const UNIMPLEMENTED_RETURN_VAL: i32 = 127;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
