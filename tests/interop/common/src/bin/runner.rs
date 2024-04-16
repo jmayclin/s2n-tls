@@ -125,6 +125,8 @@ impl TestScenario {
         let res = tokio::try_join!(
             timeout(TEST_TIMEOUT, client.wait()),
             timeout(TEST_TIMEOUT, server.wait()),
+            // we use tokio::io::copy to copy the println logging of the processes
+            // to a log file.
             timeout(
                 TEST_TIMEOUT,
                 tokio::io::copy(&mut client_stdout, &mut client_log)
