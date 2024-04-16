@@ -19,8 +19,6 @@ async fn run_client<Tls: ClientTLS<TcpStream>>(
 ) -> Result<(), Box<dyn Error>> {
     let client = Tls::connector(config);
 
-    // Bind to an address and listen for connections.
-    // ":0" can be used to automatically assign a port.
     let transport_stream =
         TcpStream::connect(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).await?;
 

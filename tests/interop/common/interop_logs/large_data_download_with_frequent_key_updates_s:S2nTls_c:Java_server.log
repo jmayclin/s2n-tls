@@ -1,9 +1,0 @@
-2024-04-15T22:44:39.642839Z  INFO s2n_tls_server: Listening on 0.0.0.0:9013
-2024-04-15T22:44:40.811229Z  INFO s2n_tls_server: Connection from 127.0.0.1:43288
-2024-04-15T22:44:40.920225Z  INFO tls_shim_interop::s2n_tls_shim: waiting for client greeting
-2024-04-15T22:44:40.920264Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 0, key updates: (0, 0)
-2024-04-15T22:44:51.724115Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 10, key updates: (10, 0)
-2024-04-15T22:45:02.238272Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 20, key updates: (20, 0)
-2024-04-15T22:45:12.768956Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 30, key updates: (30, 0)
-2024-04-15T22:45:23.302570Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 40, key updates: (40, 0)
-2024-04-15T22:45:33.843819Z  INFO tls_shim_interop::s2n_tls_shim: GB sent: 50, key updates: (50, 0)

@@ -1,5 +1,0 @@
-2024-04-15T22:44:39.642802Z  INFO s2n_tls_server: Listening on 0.0.0.0:9010
-2024-04-15T22:44:40.805378Z  INFO s2n_tls_server: Connection from 127.0.0.1:44364
-2024-04-15T22:44:40.906452Z  INFO tls_shim_interop::s2n_tls_shim: server executing the handshake scenario
-the tcp shutdown result was Err(Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" })
-2024-04-15T22:44:40.906536Z  INFO tls_shim_interop::s2n_tls_shim: the result of the tls shutdown was Err(Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" })

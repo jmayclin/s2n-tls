@@ -1,2 +1,9 @@
+# ignore rust compilation artifacts
 common/target
 tls-shim-interop/target
+ 
+*/Cargo.lock
+*.log
+
+# ignore any compiled java files
+*.class

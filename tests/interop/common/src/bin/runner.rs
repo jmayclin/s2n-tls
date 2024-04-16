@@ -20,6 +20,11 @@ enum Client {
     Java,
 }
 
+#[derive(Debug, Copy, Clone)]
+enum Server {
+    S2nTls,
+}
+
 impl Client {
     fn executable_path(&self) -> &'static str {
         match self {
@@ -51,11 +56,6 @@ impl Client {
             _ => command,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-enum Server {
-    S2nTls,
 }
 
 impl Server {
@@ -180,7 +180,7 @@ async fn main() {
     // make sure that the logs directory is created
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
-    let clients = vec![/*Client::S2nTls, Client::Rustls,*/ Client::Java];
+    let clients = vec![Client::S2nTls, Client::Rustls, Client::Java];
     let servers = vec![Server::S2nTls];
     let tests = vec![
         InteropTest::Handshake,
@@ -225,6 +225,7 @@ async fn main() {
 
     let mut results = Vec::new();
     while let Some((scenario, result)) = results_rx.recv().await {
+        tracing::info!("{:?} finished with {:?}", scenario, result);
         results.push((scenario, result));
     }
 

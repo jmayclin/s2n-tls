@@ -19,29 +19,16 @@ async fn run_server(
     config: <ShimS2nTls as ServerTLS<TcpStream>>::Config,
     port: u16,
     test: InteropTest,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let server = <ShimS2nTls as ServerTLS<TcpStream>>::acceptor(config);
 
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).await?;
-    let addr = listener
-        .local_addr()
-        .map(|x| x.to_string())
-        .unwrap_or_else(|_| "UNKNOWN".to_owned());
-    tracing::info!("Listening on {}", addr);
+    let (stream, peer_addr) = listener.accept().await?;
+    tracing::info!("Connection from {:?}", peer_addr);
 
-    loop {
-        let (stream, peer_addr) = listener.accept().await?;
-        tracing::info!("Connection from {:?}", peer_addr);
+    let tls = <ShimS2nTls as ServerTLS<TcpStream>>::accept(&server, stream).await?;
+    <ShimS2nTls as ServerTLS<TcpStream>>::handle_server_connection(test, tls).await?;
 
-        let server_clone = server.clone();
-        let handle = tokio::spawn(async move {
-            let tls = <ShimS2nTls as ServerTLS<TcpStream>>::accept(&server_clone, stream).await?;
-            <ShimS2nTls as ServerTLS<TcpStream>>::handle_server_connection(test, tls).await?;
-            Ok::<(), Box<dyn Error + Send + Sync>>(())
-        });
-        let _res = handle.await?.unwrap();
-        break;
-    }
     Ok(())
 }
 
@@ -61,6 +48,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // if the test case isn't supported, return 127
             None => exit(127),
         };
-    run_server(config, port, test).await?;
+    if let Err(e) = run_server(config, port, test).await {
+        tracing::error!("test scenario failed: {:?}", e);
+        exit(1);
+    }
     Ok(())
 }

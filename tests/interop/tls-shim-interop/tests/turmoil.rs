@@ -10,24 +10,6 @@ use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, Client
 use tracing::Level;
 use turmoil::net::*;
 
-struct TurmoilClock {
-    start: tokio::time::Instant,
-}
-
-impl TurmoilClock {
-    fn new() -> Self {
-        TurmoilClock {
-            start: tokio::time::Instant::now(),
-        }
-    }
-}
-
-impl MonotonicClock for TurmoilClock {
-    fn get_time(&self) -> Duration {
-        self.start.elapsed()
-    }
-}
-
 const PORT: u16 = 1738;
 
 async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>> {
@@ -40,24 +22,14 @@ async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>
 
     let server = <ShimS2nTls as ServerTLS<turmoil::net::TcpStream>>::acceptor(config);
 
-    // Bind to an address and listen for connections.
-    // ":0" can be used to automatically assign a port.
-    tracing::info!("creating the server listener");
     let listener =
         turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
 
-    tracing::info!("the server listener was created");
     // Wait for a client to connect.
-    let (stream, peer_addr) = listener.accept().await?;
-    tracing::info!("Connection from {:?}", peer_addr);
+    let (stream, _peer_addr) = listener.accept().await?;
 
-    // Spawn a new task to handle the connection.
-    // We probably want to spawn the task BEFORE calling TcpAcceptor::accept,
-    // because the TLS handshake can be slow.
     let server_clone = server.clone();
-    tracing::info!("accepting the TLS connection");
     let tls = ShimS2nTls::accept(&server_clone, stream).await.unwrap();
-    tracing::info!("now handling the TLS connection");
     ShimS2nTls::handle_server_connection(test, tls)
         .await
         .unwrap();
@@ -75,15 +47,9 @@ where
     let config = T::get_client_config(test, &ca_pem)?.unwrap();
 
     let client = T::connector(config);
-
-    // Bind to an address and listen for connections.
-    // ":0" can be used to automatically assign a port.
-    tracing::info!("trying to make the TCP stream");
     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
 
-    tracing::info!("client trying to connect");
     let tls = T::connect(&client, transport_stream).await.unwrap();
-    tracing::info!("client connected");
     T::handle_client_connection(test, tls).await.unwrap();
     Ok(())
 }
@@ -97,10 +63,10 @@ where
 // 4. at which point turmoil consider the client "done"
 // 5. the simulation is then done
 // 5. the server is never polled
-// 6. so the server asserts are never triggered. We'd need to use poll_shutdown instead of
-// 7. poll_shutdown_send in order to get the real close behavior
-// We can probably add an assert on the read call returning 0, but I'm unwilling to make an s2n-tls
-// specific event loop at the moment. The tests are still relatively useful
+// 6. so the server asserts are never triggered. 
+// We'd need to use poll_shutdown instead of poll_shutdown_send so that the client
+// would actually wait for the server response before exiting. Then the test would
+// fail in this scenario as expected.
 #[test]
 fn s2n_tls_server_rustls_client() -> turmoil::Result {
     let _subscriber = tracing_subscriber::fmt::fmt()
@@ -111,12 +77,14 @@ fn s2n_tls_server_rustls_client() -> turmoil::Result {
     // real time to elapse
     let mut sim = turmoil::Builder::new().build();
 
-    // we can attach the server to all of the things
     // turmoil's send function seems to be quadratic somewhere. Sending 1 Gb takes approximately 229 seconds
-    // so don't enable the large data test
+    // so don't enable the large data tests.
     let tests = vec![
         InteropTest::Greeting,
-        InteropTest::Handshake, /*InteropTest::LargeDataDownload */
+        InteropTest::Handshake, 
+        // InteropTest::LargeDataDownload,
+        // InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
+
     ];
     for t in tests {
         let server_name = format!("s2n-tls-server-{}", t);
