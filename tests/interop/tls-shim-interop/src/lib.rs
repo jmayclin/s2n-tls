@@ -1,17 +1,30 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// This lint warns that async function in trait are especially likely to unexpected 
+// breaking changes because of the type inference on the future bounds. We are not
+// concerned about breaking API changes since this is an internal crate, and the
+// ergonomic benefits of "async fn" significantly outweigh the stability concerns.
+//
+// However in cases where the additional "async" syntax isn't useful, we prefer 
+// "impl Future" syntax for the more readable compiler errors that it provides.
+#![allow(async_fn_in_trait)]
+
 use std::{error::Error, fmt::Debug};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use async_trait::async_trait;
 
 use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETING};
 
 pub mod rustls_shim;
 pub mod s2n_tls_shim;
 
+/// The ServerTLS trait is intended to allow for shared code between s2n-tls, rustls,
+/// and openssl. All of these TLS implementations have relatively similar API shapes
+/// which this trait attempts to abstract over.
 pub trait ServerTLS<T> {
     type Config;
-    // `'static` means that the Acceptor types contains no references which have a lifetime
-    // shorter than `'static`. This is a bit of a lie, which I should fix later.
     type Acceptor: Clone + Send + 'static;
+    // the Stream is generic to allow for Turmoil test usage
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
 
     fn get_server_config(
@@ -21,39 +34,36 @@ pub trait ServerTLS<T> {
     ) -> Result<Option<Self::Config>, Box<dyn Error>>;
     fn acceptor(config: Self::Config) -> Self::Acceptor;
 
-    // rather than using an async function, using an explicit impl Future. This
-    // the async fn (Future) will violently resist implementing Send
     fn accept(
         server: &Self::Acceptor,
         transport_stream: T,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
 
-    // fn handle_server_connection(
-    //     test: InteropTest,
-    //     stream: Self::Stream,
-    // ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
-
+    /// `handle_server_connection` provide the generic "handle connection" functionality.
+    /// It will automatically implement correct application behavior for tests that
+    /// don't require any implementation specific apis. This include "Handshake",
+    /// "Greeting", and "LargeDataDownload". 
     async fn handle_server_connection(
         test: InteropTest,
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        tracing::info!("Executing the {:?} scenario", test);
         match test {
             InteropTest::Handshake => {
                 /* no application data exchange in the handshake case */
-                tracing::info!("server executing the handshake scenario");
             }
             InteropTest::Greeting => {
-                let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                stream.read(&mut server_greeting_buffer).await?;
-                assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
+                let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+                stream.read(&mut client_greeting_buffer).await?;
+                assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
 
                 stream.write_all(SERVER_GREETING.as_bytes()).await?;
             }
             InteropTest::LargeDataDownload => {
-                tracing::info!("waiting for client greeting");
-                let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                stream.read_exact(&mut server_greeting_buffer).await?;
-                assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
+                let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+                stream.read(&mut client_greeting_buffer).await?;
+                assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
+
                 let mut data_buffer = vec![0; 1_000_000];
                 // for each GB
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
@@ -68,51 +78,28 @@ pub trait ServerTLS<T> {
             }
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 Self::handle_large_data_download_with_frequent_key_updates(&mut stream).await?;
-                // tracing::info!("waiting for client greeting");
-                // let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                // stream.read_exact(&mut server_greeting_buffer).await?;
-                // assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
-
-                // let mut data_buffer = vec![0; 1_000_000];
-                // // for each GB
-                // for i in 0..LARGE_DATA_DOWNLOAD_GB {
-                //     // send a key update with each gigabyte
-                //     stream
-                //         .as_mut()
-                //         .request_key_update(s2n_tls::enums::PeerKeyUpdate::KeyUpdateNotRequested)?;
-                //     if i % 10 == 0 {
-                //         tracing::info!(
-                //             "GB sent: {}, key updates: {:?}",
-                //             i,
-                //             stream.as_ref().key_update_counts()?
-                //         );
-                //     }
-                //     data_buffer[0] = (i % u8::MAX as u64) as u8;
-                //     for j in 0..1_000 {
-                //         tracing::trace!("{}-{}", i, j);
-                //         stream.write_all(&data_buffer).await?;
-                //     }
-                // }
-
-                // let (send, _recv) = stream.as_ref().key_update_counts()?;
-                // assert!(send > 0);
             }
         }
+        // Don't assert on a successful close behavior, since s2n-tls bindings
+        // do not support a graceful close behavior.
+        // https://github.com/aws/s2n-tls/issues/4488
         let res = stream.shutdown().await;
-        tracing::info!("the result of the tls shutdown was {:?}", res);
+        tracing::debug!("TLS Shutdown result {:?}", res);
         Ok(())
     }
 
-    /// If server's support the "large_data_download_forced_key_update" scenario, they should implement this method. 
-    /// The method should *not* handle the shutdown of the stream. It should only handle the writing of application 
+    /// If server supports the "large_data_download_forced_key_update" scenario, it should implement this method.
+    /// The method should *not* handle the shutdown of the stream. It should only handle the writing of application
     /// messages and the sending of the key updates.
-    fn handle_large_data_download_with_frequent_key_updates(_stream: &mut Self::Stream) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
+    async fn handle_large_data_download_with_frequent_key_updates(
+        _stream: &mut Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Err("unimplemented".into())
+    }
 }
 
 pub trait ClientTLS<T> {
     type Config;
-    // `'static` means that the Acceptor types contains no references which have a lifetime
-    // shorter than `'static`. This is a bit of a lie, which I should fix later.
     type Connector: Clone + Send + 'static;
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
 
@@ -123,22 +110,11 @@ pub trait ClientTLS<T> {
 
     fn connector(config: Self::Config) -> Self::Connector;
 
-    // rather than using an async function, using an explicit impl Future. This
-    // the async fn (Future) will violently resist implementing Send
     fn connect(
         client: &Self::Connector,
         transport_stream: T,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
 
-    // fn handle_client_connection(
-    //     test: InteropTest,
-    //     stream: Self::Stream,
-    // ) -> impl std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
-
-    /// This is essentially the event loop, and will be invoked once on each stream
-    /// that is yielded form the the `connect` method. Generally implementors should
-    /// prefer to implement the individual method overrides rather than overriding
-    /// the entire event loop.
     async fn handle_client_connection(
         test: InteropTest,
         mut stream: Self::Stream,
@@ -170,9 +146,11 @@ pub trait ClientTLS<T> {
             }
         }
         tracing::info!("client is shutting down");
-        //sleep(std::time::Duration::from_secs(1)).await;
         let shutdown_result = stream.shutdown().await;
         if let Err(e) = shutdown_result {
+            // Don't assert on a successful close behavior, since s2n-tls bindings
+            // do not support a graceful close behavior.
+            // https://github.com/aws/s2n-tls/issues/4488
             // value: Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" }
             if let Some(107) = e.raw_os_error() {
                 tracing::error!("Ignoring TCP Close Error, returning success: {}", e);
@@ -181,15 +159,5 @@ pub trait ClientTLS<T> {
             return Err(Box::new(e));
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }

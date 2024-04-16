@@ -2,11 +2,9 @@
 name = "tls-shim-interop"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+publish = false
 
 [dependencies]
-
 tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }
 clap = { version = "3", features = ["derive"] }
 common = {path = "../common" }
@@ -14,10 +12,10 @@ common = {path = "../common" }
 tokio-rustls = "0.25"
 rustls-pemfile = "2"
 
+# The "unstable-ktls" feature is enabled to provide access to the key update counters
 s2n-tls = {path = "../../../bindings/rust/s2n-tls", features = ["unstable-ktls"] }
 s2n-tls-tokio = {path = "../../../bindings/rust/s2n-tls-tokio" }
 
 tracing = "0.1"
 tracing-subscriber = "0.3"
 turmoil = "0.6"
-async-trait = "0.1.80"

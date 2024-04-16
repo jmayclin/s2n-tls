@@ -1,14 +1,14 @@
 use std::{env, fmt::Display, str::FromStr};
 
-// `Common` provides a crate with functionality that other TLS implementors might find useful if they are implementing a
-// rust shim.
+/// `Common` provides a crate with functionality that other TLS implementors 
+/// might find useful if they are implementing a rust shim.
 
+/// This message is send to the server at the start of several test cases
 pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
+/// This short message is send after the client greeting in the "GREETING" scenario
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
-
-/// amount of data that will be downloaded by the large download test
+/// The amount of data that will be downloaded by the large download test.
 pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;
-
 /// If a server or client doesn't support a test case, then the process should
 /// exit with this value.
 pub const UNIMPLEMENTED_RETURN_VAL: i32 = 127;
@@ -43,7 +43,7 @@ pub fn pem_file_path(file: PemType) -> &'static str {
     }
 }
 
-/// This method is used to parse the server arguments from the environment (argv)
+/// This method is used to parse the server arguments from the command line argv.
 ///
 /// It will the return the [InteropTest] that is being run, as well as the expected
 /// port for the server to run on.
@@ -66,19 +66,6 @@ pub enum InteropTest {
     Greeting,
     LargeDataDownload,
     LargeDataDownloadWithFrequentKeyUpdates,
-}
-
-// Fromt/Into should work here without two separate impls, but they are defeating me
-impl<T: AsRef<str>> From<T> for InteropTest {
-fn from(value: T) -> Self {
-        let value = value.as_ref();
-        match value {
-            "handshake" => InteropTest::Handshake,
-            "greeting" => InteropTest::Greeting,
-            "large_data_download" => InteropTest::LargeDataDownload,
-            _ => panic!("unrecognized test type: {}", value),
-        }
-    }
 }
 
 impl FromStr for InteropTest {

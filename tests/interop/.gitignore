@@ -2,8 +2,7 @@
 common/target
 tls-shim-interop/target
  
-*/Cargo.lock
-*.log
+**/Cargo.lock
 
 # ignore any compiled java files
-*.class
+**/*.class

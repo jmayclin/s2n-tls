@@ -15,7 +15,6 @@ import javax.net.ssl.SSLSocket;
 * Simple JDK SSL client for interop testing purposes
 */
 
-
 public class SSLSocketClient {
     static final int LARGE_DATA_DOWNLOAD_GB = 256;
     static final String TLS_13 = "TLSv1.3";
@@ -24,7 +23,7 @@ public class SSLSocketClient {
     static final String HOST = "localhost";
 
     public static void main(String[] args) throws Exception {
-        // enable debug logging for all of the ssl related things
+        // enable debug logging for better visibility into SSL and TLS internals
         System.setProperty("javax.net.debug", "ssl");
 
         // parse the test arguments

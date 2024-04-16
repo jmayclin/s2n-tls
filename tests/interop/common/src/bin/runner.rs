@@ -136,11 +136,10 @@ impl TestScenario {
         );
 
         let (c_status, s_status) = match res {
-            // this branch indicates a timeout
             Ok((Ok(s), Ok(c), Ok(_), Ok(_))) => (c, s),
-            // if there was a timeout "Err(_)" or any other kind of error, we
-            // return a "failure"
             Err(_) => {
+                // a timeout indicates an "abnormal" exit which must be manually
+                // cleaned up
                 tracing::error!("{:?} timed out", self);
                 server.kill().await.unwrap();
                 client.kill().await.unwrap();
@@ -161,15 +160,6 @@ impl TestScenario {
     }
 }
 
-fn print_results_table(results: Vec<(TestScenario, TestResult)>) {
-    for (t, r) in results {
-        println!(
-            "{} | {:?} | {:?} -> {:?}",
-            t.test_case, t.server, t.client, r
-        );
-    }
-}
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::fmt()
@@ -177,7 +167,6 @@ async fn main() {
         .with_ansi(false)
         .init();
 
-    // make sure that the logs directory is created
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
     let clients = vec![Client::S2nTls, Client::Rustls, Client::Java];
@@ -223,11 +212,7 @@ async fn main() {
     // on a read if there is a sender still open
     drop(results_tx);
 
-    let mut results = Vec::new();
     while let Some((scenario, result)) = results_rx.recv().await {
         tracing::info!("{:?} finished with {:?}", scenario, result);
-        results.push((scenario, result));
     }
-
-    print_results_table(results);
 }
