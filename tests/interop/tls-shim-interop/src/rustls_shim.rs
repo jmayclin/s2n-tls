@@ -1,8 +1,14 @@
-use std::{fmt::{Debug, Display}, io::BufReader, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    io::BufReader,
+    sync::Arc,
+};
 
-use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETING};
-use tokio::{io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}, net::TcpStream};
-use tokio_rustls::{rustls::{self, pki_types}, TlsConnector};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_rustls::{
+    rustls::{self, pki_types},
+    TlsConnector,
+};
 
 use crate::ClientTLS;
 
@@ -20,14 +26,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
     type Stream = tokio_rustls::client::TlsStream<T>;
 
     fn get_client_config(
-        test: common::InteropTest,
+        _test: common::InteropTest,
         ca_pem: &[u8],
     ) -> Result<Option<Self::Config>, Box<dyn std::error::Error>> {
         let mut root_store = rustls::RootCertStore::empty();
 
         //let certs = rustls_pemfile::certs(&mut BufReader::new(ca_pem)).collect();
         let mut buffered_cert = BufReader::new(ca_pem);
-        let root_cert = rustls_pemfile::certs(&mut buffered_cert).next().unwrap().unwrap();
+        let root_cert = rustls_pemfile::certs(&mut buffered_cert)
+            .next()
+            .unwrap()
+            .unwrap();
 
         root_store.add(root_cert).unwrap();
         let config = rustls::ClientConfig::builder()
@@ -80,5 +89,4 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
     //     stream.shutdown().await?;
     //     Ok(())
     // }
-    
 }

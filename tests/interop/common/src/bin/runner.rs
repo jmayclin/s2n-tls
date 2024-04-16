@@ -2,11 +2,10 @@
 // PORT_END: u16 = 9_100;
 
 use common::{InteropTest, UNIMPLEMENTED_RETURN_VAL};
-use std::{fs::File, io, process::Stdio, result, sync::Arc, time::Duration};
+use std::{process::Stdio, sync::Arc, time::Duration};
 use tokio::{
-    io::Stderr,
     process::Command,
-    sync::mpsc::{channel, unbounded_channel},
+    sync::mpsc::unbounded_channel,
     time::{sleep, timeout},
 };
 use tracing::Level;
@@ -43,10 +42,11 @@ impl Client {
     fn configure<'a, 'b>(&'a self, command: &'b mut Command) -> &'b mut Command {
         match self {
             Client::Java => command
-                // configured the class path (cp) to point to the folder that 
-                // contains the SSLSocketClient
+                // configure the class path (-cp) 
                 .arg("-cp")
+                // to point to the folder that contains the SSLSocketClient
                 .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/..", "/java"))
+                // and use the SSLSocketClient as the entry point
                 .arg("SSLSocketClient"),
             _ => command,
         }
@@ -120,26 +120,32 @@ impl TestScenario {
             .unwrap();
         let mut client_stdout = client.stdout.take().unwrap();
 
-        // wrap everything in a timeout since the "try_join" macro needs everything 
+        // wrap everything in a timeout since the "try_join" macro needs everything
         // to have the same error type
         let res = tokio::try_join!(
             timeout(TEST_TIMEOUT, client.wait()),
             timeout(TEST_TIMEOUT, server.wait()),
-            timeout(TEST_TIMEOUT, tokio::io::copy(&mut client_stdout, &mut client_log)),
-            timeout(TEST_TIMEOUT, tokio::io::copy(&mut server_stdout, &mut server_log)),
+            timeout(
+                TEST_TIMEOUT,
+                tokio::io::copy(&mut client_stdout, &mut client_log)
+            ),
+            timeout(
+                TEST_TIMEOUT,
+                tokio::io::copy(&mut server_stdout, &mut server_log)
+            ),
         );
 
         let (c_status, s_status) = match res {
             // this branch indicates a timeout
             Ok((Ok(s), Ok(c), Ok(_), Ok(_))) => (c, s),
-            // if there was a timeout "Err(_)" or any other kind of error, we 
+            // if there was a timeout "Err(_)" or any other kind of error, we
             // return a "failure"
             Err(_) => {
                 tracing::error!("{:?} timed out", self);
                 server.kill().await.unwrap();
                 client.kill().await.unwrap();
                 return TestResult::Failure;
-            },
+            }
             _ => return TestResult::Failure,
         };
         let c_status = c_status.code().unwrap();

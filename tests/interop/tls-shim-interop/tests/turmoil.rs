@@ -1,16 +1,12 @@
 use common::InteropTest;
-use s2n_tls::{
-    callbacks::MonotonicClock,
-    enums::Version,
-    security::{Policy, DEFAULT_TLS13},
-};
+use s2n_tls::callbacks::MonotonicClock;
 use std::{
     fs,
-    net::{IpAddr, Ipv4Addr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
 use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, ClientTLS, ServerTLS};
-use tokio_rustls::client;
+
 use tracing::Level;
 use turmoil::net::*;
 
@@ -86,13 +82,9 @@ where
     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;
 
     tracing::info!("client trying to connect");
-    let tls = T::connect(&client, transport_stream)
-        .await
-        .unwrap();
+    let tls = T::connect(&client, transport_stream).await.unwrap();
     tracing::info!("client connected");
-    T::handle_client_connection(test, tls)
-        .await
-        .unwrap();
+    T::handle_client_connection(test, tls).await.unwrap();
     Ok(())
 }
 
@@ -111,7 +103,7 @@ where
 // specific event loop at the moment. The tests are still relatively useful
 #[test]
 fn s2n_tls_server_rustls_client() -> turmoil::Result {
-    let subscriber = tracing_subscriber::fmt::fmt()
+    let _subscriber = tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
         .try_init();
     // turmoil is a network simulator, so we can simulate running a single and
@@ -130,7 +122,10 @@ fn s2n_tls_server_rustls_client() -> turmoil::Result {
         let server_name = format!("s2n-tls-server-{}", t);
         let client_name = format!("rustls-client-{}", t);
         sim.host(server_name.as_str(), move || server_loop(t));
-        sim.client(client_name.as_str(), client_loop::<RustlsShim>(t, server_name));
+        sim.client(
+            client_name.as_str(),
+            client_loop::<RustlsShim>(t, server_name),
+        );
     }
 
     sim.run()
@@ -138,7 +133,7 @@ fn s2n_tls_server_rustls_client() -> turmoil::Result {
 
 #[test]
 fn s2n_tls_server_s2n_tls_client() -> turmoil::Result {
-    let subscriber = tracing_subscriber::fmt::fmt()
+    let _subscriber = tracing_subscriber::fmt::fmt()
         .with_max_level(Level::INFO)
         .try_init();
     // turmoil is a network simulator, so we can simulate running a single and
@@ -157,7 +152,10 @@ fn s2n_tls_server_s2n_tls_client() -> turmoil::Result {
         let server_name = format!("s2n-tls-server-{}", t);
         let client_name = format!("rustls-client-{}", t);
         sim.host(server_name.as_str(), move || server_loop(t));
-        sim.client(client_name.as_str(), client_loop::<ShimS2nTls>(t, server_name));
+        sim.client(
+            client_name.as_str(),
+            client_loop::<ShimS2nTls>(t, server_name),
+        );
     }
 
     sim.run()

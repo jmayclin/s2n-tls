@@ -1,21 +1,14 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use clap::Parser;
-use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
-use s2n_tls_tokio::TlsAcceptor;
-use tracing::Level;
 use std::{
-    env,
     error::Error,
     fs,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddrV4},
 };
-use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::ShimS2nTls, ClientTLS};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
+use tls_shim_interop::{rustls_shim::RustlsShim, ClientTLS};
+use tokio::net::TcpStream;
+use tracing::Level;
 
 use common::InteropTest;
 

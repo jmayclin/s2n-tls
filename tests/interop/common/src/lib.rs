@@ -7,8 +7,10 @@ pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
 
 /// amount of data that will be downloaded by the large download test
-pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;//256;
+pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;
 
+/// If a server or client doesn't support a test case, then the process should
+/// exit with this value.
 pub const UNIMPLEMENTED_RETURN_VAL: i32 = 127;
 
 pub fn add(left: usize, right: usize) -> usize {
@@ -58,7 +60,7 @@ pub fn parse_server_arguments() -> (InteropTest, u16) {
 
 /// This enum contains all of the defined Interop Test types. See the readme for more
 /// details.
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum InteropTest {
     Handshake,
     Greeting,
@@ -67,17 +69,17 @@ pub enum InteropTest {
 }
 
 // Fromt/Into should work here without two separate impls, but they are defeating me
-// impl<T: AsRef<str>> From<T> for InteropTest {
-// fn from(value: T) -> Self {
-//         let value = value.as_ref();
-//         match value {
-//             "handshake" => InteropTest::Handshake,
-//             "greeting" => InteropTest::Greeting,
-//             "large_data_download" => InteropTest::LargeDataDownload,
-//             _ => panic!("unrecognized test type: {}", value),
-//         }
-//     }
-// }
+impl<T: AsRef<str>> From<T> for InteropTest {
+fn from(value: T) -> Self {
+        let value = value.as_ref();
+        match value {
+            "handshake" => InteropTest::Handshake,
+            "greeting" => InteropTest::Greeting,
+            "large_data_download" => InteropTest::LargeDataDownload,
+            _ => panic!("unrecognized test type: {}", value),
+        }
+    }
+}
 
 impl FromStr for InteropTest {
     type Err = String;
@@ -87,7 +89,9 @@ impl FromStr for InteropTest {
             "handshake" => InteropTest::Handshake,
             "greeting" => InteropTest::Greeting,
             "large_data_download" => InteropTest::LargeDataDownload,
-            "large_data_download_with_frequent_key_updates" => InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
+            "large_data_download_with_frequent_key_updates" => {
+                InteropTest::LargeDataDownloadWithFrequentKeyUpdates
+            }
             _ => return Err(format!("unrecognized test type: {}", s)),
         };
         Ok(name)
@@ -100,7 +104,9 @@ impl Display for InteropTest {
             InteropTest::Handshake => "handshake",
             InteropTest::Greeting => "greeting",
             InteropTest::LargeDataDownload => "large_data_download",
-            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => "large_data_download_with_frequent_key_updates",
+            InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
+                "large_data_download_with_frequent_key_updates"
+            }
         };
         write!(f, "{}", name)
     }

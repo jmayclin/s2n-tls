@@ -12,7 +12,7 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.SSLSocket;
 
 /*
-* Simple JDK SSL client for integration testing purposes
+* Simple JDK SSL client for interop testing purposes
 */
 
 
@@ -21,42 +21,34 @@ public class SSLSocketClient {
     static final String TLS_13 = "TLSv1.3";
     static final String CLIENT_GREETING = "i am the client. nice to meet you server.";
     static final String SERVER_GREETING = "i am the server. a pleasure to make your acquaintance.";
+    static final String HOST = "localhost";
 
     public static void main(String[] args) throws Exception {
         // enable debug logging for all of the ssl related things
-
         System.setProperty("javax.net.debug", "ssl");
 
         // parse the test arguments
         String testCase = args[0];
         int port = Integer.parseInt(args[1]);
 
-        String host = "localhost";
-        // byte[] buffer = new byte[100];
-
         String certificatePath = "../certificates/ca-cert.pem";
         SSLSocketFactory socketFactory = createSocketFactory(certificatePath, TLS_13);
-        System.out.println("opening the socket");
         try (
-            SSLSocket socket = (SSLSocket)socketFactory.createSocket(host, port);
+            SSLSocket socket = (SSLSocket)socketFactory.createSocket(HOST, port);
         ) {
             InputStream in = new BufferedInputStream(socket.getInputStream());
             OutputStream out = new BufferedOutputStream(socket.getOutputStream());
-            //socket.setEnabledProtocols(protocolList);
-            //socket.setEnabledCipherSuites(cipher);
+
             socket.startHandshake();
-            System.out.println("FINISHED THE HANDSHAKE");
-            System.out.println(testCase);
+            System.out.println("handshake completed during testcase: " + testCase);
+
             if (testCase.equals("handshake")) {
                 // no action required for handshake case
             } else if (testCase.equals("greeting")) {
-                System.out.println("doing the greeting");
                 out.write(CLIENT_GREETING.getBytes());
                 out.flush();
-                System.out.println("wrote the client greeting");
 
                 byte[] buffer = in.readNBytes(SERVER_GREETING.getBytes().length);
-                System.out.println("read the server greeting");
                 
                 String s = new String(buffer);
                 if (!s.equals(SERVER_GREETING)) {
@@ -83,15 +75,8 @@ public class SSLSocketClient {
                 System.exit(127);
             }
 
-
-
-
             socket.close();
         }
-    }
-
-    private void large_data_download() {
-        
     }
 
     public static SSLSocketFactory createSocketFactory(String certificatePath, String protocol) {

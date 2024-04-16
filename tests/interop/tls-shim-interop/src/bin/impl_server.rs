@@ -1,24 +1,35 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use clap::Parser;
-use s2n_tls::{config::Config, enums::Mode, pool::ConfigPoolBuilder, security::DEFAULT_TLS13};
+use s2n_tls::{config::Config, security::DEFAULT_TLS13};
 use s2n_tls_tokio::TlsAcceptor;
-use std::{env, error::Error, fs, net::{Ipv4Addr, SocketAddr, SocketAddrV4}};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+use std::{
+    error::Error,
+    fs,
+    net::{Ipv4Addr, SocketAddrV4},
+};
+use tokio::net::TcpListener;
 
 use common::InteropTest;
 
 const GB: usize = 1_000_000_000;
 
-fn get_config(test: InteropTest, cert_pem: &[u8], key_pem: &[u8]) -> Result<s2n_tls::config::Config, Box<dyn Error>> {
+fn get_config(
+    _test: InteropTest,
+    cert_pem: &[u8],
+    key_pem: &[u8],
+) -> Result<s2n_tls::config::Config, Box<dyn Error>> {
     let mut config = Config::builder();
     config.set_security_policy(&DEFAULT_TLS13)?;
     config.load_pem(cert_pem, key_pem)?;
     Ok(config.build()?)
 }
 
-async fn run_server(config: s2n_tls::config::Config, port: u16, test: InteropTest) -> Result<(), Box<dyn Error>> {
+async fn run_server(
+    config: s2n_tls::config::Config,
+    port: u16,
+    _test: InteropTest,
+) -> Result<(), Box<dyn Error>> {
     let server = TlsAcceptor::new(config);
 
     // Bind to an address and listen for connections.
@@ -40,7 +51,7 @@ async fn run_server(config: s2n_tls::config::Config, port: u16, test: InteropTes
         // because the TLS handshake can be slow.
         let server = server.clone();
         tokio::spawn(async move {
-            let mut tls = server.accept(stream).await?;
+            let _tls = server.accept(stream).await?;
             // let target = 100; // Gb
             // let allowed_records = (target * GB / 8_192) as u64; // 8_192 is default s2n record size;
             // //tls.as_mut().set_encryption_limit(allowed_records).unwrap();

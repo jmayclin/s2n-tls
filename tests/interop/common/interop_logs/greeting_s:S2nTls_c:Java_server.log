@@ -1,0 +1,7 @@
+2024-04-15T22:44:39.642802Z  INFO s2n_tls_server: Listening on 0.0.0.0:9011
+2024-04-15T22:44:40.813529Z  INFO s2n_tls_server: Connection from 127.0.0.1:47792
+2024-04-15T22:44:40.940227Z  INFO tls_shim_interop::s2n_tls_shim: server executing the greeting scenario
+2024-04-15T22:44:40.940248Z  INFO tls_shim_interop::s2n_tls_shim: reading the data
+2024-04-15T22:44:40.940254Z  INFO tls_shim_interop::s2n_tls_shim: asserting equal
+the tcp shutdown result was Ok(())
+2024-04-15T22:44:40.940296Z  INFO tls_shim_interop::s2n_tls_shim: the result of the tls shutdown was Ok(())
