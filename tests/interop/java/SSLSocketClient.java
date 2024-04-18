@@ -56,11 +56,13 @@ public class SSLSocketClient {
             } else if (testCase.equals("large_data_download") || testCase.equals("large_data_download_with_frequent_key_updates")) {
                 out.write(CLIENT_GREETING.getBytes());
                 out.flush();
-
-                // read in 200 GB from the server
+                byte[] buffer = new byte[1_000_000];
                 for (int i = 0; i < LARGE_DATA_DOWNLOAD_GB; i++) {
                     for (int j = 0; j < 1_000; j++) {
-                        byte[] buffer = in.readNBytes(1_000_000);
+                        int len = in.readNBytes(buffer, 0, 1_000_000);
+                        if (len != 1_000_000) {
+                            throw new Exception("Unexpected end of stream");
+                        }
                         // java bytes are signed, so we have to upcast to an int to 
                         // read the tag value
                         int tag = buffer[0] & 0xFF;

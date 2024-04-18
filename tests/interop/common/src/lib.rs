@@ -1,21 +1,18 @@
 use std::{env, fmt::Display, str::FromStr};
 
-/// `Common` provides a crate with functionality that other TLS implementors 
+/// `Common` provides a crate with functionality that other TLS implementors
 /// might find useful if they are implementing a rust shim.
 
 /// This message is send to the server at the start of several test cases
 pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
 /// This short message is send after the client greeting in the "GREETING" scenario
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
-/// The amount of data that will be downloaded by the large download test.
+/// The amount of data that will be downloaded by the large download test. Note 
+/// that the interop tests use a GB as 1_000^3 bytes, not 1_024^3 bytes
 pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;
 /// If a server or client doesn't support a test case, then the process should
 /// exit with this value.
 pub const UNIMPLEMENTED_RETURN_VAL: i32 = 127;
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
 
 pub enum PemType {
     CaCert,

@@ -3,6 +3,7 @@ common/target
 tls-shim-interop/target
  
 **/Cargo.lock
-
+# ignore any of the generated logs
+**/*.log
 # ignore any compiled java files
 **/*.class

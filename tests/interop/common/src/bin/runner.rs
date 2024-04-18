@@ -2,16 +2,21 @@
 // PORT_END: u16 = 9_100;
 
 use common::{InteropTest, UNIMPLEMENTED_RETURN_VAL};
-use std::{process::Stdio, sync::Arc, time::Duration};
+use std::time::Instant;
+use std::{process::Stdio, sync::Arc, thread, time::Duration};
 use tokio::{
     process::Command,
-    sync::mpsc::unbounded_channel,
+    sync::{mpsc::unbounded_channel, Semaphore},
     time::{sleep, timeout},
 };
 use tracing::Level;
 
-const CONCURRENT_TESTS: usize = 6;
-const TEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
+/// Tests communicate over the localhost TCP start. PORT_RANGE_START indicates the
+/// first port that will be used, with the nth scenario using PORT_RANGE_START + n
+const PORT_RANGE_START: u16 = 9_001;
+/// If a test does not successfully complete within this duration, then it is
+/// considered to have failed
+const TEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Copy, Clone)]
 enum Client {
@@ -47,7 +52,7 @@ impl Client {
     fn configure<'a, 'b>(&'a self, command: &'b mut Command) -> &'b mut Command {
         match self {
             Client::Java => command
-                // configure the class path (-cp) 
+                // configure the class path (-cp)
                 .arg("-cp")
                 // to point to the folder that contains the SSLSocketClient
                 .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/..", "/java"))
@@ -86,14 +91,15 @@ struct TestScenario {
 
 impl TestScenario {
     async fn execute(&mut self, port: u16) -> TestResult {
+        let start_time = Instant::now();
         let test_case_name = format!("{}", self.test_case);
 
         let server_log = format!(
-            "interop_logs/{}_s:{:?}_c:{:?}_server.log",
+            "interop_logs/{}_{:?}_{:?}_server.log",
             self.test_case, self.server, self.client
         );
         let client_log = format!(
-            "interop_logs/{}_s:{:?}_c:{:?}_client.log",
+            "interop_logs/{}_{:?}_{:?}_client.log",
             self.test_case, self.server, self.client
         );
         let mut server_log = tokio::fs::File::create(server_log).await.unwrap();
@@ -106,7 +112,7 @@ impl TestScenario {
             .unwrap();
         let mut server_stdout = server.stdout.take().unwrap();
 
-        // let the server start up and start listening
+        // let the server start up and start listening before starting the client
         sleep(Duration::from_secs(1)).await;
 
         let mut client_command = tokio::process::Command::new(self.client.executable_path());
@@ -137,6 +143,12 @@ impl TestScenario {
             ),
         );
 
+        tracing::debug!(
+            "{:?} finished in {} seconds",
+            self,
+            start_time.elapsed().as_secs()
+        );
+
         let (c_status, s_status) = match res {
             Ok((Ok(s), Ok(c), Ok(_), Ok(_))) => (c, s),
             Err(_) => {
@@ -165,7 +177,7 @@ impl TestScenario {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::fmt()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .with_ansi(false)
         .init();
 
@@ -185,26 +197,28 @@ async fn main() {
     for t in tests {
         for s in servers.iter() {
             for c in clients.iter() {
-                let scenario = TestScenario {
+                scenarios.push(TestScenario {
                     client: *c,
                     server: *s,
                     test_case: t,
-                };
-                scenarios.push(scenario)
+                })
             }
         }
     }
 
     let (results_tx, mut results_rx) = unbounded_channel();
 
-    let concurrent_tests = Arc::new(tokio::sync::Semaphore::new(CONCURRENT_TESTS));
-    let min_port = 9010;
+    // The large tests are capable of saturating 2 cores (1 for the client and 1
+    // for the server) so we limit the number of concurrent tests to NUM_CORES / 2
+    let concurrent_tests = thread::available_parallelism().unwrap().get() / 2;
+    tracing::debug!("Setting concurrency to {concurrent_tests}");
+    let concurrent_tests = Arc::new(Semaphore::new(concurrent_tests));
     for (i, mut scenario) in scenarios.into_iter().enumerate() {
         let results_tx_handle = results_tx.clone();
         let test_limiter_handle = Arc::clone(&concurrent_tests);
         tokio::spawn(async move {
             let ticket = test_limiter_handle.acquire().await.unwrap();
-            let result = scenario.execute(min_port + (i as u16)).await;
+            let result = scenario.execute(PORT_RANGE_START + (i as u16)).await;
             drop(ticket);
             // something has gone drastically wrong if this panics, so use unwrap
             results_tx_handle.send((scenario, result)).unwrap();
