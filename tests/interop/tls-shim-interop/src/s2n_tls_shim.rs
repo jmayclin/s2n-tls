@@ -53,12 +53,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
 
     fn get_server_config(
         _test: InteropTest,
-        cert_pem: &[u8],
-        key_pem: &[u8],
+        cert_pem_path: &str,
+        key_pem_path: &str,
     ) -> Result<Option<s2n_tls::config::Config>, Box<dyn Error>> {
+        let cert_pem = std::fs::read(cert_pem_path)?;
+        let key_pem = std::fs::read(key_pem_path)?;
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
-        config.load_pem(cert_pem, key_pem)?;
+        config.load_pem(&cert_pem, &key_pem)?;
         Ok(Some(config.build()?))
     }
 

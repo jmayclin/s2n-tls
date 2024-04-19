@@ -4,7 +4,7 @@ use std::{
     fs,
     net::{Ipv4Addr, SocketAddrV4},
 };
-use tls_shim_interop::{rustls_shim::RustlsShim, s2n_tls_shim::S2NShim, ClientTLS, ServerTLS};
+use tls_shim_interop::{openssl_shim::OpensslShim, rustls_shim::RustlsShim, s2n_tls_shim::S2NShim, ClientTLS, ServerTLS};
 
 use turmoil::net::*;
 
@@ -33,15 +33,15 @@ const TEST_CASES: [InteropTest; 2] = [
 
 const PORT: u16 = 1738;
 
-async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>> {
-    let cert_pem = fs::read(common::pem_file_path(common::PemType::ServerChain))?;
-    let key_pem = fs::read(common::pem_file_path(common::PemType::ServerKey))?;
-    let config = <S2NShim as ServerTLS<turmoil::net::TcpStream>>::get_server_config(
-        test, &cert_pem, &key_pem,
+async fn server_loop<T>(test: InteropTest) -> Result<(), Box<dyn std::error::Error>> where T: ServerTLS<TcpStream>{
+    let cert_pem_path = common::pem_file_path(common::PemType::ServerChain);
+    let key_pem_path = common::pem_file_path(common::PemType::ServerKey);
+    let config = T::get_server_config(
+        test, cert_pem_path, key_pem_path,
     )?
     .unwrap();
 
-    let server = <S2NShim as ServerTLS<turmoil::net::TcpStream>>::acceptor(config);
+    let server = T::acceptor(config);
 
     let listener =
         turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
@@ -49,8 +49,8 @@ async fn server_loop(test: InteropTest) -> Result<(), Box<dyn std::error::Error>
     let (stream, _peer_addr) = listener.accept().await?;
 
     let server_clone = server.clone();
-    let tls = S2NShim::accept(&server_clone, stream).await.unwrap();
-    S2NShim::handle_server_connection(test, tls)
+    let tls = T::accept(&server_clone, stream).await.unwrap();
+    T::handle_server_connection(test, tls)
         .await
         .unwrap();
     Ok(())
@@ -81,7 +81,7 @@ fn s2n_tls_server_rustls_client() -> turmoil::Result {
     for t in TEST_CASES {
         let server_name = format!("s2n-tls-server-{}", t);
         let client_name = format!("rustls-client-{}", t);
-        sim.host(server_name.as_str(), move || server_loop(t));
+        sim.host(server_name.as_str(), move || server_loop::<S2NShim>(t));
         sim.client(
             client_name.as_str(),
             client_loop::<RustlsShim>(t, server_name),
@@ -98,7 +98,42 @@ fn s2n_tls_server_s2n_tls_client() -> turmoil::Result {
     for t in TEST_CASES {
         let server_name = format!("s2n-tls-server-{}", t);
         let client_name = format!("s2n-tls-client-{}", t);
-        sim.host(server_name.as_str(), move || server_loop(t));
+        sim.host(server_name.as_str(), move || server_loop::<S2NShim>(t));
+        sim.client(
+            client_name.as_str(),
+            client_loop::<S2NShim>(t, server_name),
+        );
+    }
+
+    sim.run()
+}
+
+
+#[test]
+fn openssl_server_rustls_client() -> turmoil::Result {
+    let mut sim = turmoil::Builder::new().build();
+
+    for t in TEST_CASES {
+        let server_name = format!("openssl-server-{}", t);
+        let client_name = format!("rustls-client-{}", t);
+        sim.host(server_name.as_str(), move || server_loop::<OpensslShim>(t));
+        sim.client(
+            client_name.as_str(),
+            client_loop::<RustlsShim>(t, server_name),
+        );
+    }
+
+    sim.run()
+}
+
+#[test]
+fn openssl_server_s2n_tls_client() -> turmoil::Result {
+    let mut sim = turmoil::Builder::new().build();
+
+    for t in TEST_CASES {
+        let server_name = format!("openssl-server-{}", t);
+        let client_name = format!("s2n-tls-client-{}", t);
+        sim.host(server_name.as_str(), move || server_loop::<OpensslShim>(t));
         sim.client(
             client_name.as_str(),
             client_loop::<S2NShim>(t, server_name),

@@ -19,3 +19,5 @@ s2n-tls-tokio = {path = "../../../bindings/rust/s2n-tls-tokio" }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 turmoil = "0.6"
+openssl = "0.10.64"
+tokio-openssl = "0.6.4"

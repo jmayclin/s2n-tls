@@ -17,6 +17,7 @@ use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETI
 
 pub mod rustls_shim;
 pub mod s2n_tls_shim;
+pub mod openssl_shim;
 
 /// The ServerTLS trait is intended to allow for shared code between s2n-tls, rustls,
 /// and openssl. All of these TLS implementations have relatively similar API shapes
@@ -29,9 +30,10 @@ pub trait ServerTLS<T> {
 
     fn get_server_config(
         test: InteropTest,
-        cert_pem: &[u8],
-        key_pem: &[u8],
+        cert_pem_path: &str,
+        key_pem_path: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>>;
+
     fn acceptor(config: Self::Config) -> Self::Acceptor;
 
     fn accept(
