@@ -81,6 +81,7 @@ pub trait ServerTLS<T> {
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 Self::handle_large_data_download_with_frequent_key_updates(&mut stream).await?;
             }
+            _ => panic!("Internal Framework Error")
         }
         // Don't assert on a successful close behavior, since s2n-tls bindings
         // do not support a graceful close behavior.
@@ -145,7 +146,8 @@ pub trait ClientTLS<T> {
                         assert_eq!(recv_buffer[0], tag);
                     }
                 }
-            }
+            },
+            _ => panic!("internal error, unrecognized client test {:?}", test)
         }
         tracing::info!("client is shutting down");
         let shutdown_result = stream.shutdown().await;

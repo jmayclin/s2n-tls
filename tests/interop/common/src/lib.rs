@@ -58,6 +58,7 @@ pub fn parse_server_arguments() -> (InteropTest, u16) {
 /// This enum contains all of the defined Interop Test types. See the readme for more
 /// details.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InteropTest {
     Handshake,
     Greeting,
