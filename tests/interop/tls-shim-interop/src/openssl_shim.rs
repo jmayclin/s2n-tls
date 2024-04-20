@@ -52,6 +52,34 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
         Pin::new(&mut ssl_stream).accept().await.unwrap();
         Ok(ssl_stream)
     }
+
+    async fn handle_server_initiated_reneg(
+            stream: &mut Self::Stream,
+        ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // at this point, the connection has already had a handshake
+
+        // read in the clients initial message
+        let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+        stream.read(&mut client_greeting_buffer).await?;
+        assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
+
+        // When called from the server side, SSL_renegotiate() and SSL_renegotiate_abbreviated() 
+        // behave identically. They both schedule a request for a new handshake to be sent to the 
+        // client. The next time an IO operation is performed then the same checks as on the client 
+        // side are performed and then, if appropriate, the request is sent. 
+        stream.ssl().renegotiate();
+        // try a single byte read to trigger the renegotiate
+        stream.read(&mut[0]);
+
+        // we are now waiting for the client to acknowledge the renegotiation 
+        // request and actually _do_ the renegotiation. Then it will write the
+        // client_finished message.
+        let mut client_ready_to_close = vec![0; CLIENT_FINISHED.as_bytes().len()];
+        stream.read(&mut client_ready_to_close).await?;
+        assert_eq!(client_read_to_close, CLIENT_FINISHED);
+
+        Ok(())
+    }
 }
 
 

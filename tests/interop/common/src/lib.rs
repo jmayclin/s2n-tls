@@ -63,6 +63,7 @@ pub enum InteropTest {
     Greeting,
     LargeDataDownload,
     LargeDataDownloadWithFrequentKeyUpdates,
+    ServerInitiatedReneg,
 }
 
 impl FromStr for InteropTest {
@@ -90,7 +91,8 @@ impl Display for InteropTest {
             InteropTest::LargeDataDownload => "large_data_download",
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 "large_data_download_with_frequent_key_updates"
-            }
+            },
+            InteropTest::ServerInitiatedReneg => "server_iniated_reneg",
         };
         write!(f, "{}", name)
     }

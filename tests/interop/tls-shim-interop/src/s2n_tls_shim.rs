@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB};
-use s2n_tls::{config::Config, security::DEFAULT_TLS13};
+use s2n_tls::{config::Config, security::{DEFAULT, DEFAULT_TLS13}};
 
 use std::error::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{ClientTLS, ServerTLS};
-
 
 pub struct S2NShim;
 
@@ -18,15 +17,29 @@ impl std::fmt::Display for S2NShim {
     }
 }
 
+fn actually_implementing_renegotiate_in_the_rust_bindings_is_too_much() {
+    tracing::info!("responding to the renegotiate request");
+    // etc
+}
+
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for S2NShim {
     type Config = s2n_tls::config::Config;
     type Connector = s2n_tls_tokio::TlsConnector;
     type Stream = s2n_tls_tokio::TlsStream<T>;
 
     fn get_client_config(
-        _test: common::InteropTest,
+        test: common::InteropTest,
         ca_pem: &[u8],
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
+        if test == InteropTest::ServerInitiatedReneg {
+            let mut config = Config::builder();
+            // renegotiation must use TLS 1.2
+            config.set_security_policy(&DEFAULT)?;
+            config.trust_pem(ca_pem)?;
+
+            config.set_renegotiate_callback(actually_implementing_renegotiate_in_the_rust_bindings_is_too_much);
+            return Ok(Some(config.build()?));
+        } 
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.trust_pem(ca_pem)?;
@@ -44,6 +57,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for S2NShim {
         Ok(client.connect("localhost", transport_stream).await?)
     }
 
+    async fn handle_server_initiated_reneg(
+        stream: &mut Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // write the initial greeting
+        stream.write_all(CLIENT_GREETING.as_bytes()).await?;
+
+        // the server sends the renegotiate request after receiving the client greeting
+        stream.as_mut().renegotiate_wipe();
+        stream.renegotiate().await?;
+
+        stream.write_all(CLIENT_FINISHED.as_bytes()).await?;
+        Ok(())
+    }
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {

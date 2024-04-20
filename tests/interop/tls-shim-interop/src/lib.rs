@@ -27,6 +27,7 @@ pub trait ServerTLS<T> {
     type Acceptor: Clone + Send + 'static;
     // the Stream is generic to allow for Turmoil test usage
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
+    
 
     fn get_server_config(
         test: InteropTest,
@@ -81,6 +82,9 @@ pub trait ServerTLS<T> {
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 Self::handle_large_data_download_with_frequent_key_updates(&mut stream).await?;
             }
+            InteropTest::ServerInitiatedReneg => {
+                Self::handle_server_initiated_reneg(&mut stream).await?;
+            }
         }
         // Don't assert on a successful close behavior, since s2n-tls bindings
         // do not support a graceful close behavior.
@@ -94,6 +98,15 @@ pub trait ServerTLS<T> {
     /// The method should *not* handle the shutdown of the stream. It should only handle the writing of application
     /// messages and the sending of the key updates.
     async fn handle_large_data_download_with_frequent_key_updates(
+        _stream: &mut Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Err("unimplemented".into())
+    }
+
+    /// If server supports the "server_initiated_reneg" scenario, it should implement this method.
+    /// The method should *not* handle the shutdown of the stream. It should only handle the writing of application
+    /// messages and the sending of the key updates.
+    async fn handle_server_initiated_reneg(
         _stream: &mut Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Err("unimplemented".into())
@@ -145,6 +158,9 @@ pub trait ClientTLS<T> {
                         assert_eq!(recv_buffer[0], tag);
                     }
                 }
+            },
+            InteropTest::ServerInitiatedReneg => {
+                Self::handle_server_initiated_reneg(&mut stream).await?;
             }
         }
         tracing::info!("client is shutting down");
@@ -161,5 +177,11 @@ pub trait ClientTLS<T> {
             return Err(Box::new(e));
         }
         Ok(())
+    }
+
+    async fn handle_server_initiated_reneg(
+        _stream: &mut Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Err("unimplemented".into())
     }
 }
