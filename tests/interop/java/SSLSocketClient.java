@@ -75,7 +75,7 @@ public class SSLSocketClient {
                 // unsupported test case
                 System.exit(127);
             }
-
+            out.flush();
             socket.close();
         }
     }
