@@ -16,7 +16,9 @@ use tracing::Level;
 const PORT_RANGE_START: u16 = 9_001;
 /// If a test does not successfully complete within this duration, then it is
 /// considered to have failed
-const TEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// 
+/// Long pole as of 2024-04-19 was Rustls/OpenSSL large data download test
+const TEST_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 
 #[derive(Debug, Copy, Clone)]
 enum Client {
@@ -28,6 +30,7 @@ enum Client {
 #[derive(Debug, Copy, Clone)]
 enum Server {
     S2nTls,
+    OpenSSL,
 }
 
 impl Client {
@@ -71,6 +74,11 @@ impl Server {
                 "/..",
                 "/tls-shim-interop/target/release/s2n_tls_server"
             ),
+            Server::OpenSSL => concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/..",
+                "/tls-shim-interop/target/release/openssl_server"
+            ),
         }
     }
 }
@@ -105,6 +113,7 @@ impl TestScenario {
         let mut server_log = tokio::fs::File::create(server_log).await.unwrap();
         let mut client_log = tokio::fs::File::create(client_log).await.unwrap();
 
+        // fn executable_path(&self, test_case) -> 
         let mut server = tokio::process::Command::new(self.server.executable_path())
             .args([&test_case_name, &port.to_string()])
             .stdout(Stdio::piped())
@@ -113,6 +122,9 @@ impl TestScenario {
         let mut server_stdout = server.stdout.take().unwrap();
 
         // let the server start up and start listening before starting the client
+        // interop runner could poll server/ready -> wait for this to retun OK
+
+        // unix domain sockets, wait for ack from server 
         sleep(Duration::from_secs(1)).await;
 
         let mut client_command = tokio::process::Command::new(self.client.executable_path());
@@ -184,7 +196,7 @@ async fn main() {
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
     let clients = vec![Client::S2nTls, Client::Rustls, Client::Java];
-    let servers = vec![Server::S2nTls];
+    let servers = vec![Server::S2nTls, Server::OpenSSL];
     let tests = vec![
         InteropTest::Handshake,
         InteropTest::Greeting,
