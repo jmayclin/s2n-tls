@@ -2,7 +2,7 @@ import pytest
 
 from configuration import available_ports, PROTOCOLS, ALL_TEST_CIPHERS, MINIMAL_TEST_CERTS
 from common import ProviderOptions, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL, GnuTLS
 from utils import invalid_test_parameters, get_parameter_name, to_bytes, to_string
 
@@ -36,7 +36,7 @@ FRAGMENT_PREFERENCE = [
 ]
 
 
-def test_SEND_BUFFER_SIZE_MIN_is_s2ns_min_buffer_size(managed_process):
+def test_SEND_BUFFER_SIZE_MIN_is_s2ns_min_buffer_size():
     port = next(available_ports)
 
     s2n_options = ProviderOptions(mode=Provider.ServerMode,
@@ -65,7 +65,7 @@ def test_SEND_BUFFER_SIZE_MIN_is_s2ns_min_buffer_size(managed_process):
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("buffer_size", SEND_BUFFER_SIZES, ids=get_parameter_name)
 @pytest.mark.parametrize("fragment_preference", FRAGMENT_PREFERENCE, ids=get_parameter_name)
-def test_s2n_server_buffered_send(managed_process, cipher, provider, protocol, certificate, buffer_size,
+def test_s2n_server_buffered_send(cipher, provider, protocol, certificate, buffer_size,
                                   fragment_preference):
     # Communication Timeline
     # Client [S2N|OpenSSL|GnuTLS]  | Server [S2N]
@@ -118,7 +118,7 @@ def test_s2n_server_buffered_send(managed_process, cipher, provider, protocol, c
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("buffer_size", SEND_BUFFER_SIZES, ids=get_parameter_name)
 @pytest.mark.parametrize("fragment_preference", FRAGMENT_PREFERENCE, ids=get_parameter_name)
-def test_s2n_client_buffered_send(managed_process, cipher, provider, protocol, certificate, buffer_size,
+def test_s2n_client_buffered_send(cipher, provider, protocol, certificate, buffer_size,
                                   fragment_preference):
     # Communication Timeline
     # Client [S2N]                       | Server [S2N|OpenSSL]

@@ -3,7 +3,7 @@ import pytest
 from constants import TRUST_STORE_BUNDLE, TRUST_STORE_TRUSTED_BUNDLE
 from configuration import PROTOCOLS
 from common import ProviderOptions, Ciphers, pq_enabled
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from global_flags import get_flag, is_criterion_on, S2N_FIPS_MODE, S2N_USE_CRITERION
 from providers import Provider, S2N
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
@@ -91,7 +91,7 @@ else:
 @pytest.mark.parametrize("provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("cipher", CIPHERS, ids=get_parameter_name)
 @pytest.mark.flaky(reruns=5, reruns_delay=4)
-def test_well_known_endpoints(managed_process, protocol, endpoint, provider, cipher):
+def test_well_known_endpoints(protocol, endpoint, provider, cipher):
     port = "443"
 
     client_options = ProviderOptions(

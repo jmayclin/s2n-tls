@@ -2,7 +2,7 @@ import pytest
 
 from configuration import available_ports, ALL_TEST_CIPHERS, ALL_TEST_CURVES, PROTOCOLS
 from common import ProviderOptions, data_bytes, Certificates
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from constants import TEST_OCSP_DIRECTORY
 from providers import Provider, S2N, OpenSSL, GnuTLS
 from utils import invalid_test_parameters, get_parameter_name
@@ -19,7 +19,7 @@ OCSP_CERTS = [Certificates.OCSP, Certificates.OCSP_ECDSA]
 @pytest.mark.parametrize("curve", ALL_TEST_CURVES, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", OCSP_CERTS, ids=get_parameter_name)
-def test_s2n_client_ocsp_response(managed_process, cipher, provider, other_provider, curve, protocol, certificate):
+def test_s2n_client_ocsp_response(cipher, provider, other_provider, curve, protocol, certificate):
     if "boringssl" in get_flag(S2N_PROVIDER_VERSION):
         pytest.skip("s2n-tls client with boringssl does not support ocsp")
 
@@ -81,7 +81,7 @@ def test_s2n_client_ocsp_response(managed_process, cipher, provider, other_provi
 @pytest.mark.parametrize("curve", ALL_TEST_CURVES, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", OCSP_CERTS, ids=get_parameter_name)
-def test_s2n_server_ocsp_response(managed_process, cipher, provider, other_provider, curve, protocol, certificate):
+def test_s2n_server_ocsp_response(cipher, provider, other_provider, curve, protocol, certificate):
     port = next(available_ports)
 
     random_bytes = data_bytes(128)

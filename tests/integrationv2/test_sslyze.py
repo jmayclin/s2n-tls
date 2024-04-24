@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 from configuration import available_ports, ALL_TEST_CERTS
 from common import ProviderOptions, Protocols, Cipher, Ciphers, Curves
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import S2N
 from utils import get_parameter_name, invalid_test_parameters
 from global_flags import get_flag, S2N_PROVIDER_VERSION
@@ -237,7 +237,7 @@ def invalid_sslyze_scan_parameters(*args, **kwargs):
 @pytest.mark.parametrize("protocol", PROTOCOLS_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("scan_command", SSLYZE_SCANS_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [S2N], ids=get_parameter_name)
-def test_sslyze_scans(managed_process, protocol, scan_command, provider):
+def test_sslyze_scans(protocol, scan_command, provider):
     port = next(available_ports)
 
     server_options = ProviderOptions(
@@ -327,7 +327,7 @@ def invalid_certificate_scans_parameters(*args, **kwargs):
     CertificateScan.CIPHER_SUITE_SCAN,
     CertificateScan.ELLIPTIC_CURVE_SCAN
 ], ids=lambda certificate_scan: certificate_scan.name)
-def test_sslyze_certificate_scans(managed_process, protocol, certificate, provider, certificate_scan):
+def test_sslyze_certificate_scans(protocol, certificate, provider, certificate_scan):
     port = next(available_ports)
 
     server_options = ProviderOptions(

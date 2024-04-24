@@ -3,7 +3,7 @@ import pytest
 
 from configuration import (available_ports, ALL_TEST_CIPHERS, PROTOCOLS)
 from common import Certificates, ProviderOptions, Protocols, data_bytes, Signatures
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from global_flags import S2N_PROVIDER_VERSION, get_flag
 from providers import Provider, S2N, GnuTLS, OpenSSL
 from test_signature_algorithms import signature_marker
@@ -45,7 +45,7 @@ def assert_s2n_handshake_complete(results, protocol, provider, is_complete=True)
 @pytest.mark.parametrize("cipher", ALL_TEST_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTS_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("client_certificate", CERTS_TO_TEST, ids=get_parameter_name)
-def test_client_auth_with_s2n_server(managed_process, provider, other_provider, protocol, cipher, certificate,
+def test_client_auth_with_s2n_server(provider, other_provider, protocol, cipher, certificate,
                                      client_certificate):
     port = next(available_ports)
 
@@ -93,7 +93,7 @@ def test_client_auth_with_s2n_server(managed_process, provider, other_provider, 
 @pytest.mark.parametrize("cipher", ALL_TEST_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTS_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("client_certificate", CERTS_TO_TEST, ids=get_parameter_name)
-def test_client_auth_with_s2n_server_using_nonmatching_certs(managed_process, provider, other_provider, protocol,
+def test_client_auth_with_s2n_server_using_nonmatching_certs(provider, other_provider, protocol,
                                                              cipher, certificate, client_certificate):
     port = next(available_ports)
 
@@ -146,7 +146,7 @@ def test_client_auth_with_s2n_server_using_nonmatching_certs(managed_process, pr
 @pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("cipher", ALL_TEST_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTS_TO_TEST, ids=get_parameter_name)
-def test_client_auth_with_s2n_client_no_cert(managed_process, provider, other_provider, protocol, cipher, certificate):
+def test_client_auth_with_s2n_client_no_cert(provider, other_provider, protocol, cipher, certificate):
     port = next(available_ports)
 
     random_bytes = data_bytes(64)
@@ -193,7 +193,7 @@ def test_client_auth_with_s2n_client_no_cert(managed_process, provider, other_pr
 @pytest.mark.parametrize("cipher", ALL_TEST_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTS_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("client_certificate", CERTS_TO_TEST, ids=get_parameter_name)
-def test_client_auth_with_s2n_client_with_cert(managed_process, provider, other_provider, protocol, cipher, certificate,
+def test_client_auth_with_s2n_client_with_cert(provider, other_provider, protocol, cipher, certificate,
                                                client_certificate):
     port = next(available_ports)
 
@@ -246,7 +246,7 @@ TLS1.3, even if its security policy would normally allow TLS1.3.
 
 
 @pytest.mark.parametrize("certificate", [Certificates.RSA_2048_PKCS1, Certificates.ECDSA_256], ids=get_parameter_name)
-def test_tls_12_client_auth_downgrade(managed_process, certificate):
+def test_tls_12_client_auth_downgrade(certificate):
     port = next(available_ports)
 
     random_bytes = data_bytes(64)

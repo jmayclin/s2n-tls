@@ -4,7 +4,7 @@ import re
 
 from configuration import available_ports, TLS13_CIPHERS, ALL_TEST_CURVES, MINIMAL_TEST_CERTS
 from common import ProviderOptions, Protocols, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, to_bytes
 
@@ -78,7 +78,7 @@ def test_nothing():
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("padding_size", PADDING_SIZES, ids=get_parameter_name)
-def test_s2n_server_handles_padded_records(managed_process, cipher, provider, curve, protocol, certificate,
+def test_s2n_server_handles_padded_records(cipher, provider, curve, protocol, certificate,
                                            padding_size):
     port = next(available_ports)
 
@@ -131,7 +131,7 @@ def test_s2n_server_handles_padded_records(managed_process, cipher, provider, cu
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("padding_size", PADDING_SIZES, ids=get_parameter_name)
-def test_s2n_client_handles_padded_records(managed_process, cipher, provider, curve, protocol, certificate,
+def test_s2n_client_handles_padded_records(cipher, provider, curve, protocol, certificate,
                                            padding_size):
     port = next(available_ports)
 

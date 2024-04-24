@@ -4,7 +4,7 @@ import random
 
 from configuration import available_ports, ALL_TEST_CIPHERS, ALL_TEST_CURVES, MINIMAL_TEST_CERTS, PROTOCOLS
 from common import ProviderOptions, Protocols
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL
 from utils import invalid_test_parameters, get_parameter_name
 
@@ -164,7 +164,7 @@ RENEG_MESSAGES = [
 ]
 
 
-def basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider, messages=RENEG_MESSAGES, reneg_option=None):
+def basic_reneg_test(cipher, curve, certificate, protocol, provider, messages=RENEG_MESSAGES, reneg_option=None):
     options = ProviderOptions(
         port=next(available_ports),
         cipher=cipher,
@@ -213,8 +213,8 @@ This tests the default behavior for customers who do not enable renegotiation.
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", TEST_PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
-def test_s2n_client_ignores_openssl_hello_request(managed_process, cipher, curve, certificate, protocol, provider):
-    (s2n_client, server) = basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider)
+def test_s2n_client_ignores_openssl_hello_request(cipher, curve, certificate, protocol, provider):
+    (s2n_client, server) = basic_reneg_test(cipher, curve, certificate, protocol, provider)
 
     for results in server.get_results():
         results.assert_success()
@@ -241,8 +241,8 @@ Renegotiation request rejected by s2n-tls client.
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", TEST_PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
-def test_s2n_client_rejects_openssl_hello_request(managed_process, cipher, curve, certificate, protocol, provider):
-    (s2n_client, server) = basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider,
+def test_s2n_client_rejects_openssl_hello_request(cipher, curve, certificate, protocol, provider):
+    (s2n_client, server) = basic_reneg_test(cipher, curve, certificate, protocol, provider,
                                             reneg_option=S2N_RENEG_REJECT)
 
     for results in server.get_results():
@@ -266,8 +266,8 @@ Renegotiation request accepted by s2n-tls client.
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", TEST_PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
-def test_s2n_client_renegotiate_with_openssl(managed_process, cipher, curve, certificate, protocol, provider):
-    (s2n_client, server) = basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider,
+def test_s2n_client_renegotiate_with_openssl(cipher, curve, certificate, protocol, provider):
+    (s2n_client, server) = basic_reneg_test(cipher, curve, certificate, protocol, provider,
                                             reneg_option=S2N_RENEG_ACCEPT)
 
     for results in server.get_results():
@@ -298,7 +298,7 @@ but does require client auth during the second handshake.
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", TEST_PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
-def test_s2n_client_renegotiate_with_client_auth_with_openssl(managed_process, cipher, curve, certificate, protocol, provider):
+def test_s2n_client_renegotiate_with_client_auth_with_openssl(cipher, curve, certificate, protocol, provider):
     # We want to use the same messages to test renegotiation,
     # but with 'R' instead of 'r' to trigger the Openssl renegotiate request.
     messages = copy.deepcopy(RENEG_MESSAGES)
@@ -309,7 +309,7 @@ def test_s2n_client_renegotiate_with_client_auth_with_openssl(managed_process, c
     client_auth_marker = "|CLIENT_AUTH"
     no_client_cert_marker = "|NO_CLIENT_CERT"
 
-    (s2n_client, server) = basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider,
+    (s2n_client, server) = basic_reneg_test(cipher, curve, certificate, protocol, provider,
                                             messages=messages, reneg_option=S2N_RENEG_WAIT)
 
     for results in server.get_results():
@@ -347,9 +347,9 @@ The s2n-tls client successfully reads ApplicationData during the renegotiation h
 @pytest.mark.parametrize("certificate", MINIMAL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", TEST_PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
-def test_s2n_client_renegotiate_with_app_data_with_openssl(managed_process, cipher, curve, certificate, protocol, provider):
+def test_s2n_client_renegotiate_with_app_data_with_openssl(cipher, curve, certificate, protocol, provider):
     first_server_app_data = Msg.expected_output(RENEG_MESSAGES, Provider.ClientMode)[0]
-    (s2n_client, server) = basic_reneg_test(managed_process, cipher, curve, certificate, protocol, provider,
+    (s2n_client, server) = basic_reneg_test(cipher, curve, certificate, protocol, provider,
                                             reneg_option=S2N_RENEG_WAIT)
 
     for results in server.get_results():

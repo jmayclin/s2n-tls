@@ -3,7 +3,7 @@ import pytest
 
 from configuration import available_ports, ALL_TEST_CIPHERS, ALL_TEST_CERTS
 from common import ProviderOptions, Protocols, Certificates, Signatures, data_bytes, Ciphers
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL, GnuTLS
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, to_bytes
 
@@ -76,7 +76,7 @@ def skip_ciphers(*args, **kwargs):
 @pytest.mark.parametrize("certificate", ALL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("signature", all_sigs, ids=get_parameter_name)
 @pytest.mark.parametrize("client_auth", [True, False], ids=lambda val: "client-auth" if val else "no-client-auth")
-def test_s2n_server_signature_algorithms(managed_process, cipher, provider, other_provider, protocol, certificate,
+def test_s2n_server_signature_algorithms(cipher, provider, other_provider, protocol, certificate,
                                          signature, client_auth):
     port = next(available_ports)
 
@@ -132,7 +132,7 @@ def test_s2n_server_signature_algorithms(managed_process, cipher, provider, othe
 @pytest.mark.parametrize("certificate", ALL_TEST_CERTS, ids=get_parameter_name)
 @pytest.mark.parametrize("signature", all_sigs, ids=get_parameter_name)
 @pytest.mark.parametrize("client_auth", [True, False], ids=lambda val: "client-auth" if val else "no-client-auth")
-def test_s2n_client_signature_algorithms(managed_process, cipher, provider, other_provider, protocol, certificate,
+def test_s2n_client_signature_algorithms(cipher, provider, other_provider, protocol, certificate,
                                          signature, client_auth):
     port = next(available_ports)
 

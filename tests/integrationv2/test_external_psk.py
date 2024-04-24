@@ -2,7 +2,7 @@ import pytest
 
 from configuration import available_ports, TLS13_CIPHERS, ALL_TEST_CURVES, ALL_TEST_CERTS
 from common import ProviderOptions, Protocols, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import S2N, OpenSSL
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
 from enum import Enum, auto
@@ -128,7 +128,7 @@ Tests a single psk connection with no fallback option.
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
-def test_s2n_server_psk_connection(managed_process, cipher, curve, protocol, provider, other_provider, psk_identity,
+def test_s2n_server_psk_connection(cipher, curve, protocol, provider, other_provider, psk_identity,
                                    psk_secret):
     port = next(available_ports)
     random_bytes = data_bytes(10)
@@ -182,7 +182,7 @@ Note that OpenSSL does not support multiple PSKs.
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
-def test_s2n_server_multiple_psks(managed_process, cipher, curve, protocol, provider, other_provider, psk_identity,
+def test_s2n_server_multiple_psks(cipher, curve, protocol, provider, other_provider, psk_identity,
                                   psk_secret):
     port = next(available_ports)
     random_bytes = data_bytes(10)
@@ -253,7 +253,7 @@ as the input.
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", ALL_TEST_CERTS_WITH_EMPTY_CERT, ids=get_parameter_name)
-def test_s2n_server_full_handshake(managed_process, cipher, curve, protocol, provider, other_provider, psk_identity,
+def test_s2n_server_full_handshake(cipher, curve, protocol, provider, other_provider, psk_identity,
                                    psk_secret, certificate):
     port = next(available_ports)
     random_bytes = data_bytes(10)
@@ -307,7 +307,7 @@ Tests a single psk connection with no fallback option.
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
-def test_s2n_client_psk_connection(managed_process, cipher, curve, protocol, provider, other_provider, psk_identity,
+def test_s2n_client_psk_connection(cipher, curve, protocol, provider, other_provider, psk_identity,
                                    psk_secret):
     port = next(available_ports)
     random_bytes = data_bytes(10)
@@ -362,7 +362,7 @@ Note that OpenSSL does not support multiple PSKs.
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
-def test_s2n_client_multiple_psks(managed_process, cipher, curve, protocol, provider, other_provider, psk_identity,
+def test_s2n_client_multiple_psks(cipher, curve, protocol, provider, other_provider, psk_identity,
                                   psk_secret):
     port = next(available_ports)
     random_bytes = data_bytes(10)
@@ -430,7 +430,7 @@ uses a default certificate if a certificate is not provided as the input.
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 @pytest.mark.parametrize("psk_identity", PSK_IDENTITY_LIST, ids=get_parameter_name)
 @pytest.mark.parametrize("psk_secret", PSK_SECRET_LIST, ids=get_parameter_name)
-def test_s2n_client_psk_handshake_failure(managed_process, cipher, curve, protocol, provider, psk_identity, psk_secret):
+def test_s2n_client_psk_handshake_failure(cipher, curve, protocol, provider, psk_identity, psk_secret):
     port = next(available_ports)
     random_bytes = data_bytes(10)
     psk_hash_alg = get_psk_hash_alg_from_cipher(cipher)

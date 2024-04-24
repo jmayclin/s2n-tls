@@ -3,7 +3,7 @@ import pytest
 
 from configuration import available_ports, PROTOCOLS
 from common import ProviderOptions, Ciphers, Certificates, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL, GnuTLS
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, to_bytes
 
@@ -26,7 +26,7 @@ CERTIFICATES_TO_TEST = [
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTIFICATES_TO_TEST, ids=get_parameter_name)
-def test_s2n_server_low_latency(managed_process, cipher, provider, other_provider, protocol, certificate):
+def test_s2n_server_low_latency(cipher, provider, other_provider, protocol, certificate):
     if provider is OpenSSL and 'openssl-1.0.2' in provider.get_version():
         pytest.skip(
             '{} does not allow setting max fragmentation for packets'.format(provider))
@@ -84,7 +84,7 @@ def invalid_test_parameters_frag_len(*args, **kwargs):
 @pytest.mark.parametrize("protocol", PROTOCOLS, ids=get_parameter_name)
 @pytest.mark.parametrize("certificate", CERTIFICATES_TO_TEST, ids=get_parameter_name)
 @pytest.mark.parametrize("frag_len", [512, 2048, 8192, 12345, 16384], ids=get_parameter_name)
-def test_s2n_server_framented_data(managed_process, cipher, provider, other_provider, protocol, certificate,
+def test_s2n_server_framented_data(cipher, provider, other_provider, protocol, certificate,
                                    frag_len):
     if provider is OpenSSL and 'openssl-1.0.2' in provider.get_version():
         pytest.skip(

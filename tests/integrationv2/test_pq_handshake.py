@@ -3,7 +3,7 @@ import os
 
 from configuration import available_ports
 from common import Ciphers, Curves, ProviderOptions, Protocols, KemGroups, Certificates, pq_enabled
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL, BoringSSL
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
 from global_flags import get_flag, S2N_PROVIDER_VERSION
@@ -211,7 +211,7 @@ def test_nothing():
 @pytest.mark.parametrize("server_cipher", CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_s2nc_to_s2nd_pq_handshake(managed_process, protocol, certificate, client_cipher, server_cipher, provider,
+def test_s2nc_to_s2nd_pq_handshake(protocol, certificate, client_cipher, server_cipher, provider,
                                    other_provider):
     # Incorrect cipher is negotiated when both ciphers are PQ_TLS_1_0_2020_12 with
     # openssl 1.0.2, boringssl, and libressl libcryptos
@@ -270,7 +270,7 @@ def test_s2nc_to_s2nd_pq_handshake(managed_process, protocol, certificate, clien
 
 @pytest.mark.parametrize("s2n_client_policy", [Ciphers.PQ_TLS_1_3_2023_06_01], ids=get_parameter_name)
 @pytest.mark.parametrize("awslc_server_group", [KemGroups.SecP256r1Kyber768Draft00, KemGroups.X25519Kyber768Draft00], ids=get_parameter_name)
-def test_s2nc_to_awslc_pq_handshake(managed_process, s2n_client_policy, awslc_server_group):
+def test_s2nc_to_awslc_pq_handshake(s2n_client_policy, awslc_server_group):
 
     if not pq_enabled():
         pytest.skip("PQ not enabled")
@@ -313,7 +313,7 @@ def test_s2nc_to_awslc_pq_handshake(managed_process, s2n_client_policy, awslc_se
 
 @pytest.mark.parametrize("s2n_server_policy", [Ciphers.PQ_TLS_1_3_2023_06_01], ids=get_parameter_name)
 @pytest.mark.parametrize("awslc_client_group", [KemGroups.SecP256r1Kyber768Draft00, KemGroups.X25519Kyber768Draft00], ids=get_parameter_name)
-def test_s2nd_to_awslc_pq_handshake(managed_process, s2n_server_policy, awslc_client_group):
+def test_s2nd_to_awslc_pq_handshake(s2n_server_policy, awslc_client_group):
 
     if not pq_enabled():
         pytest.skip("PQ not enabled")
@@ -358,7 +358,7 @@ def test_s2nd_to_awslc_pq_handshake(managed_process, s2n_server_policy, awslc_cl
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("cipher", [Ciphers.PQ_TLS_1_0_2020_12], ids=get_parameter_name)
 @pytest.mark.parametrize("kem_group", KEM_GROUPS, ids=get_parameter_name)
-def test_s2nc_to_oqs_openssl_pq_handshake(managed_process, protocol, cipher, kem_group):
+def test_s2nc_to_oqs_openssl_pq_handshake(protocol, cipher, kem_group):
     # If PQ is not enabled in s2n, there is no reason to test against oqs_openssl
     if not pq_enabled():
         return
@@ -400,7 +400,7 @@ def test_s2nc_to_oqs_openssl_pq_handshake(managed_process, protocol, cipher, kem
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("cipher", [Ciphers.PQ_TLS_1_0_2020_12], ids=get_parameter_name)
 @pytest.mark.parametrize("kem_group", KEM_GROUPS, ids=get_parameter_name)
-def test_oqs_openssl_to_s2nd_pq_handshake(managed_process, protocol, cipher, kem_group):
+def test_oqs_openssl_to_s2nd_pq_handshake(protocol, cipher, kem_group):
     # If PQ is not enabled in s2n, there is no reason to test against oqs_openssl
     if not pq_enabled():
         return

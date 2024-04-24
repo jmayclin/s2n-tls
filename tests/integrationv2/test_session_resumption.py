@@ -4,7 +4,7 @@ import pytest
 
 from configuration import available_ports, ALL_TEST_CIPHERS, ALL_TEST_CURVES, ALL_TEST_CERTS, PROTOCOLS, TLS13_CIPHERS
 from common import ProviderOptions, Protocols, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, to_bytes
 
@@ -17,7 +17,7 @@ from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("use_ticket", [True, False])
-def test_session_resumption_s2n_server(managed_process, cipher, curve, certificate, protocol, provider, other_provider,
+def test_session_resumption_s2n_server(cipher, curve, certificate, protocol, provider, other_provider,
                                        use_ticket):
     port = next(available_ports)
 
@@ -64,7 +64,7 @@ def test_session_resumption_s2n_server(managed_process, cipher, curve, certifica
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("use_ticket", [True, False])
-def test_session_resumption_s2n_client(managed_process, cipher, curve, protocol, provider, other_provider, certificate,
+def test_session_resumption_s2n_client(cipher, curve, protocol, provider, other_provider, certificate,
                                        use_ticket):
     port = next(available_ports)
 
@@ -108,7 +108,7 @@ def test_session_resumption_s2n_client(managed_process, cipher, curve, protocol,
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_tls13_session_resumption_s2n_server(managed_process, tmp_path, cipher, curve, certificate, protocol, provider,
+def test_tls13_session_resumption_s2n_server(tmp_path, cipher, curve, certificate, protocol, provider,
                                              other_provider):
     port = str(next(available_ports))
 
@@ -187,7 +187,7 @@ def test_tls13_session_resumption_s2n_server(managed_process, tmp_path, cipher, 
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL, S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_tls13_session_resumption_s2n_client(managed_process, cipher, curve, certificate, protocol, provider,
+def test_tls13_session_resumption_s2n_client(cipher, curve, certificate, protocol, provider,
                                              other_provider):
     port = str(next(available_ports))
 
@@ -250,7 +250,7 @@ def test_tls13_session_resumption_s2n_client(managed_process, cipher, curve, cer
 @pytest.mark.parametrize("protocol", [Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_s2nd_falls_back_to_full_connection(managed_process, tmp_path, cipher, curve, certificate, protocol, provider,
+def test_s2nd_falls_back_to_full_connection(tmp_path, cipher, curve, certificate, protocol, provider,
                                             other_provider):
     port = str(next(available_ports))
 
@@ -329,7 +329,7 @@ def test_s2nd_falls_back_to_full_connection(managed_process, tmp_path, cipher, c
 @pytest.mark.parametrize("protocol", [p for p in PROTOCOLS if p < Protocols.TLS13], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL, S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_session_resumption_s2n_client_tls13_server_not_tls13(managed_process, cipher, curve, protocol, provider, other_provider, certificate):
+def test_session_resumption_s2n_client_tls13_server_not_tls13(cipher, curve, protocol, provider, other_provider, certificate):
     port = next(available_ports)
 
     # This test verifies that an S2N client that supports TLS1.3 can resume sessions

@@ -2,7 +2,7 @@ import pytest
 
 from configuration import available_ports, MULTI_CERT_TEST_CASES
 from common import ProviderOptions, Protocols
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, to_bytes
 
@@ -31,7 +31,7 @@ def filter_cipher_list(*args, **kwargs):
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
 @pytest.mark.parametrize("protocol", [Protocols.TLS13, Protocols.TLS12], ids=get_parameter_name)
 @pytest.mark.parametrize("cert_test_case", MULTI_CERT_TEST_CASES)
-def test_sni_match(managed_process, provider, other_provider, protocol, cert_test_case):
+def test_sni_match(provider, other_provider, protocol, cert_test_case):
     port = next(available_ports)
 
     client_options = ProviderOptions(

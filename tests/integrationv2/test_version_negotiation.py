@@ -3,7 +3,7 @@ import pytest
 
 from configuration import available_ports, ALL_TEST_CIPHERS, ALL_TEST_CURVES, ALL_TEST_CERTS
 from common import ProviderOptions, Protocols, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process
 from providers import Provider, S2N, OpenSSL, GnuTLS
 from utils import invalid_test_parameters, get_parameter_name, get_expected_s2n_version, get_expected_openssl_version, \
     to_bytes, get_expected_gnutls_version
@@ -36,7 +36,7 @@ def invalid_version_negotiation_test_parameters(*args, **kwargs):
 @pytest.mark.parametrize("protocol", [Protocols.TLS12, Protocols.TLS11, Protocols.TLS10], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [S2N, OpenSSL, GnuTLS], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_s2nc_tls13_negotiates_tls12(managed_process, cipher, curve, certificate, protocol, provider, other_provider):
+def test_s2nc_tls13_negotiates_tls12(cipher, curve, certificate, protocol, provider, other_provider):
     port = next(available_ports)
 
     random_bytes = data_bytes(24)
@@ -99,7 +99,7 @@ def test_s2nc_tls13_negotiates_tls12(managed_process, cipher, curve, certificate
 @pytest.mark.parametrize("protocol", [Protocols.TLS12, Protocols.TLS11, Protocols.TLS10], ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [S2N, OpenSSL, GnuTLS], ids=get_parameter_name)
 @pytest.mark.parametrize("other_provider", [S2N], ids=get_parameter_name)
-def test_s2nd_tls13_negotiates_tls12(managed_process, cipher, curve, certificate, protocol, provider, other_provider):
+def test_s2nd_tls13_negotiates_tls12(cipher, curve, certificate, protocol, provider, other_provider):
     port = next(available_ports)
 
     random_bytes = data_bytes(24)
