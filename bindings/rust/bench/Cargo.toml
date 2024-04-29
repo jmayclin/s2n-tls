@@ -12,6 +12,8 @@ historical-perf = ["plotters", "serde_json", "semver"]
 
 [dependencies]
 s2n-tls = { path = "../s2n-tls" }
+old-s2n-tls = { package = "s2n-tls", version = "=0.2.0" }
+
 errno = "0.3"
 libc = "0.2"
 strum = { version = "0.25", features = ["derive"] }
