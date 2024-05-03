@@ -54,7 +54,7 @@ pub trait ServerTLS<T> {
             InteropTest::Handshake => {
                 /* no application data exchange in the handshake case */
             }
-            InteropTest::Greeting => {
+            InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
                 stream.read(&mut client_greeting_buffer).await?;
                 assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
@@ -108,7 +108,7 @@ pub trait ClientTLS<T> {
 
     fn get_client_config(
         test: InteropTest,
-        ca_pem: &[u8],
+        pem_directory: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>>;
 
     fn connector(config: Self::Config) -> Self::Connector;
@@ -126,7 +126,7 @@ pub trait ClientTLS<T> {
             InteropTest::Handshake => {
                 tracing::info!("Client executing handshake scenario") /* no data exchange in the handshake case */
             }
-            InteropTest::Greeting => {
+            InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
 
                 let mut server_greeting_buffer = vec![0; SERVER_GREETING.as_bytes().len()];

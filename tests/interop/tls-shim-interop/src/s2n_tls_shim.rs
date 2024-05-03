@@ -9,7 +9,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{ClientTLS, ServerTLS};
 
-
 pub struct S2NShim;
 
 impl std::fmt::Display for S2NShim {
@@ -24,12 +23,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for S2NShim {
     type Stream = s2n_tls_tokio::TlsStream<T>;
 
     fn get_client_config(
-        _test: common::InteropTest,
-        ca_pem: &[u8],
+        test: common::InteropTest,
+        _ca_pem: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
+        let ca_pem = std::fs::read(common::pem_file_path(common::PemType::CaCert))?;
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
-        config.trust_pem(ca_pem)?;
+        config.trust_pem(&ca_pem)?;
+        if test == InteropTest::MTLSRequestResponse {
+            config.load_pem(
+                &std::fs::read(common::pem_file_path(common::PemType::ClientChain))?,
+                &std::fs::read(common::pem_file_path(common::PemType::ClientKey))?,
+            )?;
+        }
         Ok(Some(config.build()?))
     }
 
@@ -43,7 +49,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for S2NShim {
     ) -> Result<Self::Stream, Box<dyn Error + Send + Sync>> {
         Ok(client.connect("localhost", transport_stream).await?)
     }
-
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
@@ -52,7 +57,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
     type Stream = s2n_tls_tokio::TlsStream<T>;
 
     fn get_server_config(
-        _test: InteropTest,
+        test: InteropTest,
         cert_pem_path: &str,
         key_pem_path: &str,
     ) -> Result<Option<s2n_tls::config::Config>, Box<dyn Error>> {
@@ -61,6 +66,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.load_pem(&cert_pem, &key_pem)?;
+        if test == InteropTest::MTLSRequestResponse {
+            config.trust_pem(&std::fs::read(common::pem_file_path(
+                common::PemType::CaCert,
+            ))?)?;
+        }
         Ok(Some(config.build()?))
     }
 
@@ -104,8 +114,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
             }
         }
 
-        let (send, _recv) = stream.as_ref().key_update_counts()?;
-        assert!(send > 0);
+        let updates = stream.as_ref().key_update_counts()?;
+        assert!(updates.send_key_updates > 0);
         Ok(())
     }
 }

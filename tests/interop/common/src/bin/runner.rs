@@ -2,6 +2,7 @@
 // PORT_END: u16 = 9_100;
 
 use common::{InteropTest, UNIMPLEMENTED_RETURN_VAL};
+use std::collections::BTreeMap;
 use std::time::Instant;
 use std::{process::Stdio, sync::Arc, thread, time::Duration};
 use tokio::{
@@ -20,14 +21,22 @@ const PORT_RANGE_START: u16 = 9_001;
 /// Long pole as of 2024-04-19 was Rustls/OpenSSL large data download test
 const TEST_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 
-#[derive(Debug, Copy, Clone)]
+const ENABLED_TESTS: [InteropTest; 5] = [
+    InteropTest::Handshake,
+    InteropTest::Greeting,
+    InteropTest::MTLSRequestResponse,
+    InteropTest::LargeDataDownload,
+    InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
+];
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum Client {
     S2nTls,
     Rustls,
     Java,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum Server {
     S2nTls,
     OpenSSL,
@@ -197,16 +206,10 @@ async fn main() {
 
     let clients = vec![Client::S2nTls, Client::Rustls, Client::Java];
     let servers = vec![Server::S2nTls, Server::OpenSSL];
-    let tests = vec![
-        InteropTest::Handshake,
-        InteropTest::Greeting,
-        InteropTest::LargeDataDownload,
-        InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
-    ];
 
     let mut scenarios = Vec::new();
 
-    for t in tests {
+    for t in ENABLED_TESTS {
         for s in servers.iter() {
             for c in clients.iter() {
                 scenarios.push(TestScenario {
@@ -220,6 +223,11 @@ async fn main() {
 
     let (results_tx, mut results_rx) = unbounded_channel();
 
+    //  scenario -> 
+    //      (server -> 
+    //          (client -> result))
+    // let mut results: BTreeMap<InteropTest, BTreeMap<Server, BTreeMap<Client, Option<TestResult>>>> = BTreeMap::new();
+    let mut results = Vec::new();
     // The large tests are capable of saturating 2 cores (1 for the client and 1
     // for the server) so we limit the number of concurrent tests to NUM_CORES / 2
     let concurrent_tests = thread::available_parallelism().unwrap().get() / 2;
@@ -242,5 +250,20 @@ async fn main() {
 
     while let Some((scenario, result)) = results_rx.recv().await {
         tracing::info!("{:?} finished with {:?}", scenario, result);
+        let result = match result {
+            TestResult::Success => "🥳",
+            TestResult::Failure => "💔",
+            TestResult::Unimplemented => "🚧",
+        }.to_owned();
+
+        results.push((scenario.test_case, scenario.server, scenario.client, result));
+        results.sort();
+        print_results_table(&results);
+    }
+}
+
+fn print_results_table(results: &Vec<(InteropTest, Server, Client, String)>) {
+    for (test, server, client, result) in results {
+        println!("{:23}, {:10}, {:10}, {}", test.to_string(), format!("{:?}",server), format!("{:?}",client), result);
     }
 }

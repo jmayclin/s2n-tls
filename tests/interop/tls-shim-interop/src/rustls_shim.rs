@@ -4,12 +4,18 @@
 use std::{
     fmt::{Debug, Display},
     io::BufReader,
+    process::exit,
     sync::Arc,
 };
 
+use common::InteropTest;
+use rustls_pemfile::pkcs8_private_keys;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::{
-    rustls::{self, pki_types},
+    rustls::{
+        self,
+        pki_types::{self, PrivateKeyDer},
+    },
     TlsConnector,
 };
 
@@ -29,22 +35,51 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
     type Stream = tokio_rustls::client::TlsStream<T>;
 
     fn get_client_config(
-        _test: common::InteropTest,
-        ca_pem: &[u8],
+        test: common::InteropTest,
+        pem_directory: &str,
     ) -> Result<Option<Self::Config>, Box<dyn std::error::Error>> {
         let mut root_store = rustls::RootCertStore::empty();
 
+        let ca_pem = std::fs::read(common::pem_file_path(common::PemType::CaCert))?;
         //let certs = rustls_pemfile::certs(&mut BufReader::new(ca_pem)).collect();
-        let mut buffered_cert = BufReader::new(ca_pem);
+        let mut buffered_cert = BufReader::new(ca_pem.as_slice());
         let root_cert = rustls_pemfile::certs(&mut buffered_cert)
             .next()
             .unwrap()
             .unwrap();
-
         root_store.add(root_cert).unwrap();
-        let config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+
+        let config = match test {
+            InteropTest::Greeting
+            | InteropTest::Handshake
+            | InteropTest::LargeDataDownload
+            | InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth()
+            }
+            InteropTest::MTLSRequestResponse => {
+                let mut reader = BufReader::new(std::fs::File::open(common::pem_file_path(
+                    common::PemType::ClientChain,
+                ))?);
+                let client_chain = rustls_pemfile::certs(&mut reader)
+                    .filter_map(|maybe_cert| match maybe_cert {
+                        Ok(cert) => Some(cert),
+                        Err(e) => panic!("unable to read cert chain: {:?}", e),
+                    })
+                    .collect();
+
+                let mut reader = BufReader::new(std::fs::File::open(common::pem_file_path(
+                    common::PemType::ClientKey,
+                ))?);
+                let client_key = pkcs8_private_keys(&mut reader).next().unwrap()?;
+                let client_key = PrivateKeyDer::Pkcs8(client_key);
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_client_auth_cert(client_chain, client_key)?
+            }
+            _ => return Ok(None),
+        };
 
         Ok(Some(Arc::new(config)))
     }

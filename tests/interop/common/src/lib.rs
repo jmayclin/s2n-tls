@@ -18,6 +18,16 @@ pub enum PemType {
     CaCert,
     ServerChain,
     ServerKey,
+    ClientChain,
+    ClientKey,
+}
+
+pub fn pem_directory() -> &'static str {
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/..",
+        "/certificates/"
+    )
 }
 
 pub fn pem_file_path(file: PemType) -> &'static str {
@@ -36,6 +46,16 @@ pub fn pem_file_path(file: PemType) -> &'static str {
             env!("CARGO_MANIFEST_DIR"),
             "/..",
             "/certificates/server-key.pem"
+        ),
+        PemType::ClientChain => concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/..",
+            "/certificates/client-cert.pem"
+        ),
+        PemType::ClientKey => concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/..",
+            "/certificates/client-key.pem"
         ),
     }
 }
@@ -57,13 +77,14 @@ pub fn parse_server_arguments() -> (InteropTest, u16) {
 
 /// This enum contains all of the defined Interop Test types. See the readme for more
 /// details.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum InteropTest {
     Handshake,
     Greeting,
     LargeDataDownload,
     LargeDataDownloadWithFrequentKeyUpdates,
+    MTLSRequestResponse,
 }
 
 impl FromStr for InteropTest {
@@ -77,6 +98,7 @@ impl FromStr for InteropTest {
             "large_data_download_with_frequent_key_updates" => {
                 InteropTest::LargeDataDownloadWithFrequentKeyUpdates
             }
+            "mtls_request_response" => InteropTest::MTLSRequestResponse,
             _ => return Err(format!("unrecognized test type: {}", s)),
         };
         Ok(name)
@@ -91,7 +113,8 @@ impl Display for InteropTest {
             InteropTest::LargeDataDownload => "large_data_download",
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 "large_data_download_with_frequent_key_updates"
-            }
+            },
+            InteropTest::MTLSRequestResponse => "mtls_request_response",
         };
         write!(f, "{}", name)
     }

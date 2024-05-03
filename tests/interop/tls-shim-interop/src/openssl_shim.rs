@@ -68,7 +68,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
     type Stream = tokio_openssl::SslStream<T>;
 
     fn get_server_config(
-        _test: InteropTest,
+        test: InteropTest,
         cert_pem_path: &str,
         key_pem_path: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
@@ -77,6 +77,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
             .set_private_key_file(key_pem_path, SslFiletype::PEM)?;
         acceptor
             .set_certificate_chain_file(cert_pem_path)?;
+        if test == InteropTest::MTLSRequestResponse {
+            acceptor.set_ca_file(common::pem_file_path(common::PemType::CaCert))?;
+            acceptor.set_verify(openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT | openssl::ssl::SslVerifyMode::PEER);
+        }
         Ok(Some(acceptor))
     }
 

@@ -24,9 +24,10 @@ use turmoil::net::*;
 
 // turmoil's send function seems to be quadratic somewhere. Sending 1 Gb takes approximately 229 seconds
 // so don't enable the large data tests.
-const TEST_CASES: [InteropTest; 2] = [
+const TEST_CASES: [InteropTest; 3] = [
     InteropTest::Greeting,
     InteropTest::Handshake,
+    InteropTest::MTLSRequestResponse,
     // InteropTest::LargeDataDownload,
     // InteropTest::LargeDataDownloadWithFrequentKeyUpdates,
 ];
@@ -63,8 +64,7 @@ async fn client_loop<T>(
 where
     T: ClientTLS<TcpStream>,
 {
-    let ca_pem = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = T::get_client_config(test, &ca_pem)?.unwrap();
+    let config = T::get_client_config(test, common::pem_directory())?.unwrap();
 
     let client = T::connector(config);
     let transport_stream = turmoil::net::TcpStream::connect((server_domain, PORT)).await?;

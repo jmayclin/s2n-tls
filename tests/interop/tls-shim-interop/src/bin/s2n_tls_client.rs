@@ -34,8 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_ansi(false)
         .init();
     let (test, port) = common::parse_server_arguments();
-    let ca_cert = fs::read(common::pem_file_path(common::PemType::CaCert))?;
-    let config = <S2NShim as ClientTLS<TcpStream>>::get_client_config(test, &ca_cert)?.unwrap();
+    let config = <S2NShim as ClientTLS<TcpStream>>::get_client_config(test, common::pem_directory())?.unwrap();
     run_client::<S2NShim>(config, port, test).await?;
     Ok(())
 }
