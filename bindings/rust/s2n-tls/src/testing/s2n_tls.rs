@@ -235,6 +235,7 @@ mod tests {
     use crate::{
         callbacks::{ClientHelloCallback, ConnectionFuture},
         enums::{ClientAuthType, PeerKeyUpdate},
+        error::ErrorType,
         testing::{client_hello::*, s2n_tls::*, *},
     };
     use alloc::sync::Arc;
@@ -894,35 +895,55 @@ mod tests {
     }
 
     #[test]
+    fn master_secret_success() -> Result<(), Error> {
+        let policy = security::Policy::from_version("test_all_tls12")?;
+        let config = config_builder(&policy)?.build()?;
+        let pair = poll_tls_pair(tls_pair(config));
+        let server = pair.server.0.connection;
+        let client = pair.client.0.connection;
+
+        let server_secret = server.master_secret()?;
+        let client_secret = client.master_secret()?;
+        assert_eq!(server_secret, client_secret);
+
+        Ok(())
+    }
+
+    #[test]
+    fn master_secret_failure() -> Result<(), Error> {
+        // TLS1.3 does not support getting the master secret
+        let config = config_builder(&security::DEFAULT_TLS13)?.build()?;
+        let pair = poll_tls_pair(tls_pair(config));
+        let server = pair.server.0.connection;
+        let client = pair.client.0.connection;
+
+        let server_error = server.master_secret().unwrap_err();
+        assert_eq!(server_error.kind(), ErrorType::UsageError);
+
+        let client_error = client.master_secret().unwrap_err();
+        assert_eq!(client_error.kind(), ErrorType::UsageError);
+
+        Ok(())
+    }
+
+    #[cfg(feature = "unstable-ktls")]
+    #[test]
     fn key_updates() -> Result<(), Error> {
-        let config = {
-            let config = config_builder(&security::DEFAULT_TLS13)?;
-            config.build()?
+        use crate::{connection::KeyUpdateCount, enums::PeerKeyUpdate};
+
+        let empty_key_updates = KeyUpdateCount {
+            recv_key_updates: 0,
+            send_key_updates: 0,
         };
 
-        let server = {
-            let mut server = crate::connection::Connection::new_server();
-            server.set_config(config.clone())?;
-            Harness::new(server)
-        };
-
-        let client = {
-            let mut client = crate::connection::Connection::new_client();
-            client.set_config(config)?;
-            Harness::new(client)
-        };
-
-        let pair = Pair::new(server, client);
+        let pair = tls_pair(build_config(&security::DEFAULT_TLS13)?);
         let mut pair = poll_tls_pair(pair);
 
         // there haven't been any key updates at the start of the connection
-        #[cfg(feature = "unstable-ktls")]
-        {
-            let client_updates = pair.client.0.connection.as_ref().key_update_counts()?;
-            assert_eq!(client_updates, (0, 0));
-            let server_updates = pair.server.0.connection.as_ref().key_update_counts()?;
-            assert_eq!(server_updates, (0, 0));
-        }
+        let client_updates = pair.client.0.connection.as_ref().key_update_counts()?;
+        assert_eq!(client_updates, empty_key_updates);
+        let server_updates = pair.server.0.connection.as_ref().key_update_counts()?;
+        assert_eq!(server_updates, empty_key_updates);
 
         pair.server
             .0
@@ -932,15 +953,21 @@ mod tests {
         assert!(pair.poll_send(Mode::Server, &[0]).is_ready());
 
         // the server send key has been updated
-        #[cfg(feature = "unstable-ktls")]
-        {
-            println!("testing the key updates");
-            let client_updates = pair.client.0.connection.as_ref().key_update_counts()?;
-            assert_eq!(client_updates, (0, 0));
-            let server_updates = pair.server.0.connection.as_ref().key_update_counts()?;
-            assert_eq!(server_updates, (1, 0));
-        }
+        let client_updates = pair.client.0.connection.as_ref().key_update_counts()?;
+        assert_eq!(client_updates, empty_key_updates);
+        let server_updates = pair.server.0.connection.as_ref().key_update_counts()?;
+        assert_eq!(server_updates.recv_key_updates, 0);
+        assert_eq!(server_updates.send_key_updates, 1);
 
         Ok(())
+    }
+
+    #[cfg(feature = "fips")]
+    #[test]
+    fn test_fips_mode() {
+        use crate::init;
+
+        init::init();
+        assert!(init::fips_mode().unwrap().is_enabled());
     }
 }

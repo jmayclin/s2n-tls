@@ -25,6 +25,7 @@ tests/benchmark/*_benchmark
 tests/interop/*/target
 bin/s2nc
 bin/s2nd
+bin/policy
 util-linux-*
 Python-*
 clang-*

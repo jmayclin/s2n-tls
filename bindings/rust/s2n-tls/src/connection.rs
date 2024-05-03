@@ -36,6 +36,15 @@ macro_rules! static_const_str {
     };
 }
 
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+/// s2n-tls only tracks up to u8::MAX (255) key updates. If any of the fields show
+/// 255 updates, then more than 255 updates may have occurred.
+pub struct KeyUpdateCount {
+    pub send_key_updates: u8,
+    pub recv_key_updates: u8,
+}
+
 pub struct Connection {
     connection: NonNull<s2n_connection>,
 }
@@ -64,7 +73,31 @@ impl fmt::Debug for Connection {
 /// s2n_connection objects can be sent across threads
 unsafe impl Send for Connection {}
 
+/// # Sync
+///
+/// Although NonNull isn't Sync and allows access to mutable pointers even from
+/// immutable references, the Connection interface enforces that all mutating
+/// methods correctly require &mut self.
+///
+/// Developers and reviewers MUST ensure that new methods correctly use
+/// either &self or &mut self depending on their behavior. No mechanism enforces this.
+///
+/// Note: Although non-mutating methods like getters should be thread-safe by definition,
+/// technically the only thread safety guarantee provided by the underlying C library
+/// is that s2n_send and s2n_recv can be called concurrently.
+///
+unsafe impl Sync for Connection {}
+
 impl Connection {
+    /// # Warning
+    ///
+    /// The newly created connection uses the default security policy.
+    /// Consider changing this depending on your security and compatibility requirements
+    /// by calling [`Connection::set_security_policy`].
+    /// Alternatively, you can use [`crate::config::Builder`], [`crate::config::Builder::set_security_policy`],
+    /// and [`Connection::set_config`] to set the policy on the Config instead of on the Connection.
+    /// See the s2n-tls usage guide:
+    /// <https://aws.github.io/s2n-tls/usage-guide/ch06-security-policies.html>
     pub fn new(mode: Mode) -> Self {
         crate::init::init();
 
@@ -274,13 +307,8 @@ impl Connection {
     /// Reports the number of times sending and receiving keys have been updated.
     ///
     /// This only applies to TLS1.3. Earlier versions do not support key updates.
-    ///
-    /// s2n-tls only tracks up to u8::MAX (255) key updates. If this method
-    /// reports 255 updates, then more than 255 updates may have occurred.
-    ///
-    /// The return value is a tuple of `(send_key_updates, recv_key_updates)`
     #[cfg(feature = "unstable-ktls")]
-    pub fn key_update_counts(&self) -> Result<(u8, u8), Error> {
+    pub fn key_update_counts(&self) -> Result<KeyUpdateCount, Error> {
         let mut send_key_updates = 0;
         let mut recv_key_updates = 0;
         unsafe {
@@ -291,7 +319,10 @@ impl Connection {
             )
             .into_result()?;
         }
-        Ok((send_key_updates, recv_key_updates))
+        Ok(KeyUpdateCount {
+            send_key_updates,
+            recv_key_updates,
+        })
     }
 
     /// sets the application protocol preferences on an s2n_connection object.
@@ -648,6 +679,33 @@ impl Connection {
         Ok(self)
     }
 
+    /// Retrieves the size of the session ticket.
+    pub fn session_ticket_length(&self) -> Result<usize, Error> {
+        let len =
+            unsafe { s2n_connection_get_session_length(self.connection.as_ptr()).into_result()? };
+        Ok(len.try_into().unwrap())
+    }
+
+    /// Serializes the session state from the connection into `output` and returns
+    /// the length of the session ticket.
+    ///
+    /// If the buffer does not have the size for the session_ticket,
+    /// `Error::INVALID_INPUT` is returned.
+    ///
+    /// Note: This function is not recommended for > TLS1.2 because in TLS1.3
+    /// servers can send multiple session tickets and this will return only
+    /// the most recently received ticket.
+    pub fn session_ticket(&self, output: &mut [u8]) -> Result<usize, Error> {
+        if output.len() < self.session_ticket_length()? {
+            return Err(Error::INVALID_INPUT);
+        }
+        let written = unsafe {
+            s2n_connection_get_session(self.connection.as_ptr(), output.as_mut_ptr(), output.len())
+                .into_result()?
+        };
+        Ok(written.try_into().unwrap())
+    }
+
     /// Sets a Waker on the connection context or clears it if `None` is passed.
     pub fn set_waker(&mut self, waker: Option<&Waker>) -> Result<&mut Self, Error> {
         let ctx = self.context_mut();
@@ -755,31 +813,28 @@ impl Connection {
     //
     /// Returns a reference to the ClientHello associated with the connection.
     /// ```compile_fail
-    /// use s2n_tls::client_hello::{ClientHello, FingerprintType};
+    /// use s2n_tls::client_hello::ClientHello;
     /// use s2n_tls::connection::Connection;
     /// use s2n_tls::enums::Mode;
     ///
     /// let mut conn = Connection::new(Mode::Server);
     /// let mut client_hello: &ClientHello = conn.client_hello().unwrap();
-    /// let mut hash = Vec::new();
     /// drop(conn);
-    /// client_hello.fingerprint_hash(FingerprintType::JA3, &mut hash);
+    /// client_hello.raw_message();
     /// ```
     ///
     /// The compilation could be failing for a variety of reasons, so make sure
     /// that the test case is actually good.
     /// ```no_run
-    /// use s2n_tls::client_hello::{ClientHello, FingerprintType};
+    /// use s2n_tls::client_hello::ClientHello;
     /// use s2n_tls::connection::Connection;
     /// use s2n_tls::enums::Mode;
     ///
     /// let mut conn = Connection::new(Mode::Server);
     /// let mut client_hello: &ClientHello = conn.client_hello().unwrap();
-    /// let mut hash = Vec::new();
-    /// client_hello.fingerprint_hash(FingerprintType::JA3, &mut hash);
+    /// client_hello.raw_message();
     /// drop(conn);
     /// ```
-    #[cfg(feature = "unstable-fingerprint")]
     pub fn client_hello(&self) -> Result<&crate::client_hello::ClientHello, Error> {
         let mut handle =
             unsafe { s2n_connection_get_client_hello(self.connection.as_ptr()).into_result()? };
@@ -934,6 +989,61 @@ impl Connection {
             }
         }
     }
+
+    pub fn master_secret(&self) -> Result<Vec<u8>, Error> {
+        // TLS1.2 master secrets are always 48 bytes
+        let mut secret = vec![0; 48];
+        unsafe {
+            s2n_connection_get_master_secret(
+                self.connection.as_ptr(),
+                secret.as_mut_ptr(),
+                secret.len(),
+            )
+            .into_result()?;
+        }
+        Ok(secret)
+    }
+
+    /// Retrieves the size of the serialized connection
+    pub fn serialization_length(&self) -> Result<usize, Error> {
+        unsafe {
+            let mut length = 0;
+            s2n_connection_serialization_length(self.connection.as_ptr(), &mut length)
+                .into_result()?;
+            Ok(length.try_into().unwrap())
+        }
+    }
+
+    /// Serializes the TLS connection into the provided buffer
+    pub fn serialize(&self, output: &mut [u8]) -> Result<(), Error> {
+        unsafe {
+            s2n_connection_serialize(
+                self.connection.as_ptr(),
+                output.as_mut_ptr(),
+                output.len().try_into().map_err(|_| Error::INVALID_INPUT)?,
+            )
+            .into_result()?;
+            Ok(())
+        }
+    }
+
+    /// Deserializes the input buffer into a new TLS connection that can send/recv
+    /// data from the original peer.
+    pub fn deserialize(&mut self, input: &[u8]) -> Result<(), Error> {
+        let size = input.len();
+        /* This is not ideal, we know that s2n_connection_deserialize will not mutate the
+         * input value, however, the mut is needed to use the stuffer functions. */
+        let input = input.as_ptr() as *mut u8;
+        unsafe {
+            s2n_connection_deserialize(
+                self.as_ptr(),
+                input,
+                size.try_into().map_err(|_| Error::INVALID_INPUT)?,
+            )
+            .into_result()?;
+            Ok(())
+        }
+    }
 }
 
 struct Context {
@@ -1058,5 +1168,12 @@ mod tests {
     fn context_send_test() {
         fn assert_send<T: 'static + Send>() {}
         assert_send::<Context>();
+    }
+
+    // ensure the connection context is sync
+    #[test]
+    fn context_sync_test() {
+        fn assert_sync<T: 'static + Sync>() {}
+        assert_sync::<Context>();
     }
 }
