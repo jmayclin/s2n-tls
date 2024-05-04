@@ -178,6 +178,7 @@ then
     cert-gen   rsa        pkcsv1.5     3072       SHA384      rsae_pkcs_3072_sha384
     cert-gen   rsa        pkcsv1.5     4096       SHA384      rsae_pkcs_4096_sha384
     cert-gen   rsa          pss        4096       SHA384      rsae_pss_4096_sha384
+    cert-gen   rsa          pss        2048       SHA256      rsae_pss_2048_sha256
     cert-gen   rsa-pss      pss        2048       SHA256      rsapss_pss_2048_sha256
 
 else

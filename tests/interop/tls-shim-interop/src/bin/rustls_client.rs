@@ -30,7 +30,7 @@ async fn run_client<Tls: ClientTLS<TcpStream>>(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::fmt()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::TRACE)
         .with_ansi(false)
         .init();
     let (test, port) = common::parse_server_arguments();
