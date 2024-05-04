@@ -16,7 +16,7 @@ import javax.net.ssl.SSLSocket;
 */
 
 public class SSLSocketClient {
-    static final int LARGE_DATA_DOWNLOAD_GB = 256;
+    static final int LARGE_DATA_DOWNLOAD_GB = 140;
     static final String TLS_13 = "TLSv1.3";
     static final String CLIENT_GREETING = "i am the client. nice to meet you server.";
     static final String SERVER_GREETING = "i am the server. a pleasure to make your acquaintance.";

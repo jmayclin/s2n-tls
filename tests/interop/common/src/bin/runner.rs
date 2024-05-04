@@ -34,6 +34,7 @@ enum Client {
     S2nTls,
     Rustls,
     Java,
+    Go,
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,6 +57,11 @@ impl Client {
                 "/tls-shim-interop/target/release/rustls_client"
             ),
             Client::Java => "java",
+            Client::Go => concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/..",
+                "/go/client"
+            ),
         }
     }
 
@@ -204,7 +210,7 @@ async fn main() {
 
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
-    let clients = vec![Client::S2nTls, Client::Rustls, Client::Java];
+    let clients = vec![Client::S2nTls, Client::Rustls, Client::Java, Client::Go];
     let servers = vec![Server::S2nTls, Server::OpenSSL];
 
     let mut scenarios = Vec::new();
