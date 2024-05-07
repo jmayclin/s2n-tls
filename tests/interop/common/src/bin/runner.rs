@@ -137,9 +137,6 @@ impl TestScenario {
         let mut server_stdout = server.stdout.take().unwrap();
 
         // let the server start up and start listening before starting the client
-        // interop runner could poll server/ready -> wait for this to retun OK
-
-        // unix domain sockets, wait for ack from server 
         sleep(Duration::from_secs(1)).await;
 
         let mut client_command = tokio::process::Command::new(self.client.executable_path());
@@ -229,7 +226,6 @@ async fn main() {
     }
 
     let (results_tx, mut results_rx) = unbounded_channel();
-
     let mut results = Vec::new();
     // The large tests are capable of saturating 2 cores (1 for the client and 1
     // for the server) so we limit the number of concurrent tests to NUM_CORES / 2

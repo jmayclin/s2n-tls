@@ -3,7 +3,6 @@
 
 use std::{
     error::Error,
-    fs,
     net::{Ipv4Addr, SocketAddrV4},
     process::exit,
 };
@@ -13,8 +12,9 @@ use tracing::Level;
 
 use common::InteropTest;
 
-// if you try and make `run_server` accept a generic type <Tls: ServerTls<Stream>> then the rust compiler type inference
-// will get very confused, and it will complain about the futures returns by the async traits not being send.
+// while it would be convenient to make this function generic over Tls: ServerTls<Stream>
+// the rust compiler type inference isn't advanced enough to add send bounds to
+// the futures that get calculate in that case.
 async fn run_server(
     config: <S2NShim as ServerTLS<TcpStream>>::Config,
     port: u16,
@@ -40,11 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let (test, port) = common::parse_server_arguments();
-    let config = match <S2NShim as ServerTLS<TcpStream>>::get_server_config(
-        test,
-        common::pem_file_path(common::PemType::ServerChain),
-        common::pem_file_path(common::PemType::ServerKey),
-    )? {
+    let config = match <S2NShim as ServerTLS<TcpStream>>::get_server_config(test)? {
         Some(c) => c,
         // if the test case isn't supported, return 127
         None => exit(127),

@@ -50,7 +50,7 @@ All tests currently use TLS 1.3. Acceptable cipher suites/groups are not specifi
 - Large Data Download with Frequent Key Updates (`large_data_download_with_frequent_key_updates`):
     1. handshake
     2. client sends `i am the client. nice to meet you server.`
-    3. server responds with 256 Gb of data, identical do the data sent in the `Large Data Download` trial.
+    3. server responds with 256 Gb of data, identical to the data sent in the `Large Data Download` trial.
     4. server updates it's send key every Gb. This is not a precisely monitored number, but servers should send ~256 Key Updates over the course of this scenario
     5. client initiates graceful TLS closure
 

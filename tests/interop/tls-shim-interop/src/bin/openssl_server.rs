@@ -39,11 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let (test, port) = common::parse_server_arguments();
-    let config = match <OpensslShim as ServerTLS<TcpStream>>::get_server_config(
-        test,
-        common::pem_file_path(common::PemType::ServerChain),
-        common::pem_file_path(common::PemType::ServerKey),
-    )? {
+    let config = match <OpensslShim as ServerTLS<TcpStream>>::get_server_config(test)? {
         Some(c) => c,
         // if the test case isn't supported, return 127
         None => exit(127),

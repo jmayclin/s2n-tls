@@ -35,14 +35,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
 
     fn get_client_config(
         test: common::InteropTest,
-        pem_directory: &str,
     ) -> Result<Option<Self::Config>, Box<dyn std::error::Error>> {
         let mut root_store = rustls::RootCertStore::empty();
 
         let ca_pem = std::fs::read(common::pem_file_path(common::PemType::CaCert))?;
-        //let certs = rustls_pemfile::certs(&mut BufReader::new(ca_pem)).collect();
-        let mut buffered_cert = BufReader::new(ca_pem.as_slice());
-        let root_cert = rustls_pemfile::certs(&mut buffered_cert)
+        let mut ca_reader = BufReader::new(ca_pem.as_slice());
+        let root_cert = rustls_pemfile::certs(&mut ca_reader)
             .next()
             .unwrap()
             .unwrap();
@@ -58,20 +56,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + Debug> ClientTLS<T> for RustlsSh
                     .with_no_client_auth()
             }
             InteropTest::MTLSRequestResponse => {
-                let mut reader = BufReader::new(std::fs::File::open(common::pem_file_path(
+                let mut chain_reader = BufReader::new(std::fs::File::open(common::pem_file_path(
                     common::PemType::ClientChain,
                 ))?);
-                let client_chain = rustls_pemfile::certs(&mut reader)
-                    .filter_map(|maybe_cert| match maybe_cert {
-                        Ok(cert) => Some(cert),
-                        Err(e) => panic!("unable to read cert chain: {:?}", e),
-                    })
+                let client_chain = rustls_pemfile::certs(&mut chain_reader)
+                    .map(|maybe_cert| maybe_cert.unwrap())
                     .collect();
 
-                let mut reader = BufReader::new(std::fs::File::open(common::pem_file_path(
+                let mut key_reader = BufReader::new(std::fs::File::open(common::pem_file_path(
                     common::PemType::ClientKey,
                 ))?);
-                let client_key = pkcs8_private_keys(&mut reader).next().unwrap()?;
+                let client_key = pkcs8_private_keys(&mut key_reader).next().unwrap()?;
                 let client_key = PrivateKeyDer::Pkcs8(client_key);
                 rustls::ClientConfig::builder()
                     .with_root_certificates(root_store)

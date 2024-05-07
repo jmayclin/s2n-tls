@@ -32,11 +32,7 @@ pub trait ServerTLS<T> {
     // the Stream is generic to allow for Turmoil test usage
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
 
-    fn get_server_config(
-        test: InteropTest,
-        cert_pem_path: &str,
-        key_pem_path: &str,
-    ) -> Result<Option<Self::Config>, Box<dyn Error>>;
+    fn get_server_config(test: InteropTest) -> Result<Option<Self::Config>, Box<dyn Error>>;
 
     fn acceptor(config: Self::Config) -> Self::Acceptor;
 
@@ -45,7 +41,7 @@ pub trait ServerTLS<T> {
         transport_stream: T,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
 
-    /// `handle_server_connection` provides the generic "handle connection" functionality.
+    /// `handle_server_connection` provides generic "handle connection" functionality.
     /// It will automatically implement correct application behavior for tests that
     /// don't require any implementation specific apis.
     async fn handle_server_connection(
@@ -59,14 +55,14 @@ pub trait ServerTLS<T> {
             }
             InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                stream.read(&mut client_greeting_buffer).await?;
+                stream.read_exact(&mut client_greeting_buffer).await?;
                 assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
 
                 stream.write_all(SERVER_GREETING.as_bytes()).await?;
             }
             InteropTest::LargeDataDownload => {
                 let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-                stream.read(&mut client_greeting_buffer).await?;
+                stream.read_exact(&mut client_greeting_buffer).await?;
                 assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
 
                 let mut data_buffer = vec![0; ONE_MB];
@@ -111,10 +107,7 @@ pub trait ClientTLS<T> {
     type Connector: Clone + Send + 'static;
     type Stream: Send + AsyncRead + AsyncWrite + Debug + Unpin;
 
-    fn get_client_config(
-        test: InteropTest,
-        pem_directory: &str,
-    ) -> Result<Option<Self::Config>, Box<dyn Error>>;
+    fn get_client_config(test: InteropTest) -> Result<Option<Self::Config>, Box<dyn Error>>;
 
     fn connector(config: Self::Config) -> Self::Connector;
 

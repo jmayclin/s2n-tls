@@ -24,7 +24,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ClientTLS<T> for S2NShim {
 
     fn get_client_config(
         test: common::InteropTest,
-        _ca_pem: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
         let ca_pem = std::fs::read(common::pem_file_path(common::PemType::CaCert))?;
         let mut config = Config::builder();
@@ -58,11 +57,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
 
     fn get_server_config(
         test: InteropTest,
-        cert_pem_path: &str,
-        key_pem_path: &str,
     ) -> Result<Option<s2n_tls::config::Config>, Box<dyn Error>> {
-        let cert_pem = std::fs::read(cert_pem_path)?;
-        let key_pem = std::fs::read(key_pem_path)?;
+        let cert_pem = std::fs::read(common::pem_file_path(common::PemType::ServerChain))?;
+        let key_pem = std::fs::read(common::pem_file_path(common::PemType::ServerKey))?;
         let mut config = Config::builder();
         config.set_security_policy(&DEFAULT_TLS13)?;
         config.load_pem(&cert_pem, &key_pem)?;
@@ -94,9 +91,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ServerTLS<T> for S2NShim {
         assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
 
         let mut data_buffer = vec![0; 1_000_000];
-        // for each GB
         for i in 0..LARGE_DATA_DOWNLOAD_GB {
-            // send a key update with each gigabyte
             stream
                 .as_mut()
                 .request_key_update(s2n_tls::enums::PeerKeyUpdate::KeyUpdateNotRequested)?;

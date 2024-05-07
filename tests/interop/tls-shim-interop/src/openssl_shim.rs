@@ -7,7 +7,7 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use std::{error::Error, pin::Pin};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{openssl_shim::ffi::KeyUpdateWrapperTrait, ServerTLS, ONE_GB, ONE_MB};
+use crate::{openssl_shim::ffi::ForeignWrapperTrait, ServerTLS, ONE_GB, ONE_MB};
 
 pub struct OpensslShim;
 
@@ -18,15 +18,10 @@ mod ffi {
 
     // https://github.com/openssl/openssl/blob/6594baf6457c64f6fce3ec60cb2617f75d98d159/include/openssl/ssl.h.in#L995-L1000
     const SSL_KEY_UPDATE_NOT_REQUESTED: c_int = 0;
-    const SSL_KEY_UPDATE_REQUESTED: c_int = 1;
 
     extern "C" {
+        // https://www.openssl.org/docs/man1.1.1/man3/SSL_key_update.html
         pub fn SSL_key_update(s: *const SSL, updatetype: c_int) -> c_int;
-    }
-
-    // This is necessary because there is no deliberate
-    fn i_demand_a_ptr(ssl: &SslRef) -> *mut SSL {
-        unsafe { std::mem::transmute(ssl) }
     }
 
     // https://github.com/sfackler/rust-openssl/blob/8e5d7bd402912ed3875dd8c4dcb510fc2f0c3686/openssl/src/lib.rs#L221C1-L227C2
@@ -42,23 +37,26 @@ mod ffi {
     // `SslRef`` type. This functionality should be moved upstream to the rust-openssl
     // crate, but I'm waiting to do that until the open PR for the `&mut` helper
     // is merged
-    pub trait KeyUpdateWrapperTrait {
+    pub trait ForeignWrapperTrait {
         fn key_update(&self) -> Result<(), ErrorStack>;
+
+        fn as_ptr(&self) -> *mut SSL;
     }
 
-    impl KeyUpdateWrapperTrait for SslRef {
+    impl ForeignWrapperTrait for SslRef {
         // this should take a &mut reference, but the tokio_openssl stream doesn't
         // allow for a mut ssl reference to be returned. A PR to add this
         // functionality has been opened upstream.
         // https://github.com/sfackler/rust-openssl/pull/2223
         fn key_update(&self) -> Result<(), ErrorStack> {
             unsafe {
-                cvt(SSL_key_update(
-                    i_demand_a_ptr(self),
-                    SSL_KEY_UPDATE_NOT_REQUESTED,
-                ))?;
+                cvt(SSL_key_update(self.as_ptr(), SSL_KEY_UPDATE_NOT_REQUESTED))?;
             }
             Ok(())
+        }
+
+        fn as_ptr(&self) -> *mut SSL {
+            self as *const openssl::ssl::SslRef as *mut openssl_sys::SSL
         }
     }
 }
@@ -74,14 +72,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
     type Acceptor = openssl::ssl::SslAcceptor;
     type Stream = tokio_openssl::SslStream<T>;
 
-    fn get_server_config(
-        test: InteropTest,
-        cert_pem_path: &str,
-        key_pem_path: &str,
-    ) -> Result<Option<Self::Config>, Box<dyn Error>> {
+    fn get_server_config(test: InteropTest) -> Result<Option<Self::Config>, Box<dyn Error>> {
         let mut acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls()).unwrap();
-        acceptor.set_private_key_file(key_pem_path, SslFiletype::PEM)?;
-        acceptor.set_certificate_chain_file(cert_pem_path)?;
+        acceptor.set_private_key_file(
+            common::pem_file_path(common::PemType::ServerKey),
+            SslFiletype::PEM,
+        )?;
+        acceptor.set_certificate_chain_file(common::pem_file_path(common::PemType::ServerChain))?;
         if test == InteropTest::MTLSRequestResponse {
             acceptor.set_ca_file(common::pem_file_path(common::PemType::CaCert))?;
             acceptor.set_verify(
