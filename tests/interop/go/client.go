@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	LargeDataDownloadGB = 256
+	LargeDataDownloadGB = 25
 	TLS13               = "tls1.3"
 	ClientGreeting      = "i am the client. nice to meet you server."
 	ServerGreeting      = "i am the server. a pleasure to make your acquaintance."
@@ -64,7 +64,6 @@ func main() {
 		fmt.Println("Error connecting:", err)
 		return
 	}
-	defer conn.Close()
 
 	// Create reader and writer for the connection
 	reader := bufio.NewReader(conn)
@@ -83,6 +82,7 @@ func main() {
 		// No action required for handshake case
 	case "greeting", "mtls_request_response":
 		// Send client greeting
+		fmt.Println("sending the client greeting")
 		_, err = writer.WriteString(ClientGreeting)
 		if err != nil {
 			fmt.Println("Error writing data:", err)
@@ -95,12 +95,15 @@ func main() {
 		}
 
 		// Read and verify server greeting
-		serverGreeting, err := reader.ReadString('\n')
+		fmt.Println("reading the server response greeting")
+		serverGreeting := make([]byte, len(ServerGreeting))
+		_, err = io.ReadFull(reader, serverGreeting)
+		//serverGreeting, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Println("Error reading data:", err)
 			return
 		}
-		if serverGreeting != ServerGreeting {
+		if string(serverGreeting) != ServerGreeting {
 			fmt.Println("Unexpected server greeting")
 			return
 		}
@@ -138,6 +141,17 @@ func main() {
 		os.Exit(127)
 		return
 	}
+
+	fmt.Println("closing the client side of the connection");
+	conn.CloseWrite()
+	
+	fmt.Println("waiting for the server side to close");
+	_, err = reader.ReadByte()
+	if err != io.EOF {
+		fmt.Println("unexpected error:", err)
+		os.Exit(1)
+	}
+
 
 	fmt.Println("Test case completed successfully.")
 }

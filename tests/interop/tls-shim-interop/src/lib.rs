@@ -83,11 +83,17 @@ pub trait ServerTLS<T> {
             }
             _ => panic!("Internal Framework Error")
         }
+
+        // wait for the client to close, which will return a 0 byte read.
+        tracing::info!("waiting for the client to close");
+        let wait_close = stream.read(&mut [0]).await?;
+        assert_eq!(wait_close, 0);
         // Don't assert on a successful close behavior, since s2n-tls bindings
         // do not support a graceful close behavior.
         // https://github.com/aws/s2n-tls/issues/4488
-        let res = stream.shutdown().await;
-        tracing::debug!("TLS Shutdown result {:?}", res);
+        tracing::info!("closing the server side of connection");
+        let res = stream.shutdown().await?;
+        //tracing::debug!("TLS Shutdown result {:?}", res);
         Ok(())
     }
 
@@ -122,7 +128,7 @@ pub trait ClientTLS<T> {
         test: InteropTest,
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        tracing::info("executing the {:?} scenario", test);
+        tracing::info!("executing the {:?} scenario", test);
         match test {
             InteropTest::Handshake => {
                 /* no data exchange in the handshake case */
@@ -151,19 +157,28 @@ pub trait ClientTLS<T> {
             },
             _ => panic!("internal error, unrecognized client test {:?}", test)
         }
-        tracing::info!("client is shutting down");
-        let shutdown_result = stream.shutdown().await;
-        if let Err(e) = shutdown_result {
-            // Don't assert on a successful close behavior, since s2n-tls bindings
-            // do not support a graceful close behavior.
-            // https://github.com/aws/s2n-tls/issues/4488
-            // value: Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" }
-            if let Some(107) = e.raw_os_error() {
-                tracing::error!("Ignoring TCP Close Error, returning success: {}", e);
-                return Ok(());
-            }
-            return Err(Box::new(e));
-        }
+        tracing::info!("shutting down the client side of the connection");
+        // shutdown the write side of the connection
+        stream.shutdown().await?;
+
+        // wait for the server to shutdown it's side of the connection, which 
+        // will return a 0 byte read
+        tracing::info!("waiting for the server to shut down");
+        let shutdown_wait = stream.read(&mut [0]).await?;
+        assert_eq!(0, shutdown_wait);
+
+
+        // if let Err(e) = shutdown_result {
+        //     // Don't assert on a successful close behavior, since s2n-tls bindings
+        //     // do not support a graceful close behavior.
+        //     // https://github.com/aws/s2n-tls/issues/4488
+        //     // value: Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" }
+        //     if let Some(107) = e.raw_os_error() {
+        //         tracing::error!("Ignoring TCP Close Error, returning success: {}", e);
+        //         return Ok(());
+        //     }
+        //     return Err(Box::new(e));
+        // }
         Ok(())
     }
 }

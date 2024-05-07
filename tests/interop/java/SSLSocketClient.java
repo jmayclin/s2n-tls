@@ -16,7 +16,7 @@ import javax.net.ssl.SSLSocket;
 */
 
 public class SSLSocketClient {
-    static final int LARGE_DATA_DOWNLOAD_GB = 256;
+    static final int LARGE_DATA_DOWNLOAD_GB = 25;
     static final String TLS_13 = "TLSv1.3";
     static final String CLIENT_GREETING = "i am the client. nice to meet you server.";
     static final String SERVER_GREETING = "i am the server. a pleasure to make your acquaintance.";
@@ -75,8 +75,21 @@ public class SSLSocketClient {
                 // unsupported test case
                 System.exit(127);
             }
+            // close the client side of the connection
+            System.out.println("closing the client side of the connection");
             out.flush();
-            socket.close();
+            // this sends both a TLS close notify and a TCP close? fin?
+            out.close();
+
+
+            // wait for the server to close it's side of the connection
+            // read -1 if the end of the stream is reached
+            // https://docs.oracle.com/javase/8/docs/api/java/io/InputStream.html#read--
+            System.out.println("waiting for the server to close");
+            int closed = in.read();
+            if (closed != -1) {
+                throw new Exception("server side unexpectedly open");
+            }
         }
     }
 

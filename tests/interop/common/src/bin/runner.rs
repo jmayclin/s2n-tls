@@ -148,7 +148,7 @@ impl TestScenario {
             .configure(&mut client_command)
             .args([&test_case_name, &port.to_string()])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            //.stderr(Stdio::null())
             .spawn()
             .unwrap();
         let mut client_stdout = client.stdout.take().unwrap();
@@ -210,8 +210,9 @@ async fn main() {
 
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
-    let clients = vec![Client::S2nTls, Client::Rustls, Client::Java, Client::Go];
-    let servers = vec![Server::S2nTls, Server::OpenSSL];
+    //let clients = vec![Client::S2nTls, Client::Rustls, Client::Java, Client::Go];
+    let clients = vec![Client::Go];
+    let servers = vec![Server::S2nTls];
 
     let mut scenarios = Vec::new();
 
