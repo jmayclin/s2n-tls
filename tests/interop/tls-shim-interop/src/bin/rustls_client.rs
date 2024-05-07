@@ -3,7 +3,6 @@
 
 use std::{
     error::Error,
-    fs,
     net::{Ipv4Addr, SocketAddrV4},
 };
 use tls_shim_interop::{rustls_shim::RustlsShim, ClientTLS};
@@ -34,7 +33,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_ansi(false)
         .init();
     let (test, port) = common::parse_server_arguments();
-    let config = <RustlsShim as ClientTLS<TcpStream>>::get_client_config(test, common::pem_directory())?.unwrap();
+    let config =
+        <RustlsShim as ClientTLS<TcpStream>>::get_client_config(test, common::pem_directory())?
+            .unwrap();
     run_client::<RustlsShim>(config, port, test).await?;
     Ok(())
 }

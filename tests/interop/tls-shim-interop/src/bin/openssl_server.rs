@@ -3,11 +3,10 @@
 
 use std::{
     error::Error,
-    fs,
     net::{Ipv4Addr, SocketAddrV4},
     process::exit,
 };
-use tls_shim_interop::{openssl_shim::OpensslShim, s2n_tls_shim::S2NShim, ServerTLS};
+use tls_shim_interop::{openssl_shim::OpensslShim, ServerTLS};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::Level;
 

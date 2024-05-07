@@ -40,14 +40,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let (test, port) = common::parse_server_arguments();
-    let cert_pem = fs::read(common::pem_file_path(common::PemType::ServerChain))?;
-    let key_pem = fs::read(common::pem_file_path(common::PemType::ServerKey))?;
-    let config =
-        match <S2NShim as ServerTLS<TcpStream>>::get_server_config(test, common::pem_file_path(common::PemType::ServerChain), common::pem_file_path(common::PemType::ServerKey))? {
-            Some(c) => c,
-            // if the test case isn't supported, return 127
-            None => exit(127),
-        };
+    let config = match <S2NShim as ServerTLS<TcpStream>>::get_server_config(
+        test,
+        common::pem_file_path(common::PemType::ServerChain),
+        common::pem_file_path(common::PemType::ServerKey),
+    )? {
+        Some(c) => c,
+        // if the test case isn't supported, return 127
+        None => exit(127),
+    };
     if let Err(e) = run_server(config, port, test).await {
         tracing::error!("test scenario failed: {:?}", e);
         exit(1);

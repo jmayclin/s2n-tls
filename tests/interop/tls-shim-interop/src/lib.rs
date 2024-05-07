@@ -1,12 +1,13 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// This lint warns that async function in trait are especially likely to unexpected 
-// breaking changes because of the type inference on the future bounds. We are not
-// concerned about breaking API changes since this is an internal crate, and the
-// ergonomic benefits of "async fn" significantly outweigh the stability concerns.
+// This lint warns that async functions in trait are especially likely to cause
+// unexpected breaking changes because of the type inference on the future bounds.
+// We are not concerned about breaking API changes since this is an internal crate,
+// and the ergonomic benefits of "async fn" significantly outweigh the stability
+// concerns.
 //
-// However in cases where the additional "async" syntax isn't useful, we prefer 
+// However in cases where the additional "async" syntax isn't useful, we prefer
 // "impl Future" syntax for the more readable compiler errors that it provides.
 #![allow(async_fn_in_trait)]
 
@@ -15,11 +16,14 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use common::{InteropTest, CLIENT_GREETING, LARGE_DATA_DOWNLOAD_GB, SERVER_GREETING};
 
+pub mod openssl_shim;
 pub mod rustls_shim;
 pub mod s2n_tls_shim;
-pub mod openssl_shim;
 
-/// The ServerTLS trait is intended to allow for shared code between s2n-tls, rustls,
+const ONE_MB: usize = 1_000_000;
+const ONE_GB: usize = 1_000_000_000;
+
+/// The ServerTLS trait allows for shared code between s2n-tls, rustls,
 /// and openssl. All of these TLS implementations have relatively similar API shapes
 /// which this trait attempts to abstract over.
 pub trait ServerTLS<T> {
@@ -41,10 +45,9 @@ pub trait ServerTLS<T> {
         transport_stream: T,
     ) -> impl std::future::Future<Output = Result<Self::Stream, Box<dyn Error + Send + Sync>>> + Send;
 
-    /// `handle_server_connection` provide the generic "handle connection" functionality.
+    /// `handle_server_connection` provides the generic "handle connection" functionality.
     /// It will automatically implement correct application behavior for tests that
-    /// don't require any implementation specific apis. This include "Handshake",
-    /// "Greeting", and "LargeDataDownload". 
+    /// don't require any implementation specific apis.
     async fn handle_server_connection(
         test: InteropTest,
         mut stream: Self::Stream,
@@ -52,7 +55,7 @@ pub trait ServerTLS<T> {
         tracing::info!("Executing the {:?} scenario", test);
         match test {
             InteropTest::Handshake => {
-                /* no application data exchange in the handshake case */
+                // no application data exchange in the handshake case
             }
             InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 let mut client_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
@@ -66,14 +69,14 @@ pub trait ServerTLS<T> {
                 stream.read(&mut client_greeting_buffer).await?;
                 assert_eq!(client_greeting_buffer, CLIENT_GREETING.as_bytes());
 
-                let mut data_buffer = vec![0; 1_000_000];
+                let mut data_buffer = vec![0; ONE_MB];
                 // for each GB
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
                     if i % 10 == 0 {
                         tracing::info!("GB sent: {}", i);
                     }
                     data_buffer[0] = (i % u8::MAX as u64) as u8;
-                    for _ in 0..1_000 {
+                    for _ in 0..(ONE_GB / ONE_MB) {
                         stream.write_all(&data_buffer).await?;
                     }
                 }
@@ -81,17 +84,15 @@ pub trait ServerTLS<T> {
             InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 Self::handle_large_data_download_with_frequent_key_updates(&mut stream).await?;
             }
-            _ => panic!("Internal Framework Error")
+            _ => panic!("Internal Framework Error"),
         }
 
-        // wait for the client to close, which will return a 0 byte read.
         tracing::info!("waiting for the client to close");
         let wait_close = stream.read(&mut [0]).await?;
         assert_eq!(wait_close, 0);
 
         tracing::info!("closing the server side of connection");
-        let res = stream.shutdown().await?;
-        //tracing::debug!("TLS Shutdown result {:?}", res);
+        stream.shutdown().await?;
         Ok(())
     }
 
@@ -128,10 +129,7 @@ pub trait ClientTLS<T> {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         tracing::info!("executing the {:?} scenario", test);
         match test {
-            InteropTest::Handshake => {
-                /* no data exchange in the handshake case */
-                tracing::info!("Client executing handshake scenario") 
-            }
+            InteropTest::Handshake => { /* no data exchange in the handshake case */ }
             InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
 
@@ -143,53 +141,26 @@ pub trait ClientTLS<T> {
             | InteropTest::LargeDataDownloadWithFrequentKeyUpdates => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;
 
-                let mut recv_buffer = vec![0; 1_000_000];
+                let mut recv_buffer = vec![0; ONE_MB];
                 for i in 0..LARGE_DATA_DOWNLOAD_GB {
                     let tag = (i % u8::MAX as u64) as u8;
-                    // 1_000 Mb in a Gb
-                    for _ in 0..1_000 {
+                    for _ in 0..(ONE_GB / ONE_MB) {
                         stream.read_exact(&mut recv_buffer).await?;
                         assert_eq!(recv_buffer[0], tag);
                     }
                 }
-            },
-            _ => panic!("internal error, unrecognized client test {:?}", test)
+            }
+            _ => panic!("internal error, unrecognized client test {:?}", test),
         }
         tracing::info!("shutting down the client side of the connection");
-        // shutdown the write side of the connection
         stream.shutdown().await?;
 
-        // wait for the server to shutdown it's side of the connection, which 
+        // wait for the server to shutdown it's side of the connection, which
         // will return a 0 byte read
         tracing::info!("waiting for the server to shut down");
         let shutdown_wait = stream.read(&mut [0]).await?;
         assert_eq!(0, shutdown_wait);
 
-
-        // if let Err(e) = shutdown_result {
-        //     // Don't assert on a successful close behavior, since s2n-tls bindings
-        //     // do not support a graceful close behavior.
-        //     // https://github.com/aws/s2n-tls/issues/4488
-        //     // value: Os { code: 107, kind: NotConnected, message: "Transport endpoint is not connected" }
-        //     if let Some(107) = e.raw_os_error() {
-        //         tracing::error!("Ignoring TCP Close Error, returning success: {}", e);
-        //         return Ok(());
-        //     }
-        //     return Err(Box::new(e));
-        // }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn tag_value() {
-        for i in 1..LARGE_DATA_DOWNLOAD_GB {
-            let tag = (i % u8::MAX as u64) as u8;
-            println!("{i}, {tag}");
-            assert_ne!(tag, 0);
-        }
     }
 }

@@ -4,7 +4,6 @@
 use std::{
     fmt::{Debug, Display},
     io::BufReader,
-    process::exit,
     sync::Arc,
 };
 

@@ -7,23 +7,24 @@ use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use std::{error::Error, pin::Pin};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{openssl_shim::ffi::KeyUpdateWrapperTrait, ServerTLS};
+use crate::{openssl_shim::ffi::KeyUpdateWrapperTrait, ServerTLS, ONE_GB, ONE_MB};
 
 pub struct OpensslShim;
 
 mod ffi {
-    use libc::{c_int, c_void};
-    use openssl::{error::ErrorStack, nid::Nid, ssl::SslRef};
-    use openssl_sys::{SSL_ctrl, SSL};
+    use libc::c_int;
+    use openssl::{error::ErrorStack, ssl::SslRef};
+    use openssl_sys::SSL;
 
     // https://github.com/openssl/openssl/blob/6594baf6457c64f6fce3ec60cb2617f75d98d159/include/openssl/ssl.h.in#L995-L1000
     const SSL_KEY_UPDATE_NOT_REQUESTED: c_int = 0;
     const SSL_KEY_UPDATE_REQUESTED: c_int = 1;
-    
+
     extern "C" {
         pub fn SSL_key_update(s: *const SSL, updatetype: c_int) -> c_int;
     }
 
+    // This is necessary because there is no deliberate
     fn i_demand_a_ptr(ssl: &SslRef) -> *mut SSL {
         unsafe { std::mem::transmute(ssl) }
     }
@@ -37,19 +38,25 @@ mod ffi {
         }
     }
 
-    // extension trait because rust-openssl won't merge my PR.
-    // currently, I don't expose the "update requested" functionality. If we want
-    // to upstream this then we should nicely package things in an enum
+    // This is an extension trait allowing us to implement methods on the foreign
+    // `SslRef`` type. This functionality should be moved upstream to the rust-openssl
+    // crate, but I'm waiting to do that until the open PR for the `&mut` helper
+    // is merged
     pub trait KeyUpdateWrapperTrait {
         fn key_update(&self) -> Result<(), ErrorStack>;
     }
 
     impl KeyUpdateWrapperTrait for SslRef {
         // this should take a &mut reference, but the tokio_openssl stream doesn't
-        // allow for a mut ssl reference to be returned
+        // allow for a mut ssl reference to be returned. A PR to add this
+        // functionality has been opened upstream.
+        // https://github.com/sfackler/rust-openssl/pull/2223
         fn key_update(&self) -> Result<(), ErrorStack> {
             unsafe {
-                cvt(SSL_key_update(i_demand_a_ptr(self), SSL_KEY_UPDATE_NOT_REQUESTED))?;
+                cvt(SSL_key_update(
+                    i_demand_a_ptr(self),
+                    SSL_KEY_UPDATE_NOT_REQUESTED,
+                ))?;
             }
             Ok(())
         }
@@ -73,13 +80,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
         key_pem_path: &str,
     ) -> Result<Option<Self::Config>, Box<dyn Error>> {
         let mut acceptor = SslAcceptor::mozilla_modern_v5(SslMethod::tls()).unwrap();
-        acceptor
-            .set_private_key_file(key_pem_path, SslFiletype::PEM)?;
-        acceptor
-            .set_certificate_chain_file(cert_pem_path)?;
+        acceptor.set_private_key_file(key_pem_path, SslFiletype::PEM)?;
+        acceptor.set_certificate_chain_file(cert_pem_path)?;
         if test == InteropTest::MTLSRequestResponse {
             acceptor.set_ca_file(common::pem_file_path(common::PemType::CaCert))?;
-            acceptor.set_verify(openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT | openssl::ssl::SslVerifyMode::PEER);
+            acceptor.set_verify(
+                openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT
+                    | openssl::ssl::SslVerifyMode::PEER,
+            );
         }
         Ok(Some(acceptor))
     }
@@ -99,32 +107,26 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + core::fmt::Debug> ServerTLS<T> f
     }
 
     async fn handle_large_data_download_with_frequent_key_updates(
-            stream: &mut Self::Stream,
-        ) -> Result<(), Box<dyn Error + Send + Sync>> {
-            tracing::info!("waiting for client greeting");
-            let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
-            stream.read_exact(&mut server_greeting_buffer).await?;
-            assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
-    
-            let mut data_buffer = vec![0; 1_000_000];
-            // for each GB
-            for i in 0..LARGE_DATA_DOWNLOAD_GB {
-                // send a key update with each gigabyte
-                stream
-                    .ssl()
-                    .key_update()?;
-                if i % 10 == 0 {
-                    tracing::info!(
-                        "GB sent: {}",
-                        i
-                    );
-                }
-                data_buffer[0] = (i % u8::MAX as u64) as u8;
-                for j in 0..1_000 {
-                    stream.write_all(&data_buffer).await?;
-                }
-            }
+        stream: &mut Self::Stream,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        tracing::info!("waiting for client greeting");
+        let mut server_greeting_buffer = vec![0; CLIENT_GREETING.as_bytes().len()];
+        stream.read_exact(&mut server_greeting_buffer).await?;
+        assert_eq!(server_greeting_buffer, CLIENT_GREETING.as_bytes());
 
-            Ok(())
+        let mut data_buffer = vec![0; ONE_MB];
+        for i in 0..LARGE_DATA_DOWNLOAD_GB {
+            // send a key update with each gigabyte
+            stream.ssl().key_update()?;
+            if i % 10 == 0 {
+                tracing::info!("GB sent: {}", i);
+            }
+            data_buffer[0] = (i % u8::MAX as u64) as u8;
+            for _ in 0..(ONE_GB / ONE_MB) {
+                stream.write_all(&data_buffer).await?;
+            }
+        }
+
+        Ok(())
     }
 }
