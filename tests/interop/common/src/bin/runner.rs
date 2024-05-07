@@ -148,7 +148,7 @@ impl TestScenario {
             .configure(&mut client_command)
             .args([&test_case_name, &port.to_string()])
             .stdout(Stdio::piped())
-            //.stderr(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         let mut client_stdout = client.stdout.take().unwrap();
@@ -210,9 +210,9 @@ async fn main() {
 
     tokio::fs::create_dir_all("interop_logs").await.unwrap();
 
-    //let clients = vec![Client::S2nTls, Client::Rustls, Client::Java, Client::Go];
-    let clients = vec![Client::Go];
-    let servers = vec![Server::S2nTls];
+    let clients = vec![Client::S2nTls, Client::Rustls, Client::Java, Client::Go];
+    //let clients = vec![Client::Java];
+    let servers = vec![Server::S2nTls, Server::OpenSSL];
 
     let mut scenarios = Vec::new();
 
@@ -230,10 +230,6 @@ async fn main() {
 
     let (results_tx, mut results_rx) = unbounded_channel();
 
-    //  scenario -> 
-    //      (server -> 
-    //          (client -> result))
-    // let mut results: BTreeMap<InteropTest, BTreeMap<Server, BTreeMap<Client, Option<TestResult>>>> = BTreeMap::new();
     let mut results = Vec::new();
     // The large tests are capable of saturating 2 cores (1 for the client and 1
     // for the server) so we limit the number of concurrent tests to NUM_CORES / 2

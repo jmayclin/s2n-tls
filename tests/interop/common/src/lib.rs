@@ -9,7 +9,7 @@ pub const CLIENT_GREETING: &str = "i am the client. nice to meet you server.";
 pub const SERVER_GREETING: &str = "i am the server. a pleasure to make your acquaintance.";
 /// The amount of data that will be downloaded by the large download test. Note 
 /// that the interop tests use a GB as 1_000^3 bytes, not 1_024^3 bytes
-pub const LARGE_DATA_DOWNLOAD_GB: u64 = 25;
+pub const LARGE_DATA_DOWNLOAD_GB: u64 = 256;
 /// If a server or client doesn't support a test case, then the process should
 /// exit with this value.
 pub const UNIMPLEMENTED_RETURN_VAL: i32 = 127;

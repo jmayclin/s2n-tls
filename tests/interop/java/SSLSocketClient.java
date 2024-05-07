@@ -16,7 +16,7 @@ import javax.net.ssl.SSLSocket;
 */
 
 public class SSLSocketClient {
-    static final int LARGE_DATA_DOWNLOAD_GB = 25;
+    static final int LARGE_DATA_DOWNLOAD_GB = 256;
     static final String TLS_13 = "TLSv1.3";
     static final String CLIENT_GREETING = "i am the client. nice to meet you server.";
     static final String SERVER_GREETING = "i am the server. a pleasure to make your acquaintance.";
@@ -66,7 +66,9 @@ public class SSLSocketClient {
                         // java bytes are signed, so we have to upcast to an int to 
                         // read the tag value
                         int tag = buffer[0] & 0xFF;
-                        if (tag != i) {
+                        if (tag != (i % 255)) {
+                            System.out.println("unexpected tag value. Mb:" +(i * 1_000 + j) +" Expected:" + i + " received:" + tag);
+                            System.out.println("unexpected tag value. Expected:" + i + " received:" + tag);
                             throw new Exception("Unexpected tag value");
                         }
                     }
@@ -79,7 +81,10 @@ public class SSLSocketClient {
             System.out.println("closing the client side of the connection");
             out.flush();
             // this sends both a TLS close notify and a TCP close? fin?
-            out.close();
+            //out.close();
+            // using out.close() will trigger a duplex close of the SSLSocket, use
+            // shutdownOutput instead.
+            socket.shutdownOutput();
 
 
             // wait for the server to close it's side of the connection

@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	LargeDataDownloadGB = 25
-	TLS13               = "tls1.3"
+	LargeDataDownloadGB = 256
 	ClientGreeting      = "i am the client. nice to meet you server."
 	ServerGreeting      = "i am the server. a pleasure to make your acquaintance."
 	Host                = "localhost"
@@ -130,7 +129,7 @@ func main() {
 					return
 				}
 				// Check tag value
-				if int(buffer[0]) != i {
+				if int(buffer[0]) != (i % 255) {
 					fmt.Println("Unexpected tag value")
 					return
 				}

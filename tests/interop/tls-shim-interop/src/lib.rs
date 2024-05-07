@@ -88,9 +88,7 @@ pub trait ServerTLS<T> {
         tracing::info!("waiting for the client to close");
         let wait_close = stream.read(&mut [0]).await?;
         assert_eq!(wait_close, 0);
-        // Don't assert on a successful close behavior, since s2n-tls bindings
-        // do not support a graceful close behavior.
-        // https://github.com/aws/s2n-tls/issues/4488
+
         tracing::info!("closing the server side of connection");
         let res = stream.shutdown().await?;
         //tracing::debug!("TLS Shutdown result {:?}", res);
@@ -180,5 +178,18 @@ pub trait ClientTLS<T> {
         //     return Err(Box::new(e));
         // }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn tag_value() {
+        for i in 1..LARGE_DATA_DOWNLOAD_GB {
+            let tag = (i % u8::MAX as u64) as u8;
+            println!("{i}, {tag}");
+            assert_ne!(tag, 0);
+        }
     }
 }
