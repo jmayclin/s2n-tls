@@ -122,9 +122,11 @@ pub trait ClientTLS<T> {
         test: InteropTest,
         mut stream: Self::Stream,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        tracing::info("executing the {:?} scenario", test);
         match test {
             InteropTest::Handshake => {
-                tracing::info!("Client executing handshake scenario") /* no data exchange in the handshake case */
+                /* no data exchange in the handshake case */
+                tracing::info!("Client executing handshake scenario") 
             }
             InteropTest::Greeting | InteropTest::MTLSRequestResponse => {
                 stream.write_all(CLIENT_GREETING.as_bytes()).await?;

@@ -139,6 +139,7 @@ where
     }
 }
 
+/// S is the underlying transport stream
 pub struct TlsStream<S, C = Connection>
 where
     C: AsRef<Connection> + AsMut<Connection> + Unpin,

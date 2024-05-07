@@ -7,3 +7,5 @@ tls-shim-interop/target
 **/*.log
 # ignore any compiled java files
 **/*.class
+# ignore compile go client
+go/client
