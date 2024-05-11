@@ -66,6 +66,9 @@ int s2n_psk_set_secret(struct s2n_psk *psk, const uint8_t *secret, uint16_t secr
 {
     POSIX_ENSURE_REF(psk);
     POSIX_ENSURE_REF(secret);
+    // Each PSK ... MUST be at least 128 bits long
+    // https://www.rfc-editor.org/rfc/rfc9257.html#section-6
+    // POSIX_ENSURE_GTE(secret_size, 128);
     POSIX_ENSURE(secret_size != 0, S2N_ERR_INVALID_ARGUMENT);
 
     POSIX_GUARD(s2n_realloc(&psk->secret, secret_size));
@@ -74,7 +77,7 @@ int s2n_psk_set_secret(struct s2n_psk *psk, const uint8_t *secret, uint16_t secr
     return S2N_SUCCESS;
 }
 
-S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, struct s2n_psk *original_psk)
+S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, const struct s2n_psk *original_psk)
 {
     if (original_psk == NULL) {
         return S2N_RESULT_OK;
@@ -131,7 +134,7 @@ S2N_RESULT s2n_psk_parameters_init(struct s2n_psk_parameters *params)
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_psk_offered_psk_size(struct s2n_psk *psk, uint32_t *size)
+static S2N_RESULT s2n_psk_offered_psk_size(const struct s2n_psk *psk, uint32_t *size)
 {
     *size = sizeof(uint16_t)   /* identity size */
             + sizeof(uint32_t) /* obfuscated ticket age */
@@ -583,7 +586,7 @@ S2N_RESULT s2n_connection_set_psk_type(struct s2n_connection *conn, s2n_psk_type
     return S2N_RESULT_OK;
 }
 
-int s2n_connection_append_psk(struct s2n_connection *conn, struct s2n_psk *input_psk)
+int s2n_connection_append_psk(struct s2n_connection *conn, const struct s2n_psk *input_psk)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(input_psk);

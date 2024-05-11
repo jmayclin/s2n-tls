@@ -2836,7 +2836,7 @@ S2N_API int s2n_psk_set_hmac(struct s2n_psk *psk, s2n_psk_hmac hmac);
  * @param conn A pointer to the s2n_connection object that contains the list of PSKs supported.
  * @param psk A pointer to the `s2n_psk` object to be appended to the list of PSKs on the s2n connection.
  */
-S2N_API int s2n_connection_append_psk(struct s2n_connection *conn, struct s2n_psk *psk);
+S2N_API int s2n_connection_append_psk(struct s2n_connection *conn, const struct s2n_psk *psk);
 
 /**
  * The list of PSK modes supported by s2n-tls for TLS versions >= TLS1.3.
