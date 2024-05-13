@@ -4,12 +4,7 @@
 #![allow(clippy::missing_safety_doc)] // TODO add safety docs
 
 use crate::{
-    callbacks::*,
-    cert_chain::CertificateChain,
-    config::Config,
-    enums::*,
-    error::{Error, Fallible, Pollable},
-    security,
+    callbacks::*, cert_chain::CertificateChain, config::Config, enums::*, error::{Error, Fallible, Pollable}, psk::ExternalPsk, security
 };
 
 use core::{
@@ -1048,6 +1043,14 @@ impl Connection {
     /// Determines whether the connection was resumed from an earlier handshake.
     pub fn resumed(&self) -> bool {
         unsafe { s2n_connection_is_session_resumed(self.connection.as_ptr()) == 1 }
+    }
+    
+    pub fn append_psk(&mut self, psk: &ExternalPsk) -> Result<(), Error> {
+        let psk = psk as *const ExternalPsk as *const s2n_psk;
+        unsafe {
+            s2n_connection_append_psk(self.as_ptr(), psk as *const s2n_psk).into_result()?
+        };
+        Ok(())
     }
 }
 

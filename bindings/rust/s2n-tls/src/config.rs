@@ -746,6 +746,16 @@ impl Builder {
         Ok(self)
     }
 
+    pub fn set_psk_mode(
+        &mut self,
+        mode: PskMode,
+    ) -> Result<&mut Self, Error> {
+        unsafe {
+            s2n_config_set_psk_mode(self.as_mut_ptr(), mode.into()).into_result()?
+        };
+        Ok(self)
+    }
+
     pub fn build(mut self) -> Result<Config, Error> {
         if self.load_system_certs {
             unsafe {

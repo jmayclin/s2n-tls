@@ -21,6 +21,7 @@ pub mod connection;
 pub mod enums;
 pub mod init;
 pub mod pool;
+pub mod psk;
 pub mod security;
 
 pub use s2n_tls_sys as ffi;

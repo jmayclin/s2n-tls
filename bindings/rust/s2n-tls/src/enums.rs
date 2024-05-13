@@ -221,6 +221,20 @@ impl From<PeerKeyUpdate> for s2n_peer_key_update::Type {
     }
 }
 
+pub enum PskMode {
+    Resumption,
+    External,
+}
+
+impl From<PskMode> for s2n_psk_mode::Type {
+    fn from(input: PskMode) -> Self {
+        match input {
+            PskMode::Resumption => s2n_psk_mode::RESUMPTION,
+            PskMode::External => s2n_psk_mode::EXTERNAL,
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SerializationVersion {

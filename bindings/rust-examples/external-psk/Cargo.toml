@@ -1,0 +1,10 @@
+[package]
+name = "external-psk"
+version.workspace = true
+authors.workspace = true
+publish.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = "1.37.0"
