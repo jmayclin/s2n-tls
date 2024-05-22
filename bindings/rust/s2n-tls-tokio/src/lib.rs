@@ -258,6 +258,7 @@ where
     /// `poll_blinding` or `poll_shutdown` (which calls `poll_blinding`
     /// internally) returns ready.
     pub fn poll_blinding(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        tracing::info!("checking blinding");
         let tls = self.get_mut();
 
         if tls.blinding.is_none() {

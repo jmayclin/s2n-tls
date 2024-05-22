@@ -651,7 +651,7 @@ int s2n_connection_set_psk_mode(struct s2n_connection *conn, s2n_psk_mode mode)
     return S2N_SUCCESS;
 }
 
-int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connection *conn, uint16_t *identity_length)
+int s2n_connection_get_negotiated_psk_identity_length(const struct s2n_connection *conn, uint16_t *identity_length)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(identity_length);
@@ -667,7 +667,7 @@ int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connection *con
     return S2N_SUCCESS;
 }
 
-int s2n_connection_get_negotiated_psk_identity(struct s2n_connection *conn, uint8_t *identity,
+int s2n_connection_get_negotiated_psk_identity(const struct s2n_connection *conn, uint8_t *identity,
         uint16_t max_identity_length)
 {
     POSIX_ENSURE_REF(conn);

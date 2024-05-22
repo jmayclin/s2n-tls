@@ -2879,7 +2879,7 @@ S2N_API int s2n_connection_set_psk_mode(struct s2n_connection *conn, s2n_psk_mod
  * @param conn A pointer to the s2n_connection object that successfully negotiated a PSK connection.
  * @param identity_length The length of the negotiated PSK identity. 
  */
-S2N_API int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connection *conn, uint16_t *identity_length);
+S2N_API int s2n_connection_get_negotiated_psk_identity_length(const struct s2n_connection *conn, uint16_t *identity_length);
 
 /**
  * Gets the negotiated PSK identity from the s2n connection object. 
@@ -2897,7 +2897,7 @@ S2N_API int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connect
  * @param max_identity_length The maximum length for the PSK identity. If the negotiated psk_identity length is 
  * greater than this `max_identity_length` value an error will be returned.
  */
-S2N_API int s2n_connection_get_negotiated_psk_identity(struct s2n_connection *conn, uint8_t *identity, uint16_t max_identity_length);
+S2N_API int s2n_connection_get_negotiated_psk_identity(const struct s2n_connection *conn, uint8_t *identity, uint16_t max_identity_length);
 
 struct s2n_offered_psk;
 

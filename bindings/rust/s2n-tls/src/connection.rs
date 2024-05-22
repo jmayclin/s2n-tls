@@ -4,7 +4,13 @@
 #![allow(clippy::missing_safety_doc)] // TODO add safety docs
 
 use crate::{
-    callbacks::*, cert_chain::CertificateChain, config::Config, enums::*, error::{Error, Fallible, Pollable}, psk::ExternalPsk, security
+    callbacks::*,
+    cert_chain::CertificateChain,
+    config::Config,
+    enums::*,
+    error::{Error, Fallible, Pollable},
+    psk::ExternalPsk,
+    security,
 };
 
 use core::{
@@ -168,7 +174,9 @@ impl Connection {
     /// that a graceful two-way shutdown of the connection will not be possible.
     pub fn remaining_blinding_delay(&self) -> Result<Duration, Error> {
         let nanos = unsafe { s2n_connection_get_delay(self.connection.as_ptr()).into_result() }?;
-        Ok(Duration::from_nanos(nanos))
+        let remaining = Duration::from_nanos(nanos);
+        tracing::info!("remaining blinding: {:?}", remaining);
+        Ok(remaining)
     }
 
     /// Sets whether or not a Client Certificate should be required to complete the TLS Connection.
@@ -1044,12 +1052,31 @@ impl Connection {
     pub fn resumed(&self) -> bool {
         unsafe { s2n_connection_is_session_resumed(self.connection.as_ptr()) == 1 }
     }
-    
+
     pub fn append_psk(&mut self, psk: &ExternalPsk) -> Result<(), Error> {
         let psk = psk as *const ExternalPsk as *const s2n_psk;
+        unsafe { s2n_connection_append_psk(self.as_ptr(), psk as *const s2n_psk).into_result()? };
+        Ok(())
+    }
+
+    pub fn negotiated_psk_identity_length(&self) -> Result<usize, Error> {
+        let mut length = 0;
         unsafe {
-            s2n_connection_append_psk(self.as_ptr(), psk as *const s2n_psk).into_result()?
+            s2n_connection_get_negotiated_psk_identity_length(self.connection.as_ptr(), &mut length)
+                .into_result()?
         };
+        Ok(length as usize)
+    }
+
+    pub fn negotiated_psk_identity(&self, destination: &mut [u8]) -> Result<(), Error> {
+        unsafe {
+            s2n_connection_get_negotiated_psk_identity(
+                self.connection.as_ptr(),
+                destination.as_mut_ptr(),
+                destination.len() as u16,
+            )
+            .into_result()?;
+        }
         Ok(())
     }
 }

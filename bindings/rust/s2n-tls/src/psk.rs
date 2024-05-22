@@ -9,13 +9,14 @@ pub struct ExternalPsk(s2n_psk);
 
 impl ExternalPsk {
     pub fn new(identity: &[u8], secret: &[u8]) -> Result<Box<Self>, Error> {
+        crate::init::init();
         let psk = unsafe {
             let psk = s2n_external_psk_new().into_result()?;
 
             let secret_length = secret
                 .len()
                 .try_into()
-                .map_err(|e| Error::application("PSK secret of inappropriate size".into()))?;
+                .map_err(|_| Error::application("PSK secret of inappropriate size".into()))?;
 
             // https://www.rfc-editor.org/rfc/rfc9257.html#section-6
             // Each PSK ... MUST be at least 128 bits long
@@ -28,7 +29,7 @@ impl ExternalPsk {
             let identity_length = identity
                 .len()
                 .try_into()
-                .map_err(|e| Error::application("PSK identity of inappropriate size".into()))?;
+                .map_err(|_| Error::application("PSK identity of inappropriate size".into()))?;
 
             s2n_psk_set_identity(psk.as_ptr(), identity.as_ptr(), identity_length).into_result()?;
 

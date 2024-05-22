@@ -17,6 +17,7 @@ libc = { version = "0.2" }
 pin-project-lite = { version = "0.2" }
 s2n-tls = { version = "=0.2.5", path = "../s2n-tls" }
 tokio = { version = "1", features = ["net", "time"] }
+tracing = "0.1.40"
 
 [dev-dependencies]
 clap = { version = "3", features = ["derive"] }
