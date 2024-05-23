@@ -24,7 +24,7 @@
 
 use crate::{config::Context, connection::Connection};
 use core::{mem::ManuallyDrop, ptr::NonNull, time::Duration};
-use s2n_tls_sys::s2n_connection;
+use s2n_tls_sys::{s2n_connection, s2n_offered_psk, s2n_offered_psk_list};
 
 mod async_cb;
 pub use async_cb::*;
@@ -99,4 +99,30 @@ pub(crate) unsafe fn verify_host(
         Ok(host_name_str) => handler.verify_host_name(host_name_str) as u8,
         Err(_) => 0, // If the host name can't be parsed, fail closed.
     }
+}
+
+struct OfferedPskList(s2n_offered_psk_list);
+
+struct OfferedPskIterator<'a> {
+    psk: Box<OfferedPsk>,
+    list: &'a s2n_offered_psk_list,
+}
+
+impl<'a> Iterator for OfferedPskIterator<'a> {
+    type Item = &'a OfferedPsk;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+struct OfferedPsk(s2n_offered_psk);
+
+impl OfferedPsk {
+    fn identity(&self) -> 
+}
+
+
+pub trait ExternalPskSelection: 'static + Send + Sync {
+    fn choose_psk(&self, OfferedPsks)
 }
