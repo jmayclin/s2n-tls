@@ -2927,7 +2927,7 @@ S2N_API int s2n_offered_psk_free(struct s2n_offered_psk **psk);
  * @param identity The PSK identity being obtained.
  * @param size The length of the PSK identity being obtained.
  */
-S2N_API int s2n_offered_psk_get_identity(struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size);
+S2N_API int s2n_offered_psk_get_identity(const struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size);
 
 struct s2n_offered_psk_list;
 
@@ -2943,7 +2943,7 @@ struct s2n_offered_psk_list;
  * @param psk_list A pointer to the offered PSK list being read.
  * @returns bool A boolean value representing whether an offered psk object is present next in line in the offered PSK list.
  */
-S2N_API bool s2n_offered_psk_list_has_next(struct s2n_offered_psk_list *psk_list);
+S2N_API bool s2n_offered_psk_list_has_next(const struct s2n_offered_psk_list *psk_list);
 
 /**
  * Obtains the next offered PSK object from the list of offered PSKs. Use `s2n_offered_psk_list_has_next` 

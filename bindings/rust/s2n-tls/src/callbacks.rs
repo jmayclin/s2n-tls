@@ -22,9 +22,14 @@
 //!   [Connection::waker()](`crate::connection::Connection::waker()`)
 //!   can be used to register the task for wakeup. See [`ClientHelloCallback`] as an example.
 
-use crate::{config::Context, connection::Connection};
+use crate::{config::Context, connection::Connection, error::Fallible};
 use core::{mem::ManuallyDrop, ptr::NonNull, time::Duration};
-use s2n_tls_sys::{s2n_connection, s2n_offered_psk, s2n_offered_psk_list};
+use s2n_tls_sys::{
+    s2n_connection, s2n_offered_psk, s2n_offered_psk_free, s2n_offered_psk_get_identity,
+    s2n_offered_psk_list, s2n_offered_psk_list_choose_psk, s2n_offered_psk_list_has_next,
+    s2n_offered_psk_list_next,
+};
+use std::{ptr::addr_of_mut, slice};
 
 mod async_cb;
 pub use async_cb::*;
@@ -101,28 +106,82 @@ pub(crate) unsafe fn verify_host(
     }
 }
 
-struct OfferedPskList(s2n_offered_psk_list);
+pub(crate) struct OfferedPskListWrapper(s2n_offered_psk_list);
 
-struct OfferedPskIterator<'a> {
-    psk: Box<OfferedPsk>,
-    list: &'a s2n_offered_psk_list,
-}
+impl OfferedPskListWrapper {
+    fn has_next(&self) -> bool {
+        unsafe { s2n_offered_psk_list_has_next(self.as_ptr()) }
+    }
 
-impl<'a> Iterator for OfferedPskIterator<'a> {
-    type Item = &'a OfferedPsk;
+    pub(crate) fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
+        let mut_psk = psk as *const OfferedPsk as *const s2n_offered_psk as *mut s2n_offered_psk;
+        unsafe { s2n_offered_psk_list_choose_psk(self.as_mut_ptr(), mut_psk).into_result()? };
+        Ok(())
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+    fn as_ptr(&self) -> *const s2n_offered_psk_list {
+        self as *const OfferedPskListWrapper as *const s2n_offered_psk_list
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut s2n_offered_psk_list {
+        self as *mut OfferedPskListWrapper as *mut s2n_offered_psk_list
     }
 }
 
-struct OfferedPsk(s2n_offered_psk);
-
-impl OfferedPsk {
-    fn identity(&self) -> 
+// This does not implement the standard iterator trait, because the standard iterator
+// trait requires that all objects returned from the iterator must be alive at the
+pub struct OfferedPskList<'callback> {
+    pub(crate) psk: Box<OfferedPsk>,
+    pub(crate) list: &'callback mut OfferedPskListWrapper,
 }
 
+impl<'callback> OfferedPskList<'callback> {
+    pub fn next<'item>(&'item mut self) -> Option<&'item OfferedPsk> {
+        if !self.list.has_next() {
+            return None;
+        } else {
+            let psk_ptr = self.psk.as_mut() as *mut OfferedPsk as *mut s2n_offered_psk;
+            unsafe {
+                s2n_offered_psk_list_next(self.list.as_mut_ptr(), psk_ptr)
+                    .into_result()
+                    .unwrap();
+            }
+            Some(&self.psk)
+        }
+    }
 
-pub trait ExternalPskSelection: 'static + Send + Sync {
-    fn choose_psk(&self, OfferedPsks)
+    pub fn choose_current_psk(self) -> Result<(), crate::error::Error> {
+        self.list.choose_psk(&self.psk)
+    }
+}
+
+pub struct OfferedPsk(s2n_offered_psk);
+
+impl OfferedPsk {
+    pub fn identity(&self) -> Result<&[u8], crate::error::Error> {
+        let mut identity_buffer: *mut u8 = std::ptr::null::<u8>() as *mut u8;
+        let mut size = 0;
+        unsafe {
+            s2n_offered_psk_get_identity(self.as_ptr(), addr_of_mut!(identity_buffer), &mut size)
+                .into_result()?
+        };
+        Ok(unsafe { slice::from_raw_parts(identity_buffer, size as usize) })
+    }
+
+    fn as_ptr(&self) -> *const s2n_offered_psk {
+        self as *const OfferedPsk as *const s2n_offered_psk
+    }
+}
+
+impl Drop for OfferedPsk {
+    fn drop(&mut self) {
+        let mut offered_psk: *mut s2n_offered_psk = &mut self.0;
+        // ignore failures. There isn't anything to be done to handle them, but
+        // allowing the program to continue is preferable to crashing.
+        let _ = unsafe { s2n_offered_psk_free(std::ptr::addr_of_mut!(offered_psk)).into_result() };
+    }
+}
+
+pub trait PskSelectionCallback: 'static + Send + Sync {
+    fn choose_psk(&self, conn: &mut Connection, psk_list: OfferedPskList);
 }

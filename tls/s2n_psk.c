@@ -199,7 +199,7 @@ S2N_CLEANUP_RESULT s2n_psk_parameters_wipe_secrets(struct s2n_psk_parameters *pa
     return S2N_RESULT_OK;
 }
 
-bool s2n_offered_psk_list_has_next(struct s2n_offered_psk_list *psk_list)
+bool s2n_offered_psk_list_has_next(const struct s2n_offered_psk_list *psk_list)
 {
     return psk_list != NULL && s2n_stuffer_data_available(&psk_list->wire_data) > 0;
 }
@@ -363,7 +363,7 @@ int s2n_offered_psk_free(struct s2n_offered_psk **psk)
     return s2n_free_object((uint8_t **) psk, sizeof(struct s2n_offered_psk));
 }
 
-int s2n_offered_psk_get_identity(struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size)
+int s2n_offered_psk_get_identity(const struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size)
 {
     POSIX_ENSURE_REF(psk);
     POSIX_ENSURE_REF(identity);
