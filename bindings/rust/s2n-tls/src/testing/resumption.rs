@@ -10,24 +10,11 @@ mod tests {
         testing::{s2n_tls::*, *},
     };
     use futures_test::task::noop_waker;
-    use std::{error::Error, sync::Mutex, time::{Duration, SystemTime}};
-
+    use std::{error::Error, sync::Mutex, time::SystemTime};
 
     #[derive(Default, Clone)]
     pub struct SessionTicketHandler {
-        expected_lifetime_seconds: u32,
         stored_ticket: Arc<Mutex<Option<Vec<u8>>>>,
-    }
-
-    impl SessionTicketHandler {
-        /// the session ticket handler will assert that received session tickets have
-        /// the correct lifetime
-        fn new(expected_lifetime_seconds: u32) -> Self {
-            SessionTicketHandler {
-                expected_lifetime_seconds,
-                stored_ticket: Default::default(),
-            }
-        }
     }
 
     // Implement the session ticket callback that stores the SessionTicket type
@@ -36,17 +23,26 @@ mod tests {
             &self,
             _connection: &mut connection::Connection,
             session_ticket: &SessionTicket,
-        ) { 
+        ) {
             let size = session_ticket.len().unwrap();
             let mut data = vec![0; size];
-            let lifetime = session_ticket.lifetime().unwrap();
-            println!("session ticket lifetime is {:?}", lifetime);
-            assert_eq!(lifetime.as_secs(), self.expected_lifetime_seconds as u64);
             session_ticket.data(&mut data).unwrap();
             let mut ptr = (*self.stored_ticket).lock().unwrap();
             if ptr.is_none() {
                 *ptr = Some(data);
             }
+        }
+    }
+
+    impl ConnectionInitializer for SessionTicketHandler {
+        fn initialize_connection(
+            &self,
+            connection: &mut crate::connection::Connection,
+        ) -> crate::callbacks::ConnectionFutureResult {
+            if let Some(ticket) = (*self.stored_ticket).lock().unwrap().as_deref() {
+                connection.set_session_ticket(ticket)?;
+            }
+            Ok(None)
         }
     }
 
@@ -66,42 +62,44 @@ mod tests {
         Ok(())
     }
 
-    // correct, yay!
     #[test]
-    fn short_lifetime() -> Result<(), Box<dyn Error>> {
+    fn resume_session() -> Result<(), Box<dyn Error>> {
         let keypair = CertKeyPair::default();
-
-        const ENCRYPT_LIFETIME: Duration = Duration::from_secs(3_600);
-        const DECRYPT_LIFETIME: Duration = Duration::from_secs(3_600);
 
         // Initialize config for server with a ticket key
         let mut server_config_builder = Builder::new();
         server_config_builder
             .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
-            .set_ticket_key_encrypt_decrypt_lifetime(ENCRYPT_LIFETIME)?
-            .set_ticket_key_decrypt_lifetime(DECRYPT_LIFETIME)?
             .load_pem(keypair.cert(), keypair.key())?;
         let server_config = server_config_builder.build()?;
+
+        let handler = SessionTicketHandler::default();
 
         // create config for client
         let mut client_config_builder = Builder::new();
 
-        let session_ticket_handler = SessionTicketHandler::new(3_600 * 2);
         client_config_builder
             .enable_session_tickets(true)?
-            .set_session_ticket_callback(session_ticket_handler)?
+            .set_session_ticket_callback(handler.clone())?
             .trust_pem(keypair.cert())?
-            .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
+            .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?
+            .set_connection_initializer(handler)?;
         let client_config = client_config_builder.build()?;
 
         // create and configure a server connection
         let mut server = connection::Connection::new_server();
         server
-            .set_config(server_config.clone())?;
+            .set_config(server_config.clone())
+            .expect("Failed to bind config to server connection");
 
         // create a client connection
         let mut client = connection::Connection::new_client();
-        client.set_config(client_config)?;
+
+        // Client needs a waker due to its use of an async callback
+        client
+            .set_waker(Some(&noop_waker()))?
+            .set_config(client_config.clone())
+            .expect("Unable to set client config");
 
         let server = Harness::new(server);
         let client = Harness::new(client);
@@ -112,46 +110,21 @@ mod tests {
 
         // Check connection was full handshake and a session ticket was included
         assert!(!client.resumed());
-        assert!(client.session_ticket_length()? > 0);
+        validate_session_ticket(client)?;
 
-        Ok(())
-    }
-
-    #[test]
-    fn long_lifetime() -> Result<(), Box<dyn Error>> {
-        let keypair = CertKeyPair::default();
-
-        const ENCRYPT_LIFETIME: Duration = Duration::from_secs(3_600 * 24);
-        const DECRYPT_LIFETIME: Duration = Duration::from_secs(3_600 * 24);
-
-        // Initialize config for server with a ticket key
-        let mut server_config_builder = Builder::new();
-        server_config_builder
-            .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
-            .set_ticket_key_encrypt_decrypt_lifetime(ENCRYPT_LIFETIME)?
-            .set_ticket_key_decrypt_lifetime(DECRYPT_LIFETIME)?
-            .load_pem(keypair.cert(), keypair.key())?;
-        let server_config = server_config_builder.build()?;
-
-        // create config for client
-        let mut client_config_builder = Builder::new();
-
-        let session_ticket_handler = SessionTicketHandler::new(3_600 * 48);
-        client_config_builder
-            .enable_session_tickets(true)?
-            .set_session_ticket_callback(session_ticket_handler)?
-            .trust_pem(keypair.cert())?
-            .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
-        let client_config = client_config_builder.build()?;
-
-        // create and configure a server connection
+        // create and configure a client/server connection again
         let mut server = connection::Connection::new_server();
         server
-            .set_config(server_config.clone())?;
+            .set_config(server_config)
+            .expect("Failed to bind config to server connection");
 
-        // create a client connection
+        // create a client connection with a resumption ticket
         let mut client = connection::Connection::new_client();
-        client.set_config(client_config)?;
+
+        client
+            .set_waker(Some(&noop_waker()))?
+            .set_config(client_config)
+            .expect("Unable to set client config");
 
         let server = Harness::new(server);
         let client = Harness::new(client);
@@ -159,96 +132,98 @@ mod tests {
         let pair = poll_tls_pair(pair);
 
         let client = pair.client.0.connection();
+        let server = pair.server.0.connection();
 
-        // Check connection was full handshake and a session ticket was included
-        assert!(!client.resumed());
-        assert!(client.session_ticket_length()? > 0);
-
+        // Check new connection was resumed
+        assert!(client.resumed());
+        // validate that a ticket is available
+        validate_session_ticket(client)?;
+        validate_session_ticket(server)?;
         Ok(())
     }
 
-    // #[test]
-    // fn resume_tls13_session() -> Result<(), Box<dyn Error>> {
-    //     let keypair = CertKeyPair::default();
+    #[test]
+    fn resume_tls13_session() -> Result<(), Box<dyn Error>> {
+        let keypair = CertKeyPair::default();
 
-    //     // Initialize config for server with a ticket key
-    //     let mut server_config_builder = Builder::new();
-    //     server_config_builder
-    //         .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
-    //         .load_pem(keypair.cert(), keypair.key())?
-    //         .set_security_policy(&security::DEFAULT_TLS13)?;
-    //     let server_config = server_config_builder.build()?;
+        // Initialize config for server with a ticket key
+        let mut server_config_builder = Builder::new();
+        server_config_builder
+            .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
+            .load_pem(keypair.cert(), keypair.key())?
+            .set_security_policy(&security::DEFAULT_TLS13)?;
+        let server_config = server_config_builder.build()?;
 
-    //     let handler = SessionTicketHandler::default();
+        let handler = SessionTicketHandler::default();
 
-    //     // create config for client
-    //     let mut client_config_builder = Builder::new();
-    //     client_config_builder
-    //         .enable_session_tickets(true)?
-    //         .set_session_ticket_callback(handler.clone())?
-    //         .set_connection_initializer(handler)?
-    //         .trust_pem(keypair.cert())?
-    //         .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?
-    //         .set_security_policy(&security::DEFAULT_TLS13)?;
-    //     let client_config = client_config_builder.build()?;
+        // create config for client
+        let mut client_config_builder = Builder::new();
+        client_config_builder
+            .enable_session_tickets(true)?
+            .set_session_ticket_callback(handler.clone())?
+            .set_connection_initializer(handler)?
+            .trust_pem(keypair.cert())?
+            .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?
+            .set_security_policy(&security::DEFAULT_TLS13)?;
+        let client_config = client_config_builder.build()?;
 
-    //     // create and configure a server connection
-    //     let mut server = connection::Connection::new_server();
-    //     server
-    //         .set_config(server_config.clone())
-    //         .expect("Failed to bind config to server connection");
+        // create and configure a server connection
+        let mut server = connection::Connection::new_server();
+        server
+            .set_config(server_config.clone())
+            .expect("Failed to bind config to server connection");
 
-    //     // create a client connection
-    //     let mut client = connection::Connection::new_client();
-    //     client
-    //         .set_waker(Some(&noop_waker()))?
-    //         .set_config(client_config.clone())
-    //         .expect("Unable to set client config");
+        // create a client connection
+        let mut client = connection::Connection::new_client();
+        client
+            .set_waker(Some(&noop_waker()))?
+            .set_config(client_config.clone())
+            .expect("Unable to set client config");
 
-    //     let server = Harness::new(server);
-    //     let client = Harness::new(client);
-    //     let pair = Pair::new(server, client);
-    //     let mut pair = poll_tls_pair(pair);
+        let server = Harness::new(server);
+        let client = Harness::new(client);
+        let pair = Pair::new(server, client);
+        let mut pair = poll_tls_pair(pair);
 
-    //     // Do a recv call on the client side to read a session ticket. Poll function
-    //     // returns pending since no application data was read, however it is enough
-    //     // to collect the session ticket.
-    //     assert!(pair.poll_recv(Mode::Client, &mut [0]).is_pending());
+        // Do a recv call on the client side to read a session ticket. Poll function
+        // returns pending since no application data was read, however it is enough
+        // to collect the session ticket.
+        assert!(pair.poll_recv(Mode::Client, &mut [0]).is_pending());
 
-    //     let client = pair.client.0.connection();
-    //     // Check connection was full handshake
-    //     assert!(!client.resumed());
-    //     // validate that a ticket is available
-    //     validate_session_ticket(client)?;
+        let client = pair.client.0.connection();
+        // Check connection was full handshake
+        assert!(!client.resumed());
+        // validate that a ticket is available
+        validate_session_ticket(client)?;
 
-    //     // create and configure a client/server connection again
-    //     let mut server = connection::Connection::new_server();
-    //     server
-    //         .set_config(server_config)
-    //         .expect("Failed to bind config to server connection");
+        // create and configure a client/server connection again
+        let mut server = connection::Connection::new_server();
+        server
+            .set_config(server_config)
+            .expect("Failed to bind config to server connection");
 
-    //     // create a client connection with a resumption ticket
-    //     let mut client = connection::Connection::new_client();
-    //     client
-    //         .set_waker(Some(&noop_waker()))?
-    //         .set_config(client_config)
-    //         .expect("Unable to set client config");
+        // create a client connection with a resumption ticket
+        let mut client = connection::Connection::new_client();
+        client
+            .set_waker(Some(&noop_waker()))?
+            .set_config(client_config)
+            .expect("Unable to set client config");
 
-    //     let server = Harness::new(server);
-    //     let client = Harness::new(client);
-    //     let pair = Pair::new(server, client);
-    //     let mut pair = poll_tls_pair(pair);
+        let server = Harness::new(server);
+        let client = Harness::new(client);
+        let pair = Pair::new(server, client);
+        let mut pair = poll_tls_pair(pair);
 
-    //     // Do a recv call on the client side to read a session ticket. Poll function
-    //     // returns pending since no application data was read, however it is enough
-    //     // to collect the session ticket.
-    //     assert!(pair.poll_recv(Mode::Client, &mut [0]).is_pending());
+        // Do a recv call on the client side to read a session ticket. Poll function
+        // returns pending since no application data was read, however it is enough
+        // to collect the session ticket.
+        assert!(pair.poll_recv(Mode::Client, &mut [0]).is_pending());
 
-    //     let client = pair.client.0.connection();
-    //     // Check new connection was resumed
-    //     assert!(client.resumed());
-    //     // validate that a ticket is available
-    //     validate_session_ticket(client)?;
-    //     Ok(())
-    // }
+        let client = pair.client.0.connection();
+        // Check new connection was resumed
+        assert!(client.resumed());
+        // validate that a ticket is available
+        validate_session_ticket(client)?;
+        Ok(())
+    }
 }
