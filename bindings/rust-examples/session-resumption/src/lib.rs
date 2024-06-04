@@ -150,9 +150,6 @@ impl ConnectionInitializer for SessionTicketStore {
     }
 }
 
-// a server using simpler PSK setup, only supporting 2 different PSKs. Since there
-// is a small number of PSKs, we directly load each of them onto the connection
-// using the `ConnectionInitializer` trait implemented on `PskStore`.
 pub async fn small_server() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
 
@@ -199,12 +196,6 @@ pub async fn small_server() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-// This server manages a large number of PSKs. Instead of appending them all onto
-// the connection, we do the PSK selection ourselves using the more advanced PSK
-// methods.
-// async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::Error>> {
-
-// }
 
 pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
     let resumption_attempts = Arc::new(AtomicU32::new(0));
@@ -254,14 +245,15 @@ pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
                 if tls.as_ref().resumed() {
                     resumption_success_handle.fetch_add(1, Ordering::SeqCst);
                 } else {
-                    let session_ticket = tls
-                        .as_ref()
-                        .application_context::<SessionTicket>()
-                        .unwrap();
+                    let session_ticket =
+                        tls.as_ref().application_context::<SessionTicket>().unwrap();
 
-                    tracing::error!("Ticket supposed to be valid for {:?}, only {:?} elapsed", session_ticket.lifetime, session_ticket.received.elapsed());
+                    tracing::error!(
+                        "Ticket supposed to be valid for {:?}, only {:?} elapsed",
+                        session_ticket.lifetime,
+                        session_ticket.received.elapsed()
+                    );
                 }
-
             }
 
             let mut data_from_server = vec![0; b"hello client".len()];
@@ -280,7 +272,8 @@ pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!(
         "session resumption attempts: {:?}, successes: {:?}",
-        resumption_attempts, resumption_success
+        resumption_attempts,
+        resumption_success
     );
     assert_eq!(
         resumption_attempts.load(Ordering::SeqCst),
@@ -318,25 +311,14 @@ mod simulation {
         });
     }
 
-    // This simulation shows how PSK's might be used when there is only a small
-    // number of keys. Keys can be directly added to the connection with
-    // `conn.append_psk(...)`.
     #[test]
     fn few_keys_example() -> turmoil::Result {
         setup_logging();
 
-        // s2n-tls-tokio blinding forces ~ 20 seconds of blinding delay, which
-        // is too long for the default sim. We extend the lifetime to get the real
-        // error instead of a "Sim didn't complete within 10 seconds" error.
         let mut sim = turmoil::Builder::new()
             .simulation_duration(Duration::from_secs(60 * 11))
             .build();
-        sim.host("server", move || {
-            // this clone isn't generally necessary for servers, but Turmoil might
-            // restart the server, and so we need to be able to call this closure
-            // multiple times
-            small_server()
-        });
+        sim.host("server", move || small_server());
         sim.client("client", client());
         sim.run()
     }
