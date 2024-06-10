@@ -66,6 +66,9 @@ int s2n_psk_set_secret(struct s2n_psk *psk, const uint8_t *secret, uint16_t secr
 {
     POSIX_ENSURE_REF(psk);
     POSIX_ENSURE_REF(secret);
+    // Each PSK ... MUST be at least 128 bits long
+    // https://www.rfc-editor.org/rfc/rfc9257.html#section-6
+    // POSIX_ENSURE_GTE(secret_size, 128);
     POSIX_ENSURE(secret_size != 0, S2N_ERR_INVALID_ARGUMENT);
 
     POSIX_GUARD(s2n_realloc(&psk->secret, secret_size));
@@ -74,7 +77,7 @@ int s2n_psk_set_secret(struct s2n_psk *psk, const uint8_t *secret, uint16_t secr
     return S2N_SUCCESS;
 }
 
-S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, struct s2n_psk *original_psk)
+S2N_RESULT s2n_psk_clone(struct s2n_psk *new_psk, const struct s2n_psk *original_psk)
 {
     if (original_psk == NULL) {
         return S2N_RESULT_OK;
@@ -131,7 +134,7 @@ S2N_RESULT s2n_psk_parameters_init(struct s2n_psk_parameters *params)
     return S2N_RESULT_OK;
 }
 
-static S2N_RESULT s2n_psk_offered_psk_size(struct s2n_psk *psk, uint32_t *size)
+static S2N_RESULT s2n_psk_offered_psk_size(const struct s2n_psk *psk, uint32_t *size)
 {
     *size = sizeof(uint16_t)   /* identity size */
             + sizeof(uint32_t) /* obfuscated ticket age */
@@ -196,7 +199,7 @@ S2N_CLEANUP_RESULT s2n_psk_parameters_wipe_secrets(struct s2n_psk_parameters *pa
     return S2N_RESULT_OK;
 }
 
-bool s2n_offered_psk_list_has_next(struct s2n_offered_psk_list *psk_list)
+bool s2n_offered_psk_list_has_next(const struct s2n_offered_psk_list *psk_list)
 {
     return psk_list != NULL && s2n_stuffer_data_available(&psk_list->wire_data) > 0;
 }
@@ -309,33 +312,21 @@ static S2N_RESULT s2n_validate_ticket_lifetime(struct s2n_connection *conn, uint
     return S2N_RESULT_OK;
 }
 
-int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, struct s2n_offered_psk *psk)
+// I wish to assert that `psk` is treated as logically const (no field/data is every modified)
+int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, const struct s2n_offered_psk *psk)
 {
-    POSIX_ENSURE_REF(psk_list);
-    POSIX_ENSURE_REF(psk_list->conn);
-
-    struct s2n_psk_parameters *psk_params = &psk_list->conn->psk_params;
     struct s2n_stuffer ticket_stuffer = { 0 };
 
-    if (!psk) {
-        psk_params->chosen_psk = NULL;
-        return S2N_SUCCESS;
-    }
+    // `psk->identity` is of type `s2n_blob`
+    // stuffers are initialized with mutable blobs, so I have to cast away the constness 😬
+    // to actually use the stuffer here.
+    // s2n_stuffer_init just does stuffer->blob = param_in;
+    POSIX_GUARD(s2n_stuffer_init(&ticket_stuffer, (struct s2n_blob *) &psk->identity));
 
-    if (psk_params->type == S2N_PSK_TYPE_RESUMPTION && psk_list->conn->config->use_tickets) {
-        POSIX_GUARD(s2n_stuffer_init(&ticket_stuffer, &psk->identity));
-        POSIX_GUARD(s2n_stuffer_skip_write(&ticket_stuffer, psk->identity.size));
-
-        /* s2n_decrypt_session_ticket appends a new PSK with the decrypted values. */
-        POSIX_GUARD(s2n_decrypt_session_ticket(psk_list->conn, &ticket_stuffer));
-    }
-
-    struct s2n_psk *chosen_psk = NULL;
-    POSIX_GUARD_RESULT(s2n_match_psk_identity(&psk_params->psk_list, &psk->identity, &chosen_psk));
-    POSIX_ENSURE_REF(chosen_psk);
-    POSIX_GUARD_RESULT(s2n_validate_ticket_lifetime(psk_list->conn, psk->obfuscated_ticket_age, chosen_psk->ticket_age_add));
-    psk_params->chosen_psk = chosen_psk;
-    psk_params->chosen_psk_wire_index = psk->wire_index;
+    // s2n_decrypt_session_ticket does a lot of stuff. I have manually reviewed it
+    // to make sure that ticket_stuffer->blob is never modified, but I would love
+    // to actually have that _proved_ for me.
+    POSIX_GUARD(s2n_decrypt_session_ticket(psk_list->conn, &ticket_stuffer));
 
     return S2N_SUCCESS;
 }
@@ -360,7 +351,7 @@ int s2n_offered_psk_free(struct s2n_offered_psk **psk)
     return s2n_free_object((uint8_t **) psk, sizeof(struct s2n_offered_psk));
 }
 
-int s2n_offered_psk_get_identity(struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size)
+int s2n_offered_psk_get_identity(const struct s2n_offered_psk *psk, uint8_t **identity, uint16_t *size)
 {
     POSIX_ENSURE_REF(psk);
     POSIX_ENSURE_REF(identity);
@@ -583,7 +574,7 @@ S2N_RESULT s2n_connection_set_psk_type(struct s2n_connection *conn, s2n_psk_type
     return S2N_RESULT_OK;
 }
 
-int s2n_connection_append_psk(struct s2n_connection *conn, struct s2n_psk *input_psk)
+int s2n_connection_append_psk(struct s2n_connection *conn, const struct s2n_psk *input_psk)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(input_psk);
@@ -648,7 +639,7 @@ int s2n_connection_set_psk_mode(struct s2n_connection *conn, s2n_psk_mode mode)
     return S2N_SUCCESS;
 }
 
-int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connection *conn, uint16_t *identity_length)
+int s2n_connection_get_negotiated_psk_identity_length(const struct s2n_connection *conn, uint16_t *identity_length)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(identity_length);
@@ -664,7 +655,7 @@ int s2n_connection_get_negotiated_psk_identity_length(struct s2n_connection *con
     return S2N_SUCCESS;
 }
 
-int s2n_connection_get_negotiated_psk_identity(struct s2n_connection *conn, uint8_t *identity,
+int s2n_connection_get_negotiated_psk_identity(const struct s2n_connection *conn, uint8_t *identity,
         uint16_t max_identity_length)
 {
     POSIX_ENSURE_REF(conn);
