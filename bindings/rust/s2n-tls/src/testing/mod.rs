@@ -206,8 +206,8 @@ impl Default for CertKeyPair {
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../../tests/pems/rsa_4096_sha512_client_cert.pem",
             ),
-            cert: &include_bytes!("../../../../tests/pems/rsa_4096_sha512_client_cert.pem")[..],
-            key: &include_bytes!("../../../../tests/pems/rsa_4096_sha512_client_key.pem")[..],
+            cert: &include_bytes!("../../../../../tests/pems/rsa_4096_sha512_client_cert.pem")[..],
+            key: &include_bytes!("../../../../../tests/pems/rsa_4096_sha512_client_key.pem")[..],
         }
     }
 }
