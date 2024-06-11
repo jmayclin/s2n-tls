@@ -142,7 +142,7 @@ mod tests {
     fn new_pair<T>(
         callback: T,
         waker: Waker,
-    ) -> Result<Pair<s2n_tls::Harness, s2n_tls::Harness>, Error>
+    ) -> Result<Pair<Harness, Harness>, Error>
     where
         T: 'static + PrivateKeyCallback,
     {
