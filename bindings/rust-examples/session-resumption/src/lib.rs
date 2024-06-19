@@ -25,6 +25,8 @@ use tokio::{
 };
 use turmoil::net::TcpStream;
 
+mod pair;
+
 const PORT: u16 = 1738;
 
 const KEY_SIZE: usize = 1024;
