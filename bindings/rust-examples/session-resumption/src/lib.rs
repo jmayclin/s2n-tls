@@ -4,7 +4,7 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     pin::Pin,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{self, AtomicI64, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, SystemTime},
@@ -31,7 +31,8 @@ const PORT: u16 = 1738;
 
 const KEY_SIZE: usize = 1024;
 
-const STEK_LIFETIMES: Duration = Duration::from_secs(3 * 60);
+/// encrypt_lifetime and decrypt_lifetime are set to this value
+const STEK_LIFETIMES: Duration = Duration::from_secs(60);
 // we are aiming for system time ranges somewhere in the 1970 + 55 -> 2025 range
 const EPOCH_OFFSET: Duration = Duration::from_secs(3_600 * 24 * 365 * 55);
 
@@ -48,29 +49,30 @@ impl MonotonicClock for TurmoilClock {
 
 // wall clock is used for STEK operations (selection, expiration) so we need to implement
 // this
-impl WallClock for TurmoilClock {
+#[derive(Debug, Default, Clone)]
+struct SimulClock(Arc<AtomicU64>);
+impl WallClock for SimulClock {
     fn get_time_since_epoch(&self) -> Duration {
         // aim date at 2025
-        turmoil::sim_elapsed().unwrap() + EPOCH_OFFSET
+        // necessary for cert expiration stuff, I think
+        Duration::from_secs(self.0.load(Ordering::SeqCst)) + EPOCH_OFFSET
     }
 }
 
 #[derive(Default)]
 pub struct Stek {
-    name: u64,
+    name: [u8; 16],
     secret: [u8; 32],
 }
 
 impl Stek {
-    fn new(name: u64) -> Self {
-        let mut stek = Stek::default();
-        stek.name = name;
-
-        // generate key
-        let rng = aws_lc_rs::rand::SystemRandom::new();
-        rng.fill(&mut stek.secret).unwrap();
-
-        stek
+    /// generate a test stek where all bytes in both the name and material are 
+    /// set to `value`
+    fn new(value: u8) -> Self {
+        Stek {
+            name: [value; 16],
+            secret: [value; 32],
+        }
     }
 }
 
@@ -152,7 +154,7 @@ impl ConnectionInitializer for SessionTicketStore {
     }
 }
 
-pub async fn small_server() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn server_config(clock: &SimulClock) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
 
     let cert_path = format!("{}/certs/test-cert.pem", env!("CARGO_MANIFEST_DIR"));
@@ -162,8 +164,7 @@ pub async fn small_server() -> Result<(), Box<dyn std::error::Error>> {
 
     config
         .load_pem(&cert, &key)?
-        .set_monotonic_clock(TurmoilClock)?
-        .set_wall_clock(TurmoilClock)?
+        .set_wall_clock(clock.clone())?
         .set_security_policy(&security::DEFAULT_TLS13)?
         .enable_session_tickets(true)?
         .set_ticket_key_encrypt_decrypt_lifetime(STEK_LIFETIMES)?
@@ -171,10 +172,10 @@ pub async fn small_server() -> Result<(), Box<dyn std::error::Error>> {
 
     // add 10 keys that rotate in minutely increments
     for i in 0..10 {
-        let stek = Stek::new(i);
-        let intro_time = TurmoilClock.get_time_since_epoch() + Duration::from_secs(60 * i);
+        let stek = Stek::new(i as u8);
+        let intro_time = clock.get_time_since_epoch() + Duration::from_secs(60 * (i as u64));
         let intro_time = SystemTime::UNIX_EPOCH + intro_time;
-        config.add_session_ticket_key(&stek.name.to_be_bytes(), &stek.secret, intro_time)?;
+        config.add_session_ticket_key(&stek.name, &stek.secret, intro_time)?;
     }
 
     let server = TlsAcceptor::new(config.build()?);
@@ -283,6 +284,14 @@ pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
+}
+
+fn repro_trial(seed: u8) {
+    // create the server config
+
+    
+
+    // create the assassin_client
 }
 
 #[cfg(test)]

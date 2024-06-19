@@ -1,3 +1,7 @@
+use std::{cell::RefCell, collections::VecDeque, ffi::{c_int, c_void}, io::{Read, Write}, pin::Pin, task::Poll};
+
+use s2n_tls::{config, connection, enums, error};
+
 type LocalDataBuffer = RefCell<VecDeque<u8>>;
 
 /// TestPair is a testing utility used to easily test handshakes and send data.
@@ -105,7 +109,7 @@ impl TestPair {
     ) -> Result<connection::Connection, error::Error> {
         let mut conn = connection::Connection::new(mode);
         conn.set_config(config.clone())?
-            .set_blinding(Blinding::SelfService)?
+            .set_blinding(enums::Blinding::SelfService)?
             .set_send_callback(Some(Self::send_cb))?
             .set_receive_callback(Some(Self::recv_cb))?;
         unsafe {
