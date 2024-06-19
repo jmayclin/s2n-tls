@@ -10,6 +10,7 @@ edition.workspace = true
 aws-lc-rs = "1.7.2"
 errno = "0.3.9"
 futures-task = "0.3.30"
+hex = "0.4.3"
 libc = "0.2.155"
 s2n-tls = { path = "../../rust/s2n-tls" }
 s2n-tls-tokio = { path = "../../rust/s2n-tls-tokio" }

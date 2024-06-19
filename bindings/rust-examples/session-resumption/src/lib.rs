@@ -33,7 +33,9 @@ const PORT: u16 = 1738;
 
 const KEY_SIZE: usize = 1024;
 const NUM_TEST_STEKS: usize = 3;
-const NUM_HARNESS_THREADS: usize = 64;
+pub const NUM_HARNESS_THREADS: usize = 64;
+
+const SPECIAL_BYTES: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
 /// encrypt_lifetime and decrypt_lifetime are set to this value
 const STEK_LIFETIMES: Duration = Duration::from_secs(60);
@@ -66,12 +68,21 @@ pub struct Stek {
 
 impl Stek {
     /// generate a test stek where all bytes in both the name and material are
-    /// set to `value`
+    /// set to `value`. Does note return an all 0 thing if you pass in zero, but 
+    /// rather a sentinel key
     fn new(value: u8) -> Self {
-        Stek {
-            name: [value; 16],
-            secret: [value; 32],
+        if value == 0 {
+            Stek {
+                name: SPECIAL_BYTES,
+                secret: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            }
+        } else {
+            Stek {
+                name: [value; 16],
+                secret: [value; 32],
+            }
         }
+
     }
 }
 
@@ -120,7 +131,6 @@ impl SessionTicketCallback for SessionTicketStore {
         let stek_name_start = 3;
         let stek_name_length = 16 + stek_name_start;
         let stek_name = &data[stek_name_start..stek_name_length];
-        println!("stek name is {:?}", stek_name);
         /* FINISH ATTEMPT PARSING */
         let session_ticket = SessionTicket {
             received: tokio::time::Instant::now(),
@@ -149,22 +159,14 @@ impl ConnectionInitializer for SessionTicketStore {
             }
         };
 
-        let remaining_lifetime = front.lifetime - front.received.elapsed();
-
-        // if there is less than one minute remaining in the lifetime, try to do resumption
-        if remaining_lifetime < Duration::from_secs(60) {
-            let front = tickets.pop_front().unwrap();
-            connection.set_application_context::<SessionTicket>(front.clone());
-            connection.set_session_ticket(&front.data)?;
-            tracing::trace!("trying to do resumption");
-        }
+        connection.set_session_ticket(&front.data)?;
 
         Ok(None)
     }
 }
 
 /// we assume that the diff in clock is 60 at this point (effectively 0 for this simulation)
-fn server_config(clock: &SimulClock) -> Result<config::Config, Box<dyn std::error::Error>> {
+fn server_config(seed: u8, clock: &SimulClock) -> Result<config::Config, Box<dyn std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
 
     let cert_path = format!("{}/certs/test-cert.pem", env!("CARGO_MANIFEST_DIR"));
@@ -174,7 +176,7 @@ fn server_config(clock: &SimulClock) -> Result<config::Config, Box<dyn std::erro
 
     config
         .load_pem(&cert, &key)?
-        //.set_wall_clock(clock.clone())?
+        .set_wall_clock(clock.clone())?
         //.set_monotonic_clock(clock.clone())?
         .set_security_policy(&security::DEFAULT_TLS13)?
         .enable_session_tickets(true)?
@@ -183,13 +185,13 @@ fn server_config(clock: &SimulClock) -> Result<config::Config, Box<dyn std::erro
 
     // add 3 keys that rotate in minutely increments
     for i in 0..NUM_TEST_STEKS {
-        let stek = Stek::new(i as u8);
+        let stek = Stek::new(seed + i as u8);
         let intro_time = clock.get_time_since_epoch() + Duration::from_secs(60 * i as u64);
         let intro_time = SystemTime::UNIX_EPOCH + intro_time;
         config.add_session_ticket_key(
             &stek.name,
             &stek.secret,
-            SystemTime::now() - Duration::from_secs(1),
+            intro_time,
         )?;
     }
 
@@ -208,7 +210,7 @@ fn client_config(
     config
         .set_security_policy(&security::DEFAULT)?
         .set_wall_clock(clock.clone())?
-        .set_monotonic_clock(clock.clone())?
+        //.set_monotonic_clock(clock.clone())?
         .set_connection_initializer(store.clone())?
         .enable_session_tickets(true)?
         .set_session_ticket_callback(store.clone())?
@@ -220,16 +222,18 @@ fn client_config(
     Ok((config.build()?, store))
 }
 
-fn repro_trial(seed: u8) -> Result<(), String> {
+pub fn repro_trial(seed: u8) -> Result<(), String> {
     let clock = SimulClock::default();
-    clock.0.swap(60, Ordering::SeqCst);
+    clock.0.swap(0, Ordering::SeqCst);
     // key intro times are then 60, 120, 180
-    let server_config = server_config(&clock).unwrap();
+    let server_config = server_config(seed,&clock).unwrap();
     let (devious_client, devious_ticket) = client_config(&clock).unwrap();
 
     // 40 seconds after the key 1 intro, but before any other keys are valid.
-    clock.0.swap(60 + 40, Ordering::SeqCst);
+    clock.0.swap(40, Ordering::SeqCst);
     // must be session ticket with key 1
+    
+    // first ticket is encrypted
     let mut load_initial_session_ticket = TestPair::from_configs(&devious_client, &server_config);
     load_initial_session_ticket
         .client
@@ -238,11 +242,14 @@ fn repro_trial(seed: u8) -> Result<(), String> {
     load_initial_session_ticket.handshake().unwrap();
 
     assert_eq!(devious_ticket.tickets.lock().unwrap().len(), 1);
+    //assert_eq!(devious_ticket.get_name(), SPECIAL_BYTES);
+
 
     // 120 - 20 seconds after the session ticket was sent
     // key 1 is now expired, but the session ticket still reports a valid lifetime
-    clock.0.swap(60 + 40 + 100, Ordering::SeqCst);
+    clock.0.swap(40 + 100, Ordering::SeqCst);
 
+    // second ticket is encrypted
     let mut backstabbing_handshake = TestPair::from_configs(&devious_client, &server_config);
 
     let (innocent_client, innocent_ticket) = client_config(&clock).unwrap();
@@ -252,11 +259,15 @@ fn repro_trial(seed: u8) -> Result<(), String> {
             .client
             .set_waker(Some(noop_waker_ref()))
             .unwrap();
+
+        // Ballast: This is used to try and line up the 
+
         backstabbing_handshake.handshake().unwrap();
         // resumption should not have been successful
         assert!(!backstabbing_handshake.client.resumed());
     });
 
+    // third ticket is encrypted
     let innocent_handle = std::thread::spawn(move || {
         innocent_handshake
             .client
@@ -268,7 +279,6 @@ fn repro_trial(seed: u8) -> Result<(), String> {
     backstabbing_handle.join().unwrap();
     innocent_handle.join().unwrap();
     let name = innocent_ticket.get_name();
-    println!("{:?}", name);
     if name.iter().any(|byte| *byte == 0) {
         return Err("the zero stek name was seen".into());
     }
@@ -306,35 +316,40 @@ mod simulation {
 
     #[test]
     fn simple() {
-        repro_trial(1).unwrap();
+        repro_trial(0).unwrap();
     }
 
-    #[test]
-    fn repro() {
-        let trials = Arc::new(AtomicU64::new(0));
-        // 16 cores, each spawns two threads, so 16 threads -> 64 trials
-        for _ in 0..NUM_HARNESS_THREADS {
-            let trials_handle = Arc::clone(&trials);
-            std::thread::spawn(move || {
-                let mut seed = 0;
-                loop {
-                    if trials_handle.load(Ordering::Relaxed) % 100 == 0 {
-                        println!("trials: {:?}", trials_handle.load(Ordering::Relaxed));
-                    }
-                    trials_handle.fetch_add(1, Ordering::Relaxed);
-                    seed += 1;
-                    seed %= 100;
-                    if let Err(e) = repro_trial(seed + 1) {
-                        println!("hit the zero name");
-                        std::fs::write(
-                            format!("trial{}", trials_handle.load(Ordering::Relaxed)),
-                            "zero stek name",
-                        )
-                        .unwrap();
-                    }
-                };
-            });
-        }
+    // #[test]
+    // fn repro() {
+    //     let trials = Arc::new(AtomicU64::new(0));
+    //     // 16 cores, each spawns two threads, so 16 threads -> 64 trials
+    //     let mut handles = Vec::new();
+    //     for _ in 0..NUM_HARNESS_THREADS {
+    //         let trials_handle = Arc::clone(&trials);
+    //         let handle = std::thread::spawn(move || {
+    //             let mut seed = 0;
+    //             loop {
+    //                 if trials_handle.load(Ordering::Relaxed) % 100000 == 0 {
+    //                     println!("trials: {:?}", trials_handle.load(Ordering::Relaxed));
+    //                 }
+    //                 trials_handle.fetch_add(1, Ordering::Relaxed);
+    //                 seed += 1;
+    //                 seed %= 100;
+    //                 if let Err(e) = repro_trial(seed + 1) {
+    //                     println!("hit the zero name");
+    //                     std::fs::write(
+    //                         format!("trial{}", trials_handle.load(Ordering::Relaxed)),
+    //                         "zero stek name",
+    //                     )
+    //                     .unwrap();
+    //                 }
+    //             };
+    //         });
+    //         handles.push(handle);
+    //     }
+    //     for h in handles {
+    //         h.join().unwrap();
+    //     }
 
-    }
+    // }
 }

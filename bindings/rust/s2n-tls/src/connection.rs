@@ -973,6 +973,16 @@ impl Connection {
         }
     }
 
+    pub fn give_me_master_secret(
+        &self
+    ) -> [u8; 48] {
+        let mut secret = [0; 48];
+        unsafe {
+            s2n_connection_get_master_secret(self.connection.as_ptr(), secret.as_mut_ptr(), 48).into_result().unwrap();
+        }
+        secret
+    }
+
     /// Returns the validated peer certificate chain.
     // 'static lifetime is because this copies the certificate chain from the connection into a new
     // chain, so the lifetime is independent of the connection.

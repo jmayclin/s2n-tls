@@ -746,9 +746,11 @@ struct s2n_ticket_key *s2n_find_ticket_key(struct s2n_config *config, const uint
     PTR_GUARD_RESULT(s2n_config_wall_clock(config, &now));
     PTR_ENSURE_REF(config->ticket_keys);
 
+    uint64_t monotonic_now = 0;
+    POSIX_GUARD(config->monotonic_clock(config->monotonic_clock_ctx, &monotonic_now));
+
     uint32_t ticket_keys_len = 0;
     PTR_GUARD_RESULT(s2n_set_len(config->ticket_keys, &ticket_keys_len));
-
     for (uint32_t i = 0; i < ticket_keys_len; i++) {
         PTR_GUARD_RESULT(s2n_set_get(config->ticket_keys, i, (void **) &ticket_key));
 
@@ -759,6 +761,7 @@ struct s2n_ticket_key *s2n_find_ticket_key(struct s2n_config *config, const uint
                             + config->decrypt_key_lifetime_in_nanos) {
                 s2n_config_wipe_expired_ticket_crypto_keys(config, i);
 
+                //printf("[s2n_find_ticket_key] <race point> ticket key was wiped around %li\n", monotonic_now);
                 return NULL;
             }
 
@@ -783,6 +786,9 @@ int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_stuffer *
     struct s2n_blob aad_blob = { 0 };
     POSIX_GUARD(s2n_blob_init(&aad_blob, aad_data, sizeof(aad_data)));
     struct s2n_stuffer aad = { 0 };
+
+    uint64_t monotonic_now = 0;
+    POSIX_GUARD(conn->config->monotonic_clock(conn->config->monotonic_clock_ctx, &monotonic_now));
 
     key = s2n_get_ticket_encrypt_decrypt_key(conn->config);
 
@@ -819,6 +825,8 @@ int s2n_encrypt_session_ticket(struct s2n_connection *conn, struct s2n_stuffer *
 
     POSIX_GUARD(s2n_aes256_gcm.destroy_key(&aes_ticket_key));
     POSIX_GUARD(s2n_session_key_free(&aes_ticket_key));
+
+    //printf("[s2n_encrypt_session_ticket] <race point> happened at %li\n", monotonic_now);
 
     return S2N_SUCCESS;
 }
