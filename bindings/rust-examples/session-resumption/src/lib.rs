@@ -216,7 +216,8 @@ fn client_config(
         .set_session_ticket_callback(store.clone())?
         .trust_pem(&cert)?;
     unsafe {
-        // I can't be bothered to figure out my clock marking
+        // I can't be bothered to figure out my clock mocking to get the certificate
+        // dates lined up
         config.disable_x509_verification()?;
     }
     Ok((config.build()?, store))
@@ -225,7 +226,7 @@ fn client_config(
 pub fn repro_trial(seed: u8) -> Result<(), String> {
     let clock = SimulClock::default();
     clock.0.swap(0, Ordering::SeqCst);
-    // key intro times are then 60, 120, 180
+    // key intro times are then 0, 60, 120, 180
     let server_config = server_config(seed,&clock).unwrap();
     let (devious_client, devious_ticket) = client_config(&clock).unwrap();
 
@@ -268,18 +269,30 @@ pub fn repro_trial(seed: u8) -> Result<(), String> {
     });
 
     // third ticket is encrypted
+    let innocent_ticket_handle = innocent_ticket.clone();
     let innocent_handle = std::thread::spawn(move || {
         innocent_handshake
             .client
             .set_waker(Some(noop_waker_ref()))
             .unwrap();
         innocent_handshake.handshake().unwrap();
+
+        let name = innocent_ticket_handle.get_name();
+        if name.iter().any(|byte| *byte == 0) {
+            println!("stek name {:?}", name);
+            let secret = innocent_handshake.client.give_me_master_secret();
+            println!("hex master secret:{}", hex::encode(secret));
+            println!("hex ticket data:{}", hex::encode(&innocent_ticket_handle.tickets.lock().unwrap().front().unwrap().data));
+            //hex::encode();
+        };
+        //if innocent_ticket
     });
 
     backstabbing_handle.join().unwrap();
     innocent_handle.join().unwrap();
     let name = innocent_ticket.get_name();
     if name.iter().any(|byte| *byte == 0) {
+        println!("stek name {:?}", name);
         return Err("the zero stek name was seen".into());
     }
 
