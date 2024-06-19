@@ -11,9 +11,11 @@ use std::{
 };
 
 use aws_lc_rs::rand::SecureRandom;
+use futures_task::noop_waker_ref;
+use pair::TestPair;
 use s2n_tls::{
     callbacks::{ConnectionFuture, MonotonicClock, SessionTicketCallback, WallClock},
-    config::{Config, ConnectionInitializer},
+    config::{self, Config, ConnectionInitializer},
     connection::Connection,
     error::Error,
     security,
@@ -30,22 +32,13 @@ mod pair;
 const PORT: u16 = 1738;
 
 const KEY_SIZE: usize = 1024;
+const NUM_TEST_STEKS: usize = 3;
+const NUM_HARNESS_THREADS: usize = 64;
 
 /// encrypt_lifetime and decrypt_lifetime are set to this value
 const STEK_LIFETIMES: Duration = Duration::from_secs(60);
 // we are aiming for system time ranges somewhere in the 1970 + 55 -> 2025 range
 const EPOCH_OFFSET: Duration = Duration::from_secs(3_600 * 24 * 365 * 55);
-
-// this is a turmoil specific thing, which is needed for s2n-tls to still make "time"
-// progress since the simulation is "fast-forwarded". Customers running in the real
-// world won't need to set this callback unless they have some reason to override
-// the default clock.
-struct TurmoilClock;
-impl MonotonicClock for TurmoilClock {
-    fn get_time(&self) -> std::time::Duration {
-        turmoil::sim_elapsed().unwrap()
-    }
-}
 
 // wall clock is used for STEK operations (selection, expiration) so we need to implement
 // this
@@ -59,6 +52,12 @@ impl WallClock for SimulClock {
     }
 }
 
+impl MonotonicClock for SimulClock {
+    fn get_time(&self) -> std::time::Duration {
+        Duration::from_secs(self.0.load(Ordering::SeqCst)) + EPOCH_OFFSET
+    }
+}
+
 #[derive(Default)]
 pub struct Stek {
     name: [u8; 16],
@@ -66,7 +65,7 @@ pub struct Stek {
 }
 
 impl Stek {
-    /// generate a test stek where all bytes in both the name and material are 
+    /// generate a test stek where all bytes in both the name and material are
     /// set to `value`
     fn new(value: u8) -> Self {
         Stek {
@@ -80,13 +79,25 @@ impl Stek {
 struct SessionTicket {
     received: tokio::time::Instant,
     lifetime: std::time::Duration,
-    stek_name: u64,
+    pub stek_name: [u8; 16],
     data: Vec<u8>,
 }
 
 #[derive(Default, Clone)]
 pub struct SessionTicketStore {
     tickets: Arc<Mutex<VecDeque<SessionTicket>>>,
+}
+
+impl SessionTicketStore {
+    fn get_name(&self) -> [u8; 16] {
+        self.tickets
+            .lock()
+            .unwrap()
+            .front()
+            .unwrap()
+            .stek_name
+            .clone()
+    }
 }
 
 impl SessionTicketCallback for SessionTicketStore {
@@ -107,16 +118,14 @@ impl SessionTicketCallback for SessionTicketStore {
         // tracing::debug!("len is {:?}", len);
 
         let stek_name_start = 3;
-        let stek_name_length = 16;
+        let stek_name_length = 16 + stek_name_start;
         let stek_name = &data[stek_name_start..stek_name_length];
-        let stek_name =
-            u64::from_be_bytes(stek_name[0..std::mem::size_of::<u64>()].try_into().unwrap());
-        tracing::debug!("stek name is {:?}", stek_name);
+        println!("stek name is {:?}", stek_name);
         /* FINISH ATTEMPT PARSING */
         let session_ticket = SessionTicket {
             received: tokio::time::Instant::now(),
             lifetime: session_ticket.lifetime().unwrap(),
-            stek_name: stek_name,
+            stek_name: stek_name.try_into().unwrap(),
             data: data,
         };
 
@@ -154,7 +163,8 @@ impl ConnectionInitializer for SessionTicketStore {
     }
 }
 
-pub async fn server_config(clock: &SimulClock) -> Result<(), Box<dyn std::error::Error>> {
+/// we assume that the diff in clock is 60 at this point (effectively 0 for this simulation)
+fn server_config(clock: &SimulClock) -> Result<config::Config, Box<dyn std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
 
     let cert_path = format!("{}/certs/test-cert.pem", env!("CARGO_MANIFEST_DIR"));
@@ -164,46 +174,31 @@ pub async fn server_config(clock: &SimulClock) -> Result<(), Box<dyn std::error:
 
     config
         .load_pem(&cert, &key)?
-        .set_wall_clock(clock.clone())?
+        //.set_wall_clock(clock.clone())?
+        //.set_monotonic_clock(clock.clone())?
         .set_security_policy(&security::DEFAULT_TLS13)?
         .enable_session_tickets(true)?
         .set_ticket_key_encrypt_decrypt_lifetime(STEK_LIFETIMES)?
         .set_ticket_key_decrypt_lifetime(STEK_LIFETIMES)?;
 
-    // add 10 keys that rotate in minutely increments
-    for i in 0..10 {
+    // add 3 keys that rotate in minutely increments
+    for i in 0..NUM_TEST_STEKS {
         let stek = Stek::new(i as u8);
-        let intro_time = clock.get_time_since_epoch() + Duration::from_secs(60 * (i as u64));
+        let intro_time = clock.get_time_since_epoch() + Duration::from_secs(60 * i as u64);
         let intro_time = SystemTime::UNIX_EPOCH + intro_time;
-        config.add_session_ticket_key(&stek.name, &stek.secret, intro_time)?;
+        config.add_session_ticket_key(
+            &stek.name,
+            &stek.secret,
+            SystemTime::now() - Duration::from_secs(1),
+        )?;
     }
 
-    let server = TlsAcceptor::new(config.build()?);
-    let listener =
-        turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
-
-    loop {
-        let server_clone = server.clone();
-        let (stream, _peer_addr) = listener.accept().await?;
-        tokio::spawn(async move {
-            tracing::trace!("spawning new task to handle client");
-            let mut tls = server_clone.accept(stream).await.unwrap();
-            tls.write_all(b"hello client").await.unwrap();
-            // wait for client to shutdown. After the client shuts down its side
-            // of the connection, 0 will be returned
-            let read = tls.read(&mut [0]).await.unwrap();
-            assert_eq!(read, 0);
-
-            tls.shutdown().await.unwrap();
-        });
-    }
+    Ok(config.build()?)
 }
 
-
-pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
-    let resumption_attempts = Arc::new(AtomicU32::new(0));
-    let resumption_success = Arc::new(AtomicU32::new(0));
-
+fn client_config(
+    clock: &SimulClock,
+) -> Result<(config::Config, SessionTicketStore), Box<dyn std::error::Error>> {
     let store = SessionTicketStore::default();
 
     let cert_path = format!("{}/certs/test-cert.pem", env!("CARGO_MANIFEST_DIR"));
@@ -211,87 +206,74 @@ pub async fn client() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut config = Config::builder();
     config
-        .set_monotonic_clock(TurmoilClock)?
-        .set_security_policy(&security::DEFAULT_TLS13)?
+        .set_security_policy(&security::DEFAULT)?
+        .set_wall_clock(clock.clone())?
+        .set_monotonic_clock(clock.clone())?
         .set_connection_initializer(store.clone())?
         .enable_session_tickets(true)?
         .set_session_ticket_callback(store.clone())?
         .trust_pem(&cert)?;
-
-    let start = Instant::now();
-    let mut timer = tokio::time::interval(Duration::from_secs(10));
-    // Create the TlsConnector based on the configuration.
-    let client = TlsConnector::new(config.build()?);
-
-    // for 10 minutes
-    while start.elapsed() < Duration::from_secs(60 * 10) {
-        timer.tick().await;
-
-        let client_clone = client.clone();
-
-        let resumption_attempts_handle = Arc::clone(&resumption_attempts);
-        let resumption_success_handle = Arc::clone(&resumption_success);
-
-        tokio::spawn(async move {
-            // Create the TlsConnector based on the configuration.
-
-            tracing::trace!("client is connecting");
-            // Connect to the server.
-            let stream = TcpStream::connect(("server", PORT)).await.unwrap();
-            let mut tls = client_clone.connect("localhost", stream).await.unwrap();
-            if tls
-                .as_ref()
-                .application_context::<SessionTicket>()
-                .is_some()
-            {
-                resumption_attempts_handle.fetch_add(1, Ordering::SeqCst);
-                if tls.as_ref().resumed() {
-                    resumption_success_handle.fetch_add(1, Ordering::SeqCst);
-                } else {
-                    let session_ticket =
-                        tls.as_ref().application_context::<SessionTicket>().unwrap();
-
-                    tracing::error!(
-                        "Ticket supposed to be valid for {:?}, only {:?} elapsed",
-                        session_ticket.lifetime,
-                        session_ticket.received.elapsed()
-                    );
-                }
-            }
-
-            let mut data_from_server = vec![0; b"hello client".len()];
-            tls.read_exact(&mut data_from_server).await.unwrap();
-            assert_eq!(data_from_server, b"hello client");
-
-            tls.shutdown().await.unwrap();
-
-            // generally we will see a 0 length read complete successfully, however there
-            // is a possibility that the server's RST reaches the socket before we try the
-            // 0 length read, in which case an error is returned. Therefore we can not
-            // always expect a successful read here.
-            let _ = tls.read(&mut [0]).await;
-        });
+    unsafe {
+        // I can't be bothered to figure out my clock marking
+        config.disable_x509_verification()?;
     }
-
-    tracing::info!(
-        "session resumption attempts: {:?}, successes: {:?}",
-        resumption_attempts,
-        resumption_success
-    );
-    assert_eq!(
-        resumption_attempts.load(Ordering::SeqCst),
-        resumption_success.load(Ordering::SeqCst)
-    );
-
-    Ok(())
+    Ok((config.build()?, store))
 }
 
-fn repro_trial(seed: u8) {
-    // create the server config
+fn repro_trial(seed: u8) -> Result<(), String> {
+    let clock = SimulClock::default();
+    clock.0.swap(60, Ordering::SeqCst);
+    // key intro times are then 60, 120, 180
+    let server_config = server_config(&clock).unwrap();
+    let (devious_client, devious_ticket) = client_config(&clock).unwrap();
 
-    
+    // 40 seconds after the key 1 intro, but before any other keys are valid.
+    clock.0.swap(60 + 40, Ordering::SeqCst);
+    // must be session ticket with key 1
+    let mut load_initial_session_ticket = TestPair::from_configs(&devious_client, &server_config);
+    load_initial_session_ticket
+        .client
+        .set_waker(Some(noop_waker_ref()))
+        .unwrap();
+    load_initial_session_ticket.handshake().unwrap();
 
-    // create the assassin_client
+    assert_eq!(devious_ticket.tickets.lock().unwrap().len(), 1);
+
+    // 120 - 20 seconds after the session ticket was sent
+    // key 1 is now expired, but the session ticket still reports a valid lifetime
+    clock.0.swap(60 + 40 + 100, Ordering::SeqCst);
+
+    let mut backstabbing_handshake = TestPair::from_configs(&devious_client, &server_config);
+
+    let (innocent_client, innocent_ticket) = client_config(&clock).unwrap();
+    let mut innocent_handshake = TestPair::from_configs(&innocent_client, &server_config);
+    let backstabbing_handle = std::thread::spawn(move || {
+        backstabbing_handshake
+            .client
+            .set_waker(Some(noop_waker_ref()))
+            .unwrap();
+        backstabbing_handshake.handshake().unwrap();
+        // resumption should not have been successful
+        assert!(!backstabbing_handshake.client.resumed());
+    });
+
+    let innocent_handle = std::thread::spawn(move || {
+        innocent_handshake
+            .client
+            .set_waker(Some(noop_waker_ref()))
+            .unwrap();
+        innocent_handshake.handshake().unwrap();
+    });
+
+    backstabbing_handle.join().unwrap();
+    innocent_handle.join().unwrap();
+    let name = innocent_ticket.get_name();
+    println!("{:?}", name);
+    if name.iter().any(|byte| *byte == 0) {
+        return Err("the zero stek name was seen".into());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -323,14 +305,36 @@ mod simulation {
     }
 
     #[test]
-    fn few_keys_example() -> turmoil::Result {
-        setup_logging();
+    fn simple() {
+        repro_trial(1).unwrap();
+    }
 
-        let mut sim = turmoil::Builder::new()
-            .simulation_duration(Duration::from_secs(60 * 11))
-            .build();
-        sim.host("server", move || small_server());
-        sim.client("client", client());
-        sim.run()
+    #[test]
+    fn repro() {
+        let trials = Arc::new(AtomicU64::new(0));
+        // 16 cores, each spawns two threads, so 16 threads -> 64 trials
+        for _ in 0..NUM_HARNESS_THREADS {
+            let trials_handle = Arc::clone(&trials);
+            std::thread::spawn(move || {
+                let mut seed = 0;
+                loop {
+                    if trials_handle.load(Ordering::Relaxed) % 100 == 0 {
+                        println!("trials: {:?}", trials_handle.load(Ordering::Relaxed));
+                    }
+                    trials_handle.fetch_add(1, Ordering::Relaxed);
+                    seed += 1;
+                    seed %= 100;
+                    if let Err(e) = repro_trial(seed + 1) {
+                        println!("hit the zero name");
+                        std::fs::write(
+                            format!("trial{}", trials_handle.load(Ordering::Relaxed)),
+                            "zero stek name",
+                        )
+                        .unwrap();
+                    }
+                };
+            });
+        }
+
     }
 }
