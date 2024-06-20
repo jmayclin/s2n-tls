@@ -139,7 +139,6 @@ impl SessionTicketCallback for SessionTicketStore {
             data: data,
         };
 
-        // Associate the received session ticket with the connection's IP address.
         self.tickets.lock().unwrap().push_back(session_ticket);
     }
 }
@@ -150,7 +149,7 @@ impl ConnectionInitializer for SessionTicketStore {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, Error> {
-        let mut tickets = self.tickets.lock().unwrap();
+        let tickets = self.tickets.lock().unwrap();
 
         let front = match tickets.front() {
             Some(front) => front,
@@ -277,24 +276,35 @@ pub fn repro_trial(seed: u8) -> Result<(), String> {
             .unwrap();
         innocent_handshake.handshake().unwrap();
 
-        let name = innocent_ticket_handle.get_name();
-        if name.iter().any(|byte| *byte == 0) {
-            println!("stek name {:?}", name);
-            let secret = innocent_handshake.client.give_me_master_secret();
-            println!("hex master secret:{}", hex::encode(secret));
-            println!("hex ticket data:{}", hex::encode(&innocent_ticket_handle.tickets.lock().unwrap().front().unwrap().data));
-            //hex::encode();
-        };
+        //assert!(innocent_handshake.client.session_ticket_length().unwrap() > 0);
+
+        if ! innocent_ticket_handle.tickets.lock().unwrap().is_empty() {
+            let name = innocent_ticket_handle.get_name();
+            if name.iter().any(|byte| *byte == 0) {
+                println!("stek name {:?}", name);
+                let secret = innocent_handshake.client.give_me_master_secret();
+                println!("hex master secret:{}", hex::encode(secret));
+                println!("hex ticket data:{}", hex::encode(&innocent_ticket_handle.tickets.lock().unwrap().front().unwrap().data));
+                //hex::encode();
+            };
+        }
+
         //if innocent_ticket
     });
 
     backstabbing_handle.join().unwrap();
     innocent_handle.join().unwrap();
-    let name = innocent_ticket.get_name();
-    if name.iter().any(|byte| *byte == 0) {
-        println!("stek name {:?}", name);
-        return Err("the zero stek name was seen".into());
+
+    if ! innocent_ticket.tickets.lock().unwrap().is_empty() {
+        let name = innocent_ticket.get_name();
+        if name.iter().any(|byte| *byte == 0) {
+            println!("stek name {:?}", name);
+            return Err("the zero stek name was seen".into());
+        }
+    } else {
+        println!("why didn't we get a session ticket?");
     }
+
 
     Ok(())
 }
@@ -303,6 +313,7 @@ pub fn repro_trial(seed: u8) -> Result<(), String> {
 mod simulation {
     use std::{sync::Once, time::Duration};
 
+    use aws_lc_rs::aead::{nonce_sequence, Aad, BoundKey, LessSafeKey, Nonce, OpeningKey, UnboundKey, AES_256_GCM};
     use tracing::Level;
 
     use super::*;
@@ -330,6 +341,116 @@ mod simulation {
     #[test]
     fn simple() {
         repro_trial(0).unwrap();
+    }
+
+    struct ZerodCase {
+        ticket: &'static str,
+        secret: &'static str,
+    }
+
+    impl ZerodCase {
+        fn new(secret: &'static str, ticket: &'static str) -> Self {
+            Self {
+                ticket,
+                secret,
+            }
+        }
+    }
+
+    // int s2n_server_nst_send(struct s2n_connection *conn)
+
+    // int s2n_server_nst_recv(struct s2n_connection *conn)
+    // once again, this is presumably called by the server?
+
+    // s2n_client_serialize_resumption_state
+
+    #[test]
+    fn ticket_master_secret_pull() {
+        let cases = vec![
+            ZerodCase::new("84d51d536b1ea65faaa58abc6d1a2fa8b7b139612a006b02e4ee6b9efb4e8686fb920f4314a3d269a6741bb84eefd012", "010069000000000000000000000000000000008c8f6e47e31e6df3618bf11e1bb02b5f08fc7bcb29a867064de28c18da0cce5c6b62daf2fe4db17b924f3cb2fdc54561a51bde0ab9556eb5b58218bef37e66108f4f20d798352079ace7ff2ea7f906883575d1302d07a72d0a0421c02b18121c7f66ab780084d51d536b1ea65faaa58abc6d1a2fa8b7b139612a006b02e4ee6b9efb4e8686fb920f4314a3d269a6741bb84eefd01201"),
+            ZerodCase::new("c6285562802e41c5aceead4c177c14eb7b825d0147f81d7bbf814ebb30bd095e45ceef03aac51363cb8089d294b5341a", "01006900000000000000000000000000000000b5661a33a0e4ed94948f3a36fac891f4eef00df675e2ba97b7d889ed4cedc408481e2b004d907eb8b42d824593e83007c53aa2e31aa0685ef2c630959094225a701e769a397cb547bc6818d3ea39a29cda40e6ea6f21b2aaa80421c02b18121c7f66ab7800c6285562802e41c5aceead4c177c14eb7b825d0147f81d7bbf814ebb30bd095e45ceef03aac51363cb8089d294b5341a01"), 
+        ];
+
+        for case in cases {
+            let ticket = hex::decode(case.ticket).unwrap();
+            //let ticket = VecDeque::from_iter(ticket.into_iter());
+            let mut current = 0;
+
+            // this information is added as client specific information in the s2n_client_serialize_resumption_state method
+            let tag = ticket[current];
+            current += 1;
+            let client_ticket_size = u16::from_be_bytes(ticket[current..(current + 2)].try_into().unwrap());
+            current += 2;
+
+            // this data comes from the wire
+            // however, the lifetime and session_ticket_len have already been read out of the handshake io stuffer in 
+            // s2n_server_nst_recv (this naming confuses me). I am small brained, plz halp.
+            // so we skip past this to the fields by reverse engineering s2n_encrypt_session_ticket
+            let stek_name = &ticket[current..(current + 16)];
+            current += 16;
+            let iv = &ticket[current..(current + 12)];
+            current += 12;
+            // all of the data below this point is encrypted under 
+            let mut encrypted_blob = ticket[current..(current + 77)].to_owned();
+            assert_eq!(encrypted_blob.len(), 77);
+
+            // AAD data is 28 bytes, implicit aad (12) + key name (16)
+            let trial_key = [0; 32];
+            let unbound_key = UnboundKey::new(&AES_256_GCM, &trial_key).unwrap();
+            let aes_key = LessSafeKey::new(unbound_key);
+            let nonce = Nonce::try_assume_unique_for_key(&iv).unwrap();
+
+            let aad: [u8; 28] = [0; 12 + 16];
+            aes_key.open_in_place(nonce, Aad::from(aad), &mut encrypted_blob).unwrap();
+            // AES GCM Tag Len
+            let decrypted_data = encrypted_blob[0..(encrypted_blob.len() - 16)].to_owned();
+
+            // should be 61 bytes
+            // encrypted blob, from s2n_tls12_serialize_resumption_state
+            current = 0;
+            let ticket_format = decrypted_data[current];
+            assert_eq!(ticket_format, 4);
+            current += 1;
+
+            let resume_protocol_version = decrypted_data[current];
+            current += 1;
+
+            let cipher = u16::from_be_bytes(decrypted_data[current..(current + 2)].try_into().unwrap());
+            current += 2;
+
+            let time = u64::from_be_bytes(decrypted_data[current..(current + 8)].try_into().unwrap());
+            current += 8;
+            // time: u64
+
+            let master_secret = &decrypted_data[current..(current + 48)];
+            let master_secret_from_ticket = hex::encode(master_secret);
+            println!("from ticket: {}", master_secret_from_ticket);
+            println!("from connection: {}", case.secret);
+            assert_eq!(&master_secret_from_ticket, case.secret);
+            // master_secret: [u8; 48]
+            // ems_negotiated: u8
+
+
+
+
+            // let lifetime: u32 = u32::from_ne_bytes(ticket[current..(current + 4)].try_into().unwrap());
+            // current += 2;
+            // let session_ticket_len: u16 = u16::from_ne_bytes(ticket[current..(current + 2)].try_into().unwrap());
+            // current += 1;
+            println!("tag: {:?}", tag);
+            println!("client_ticket_size: {:?}", client_ticket_size);
+            println!("stek_name: {:?}", stek_name);
+            println!("iv: {:?}", iv);
+
+        }
+
+        assert!(false);
+
+        // ticket blob is u16 length
+        // u32: lifetime hint
+        // u16: session ticket len
+        // stuffer blob
+
     }
 
     // #[test]
