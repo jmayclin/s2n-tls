@@ -7,6 +7,7 @@ pub mod openssl;
 #[cfg(feature = "rustls")]
 pub mod rustls;
 pub mod s2n_tls;
+pub mod mbedtls;
 
 #[cfg(feature = "openssl")]
 pub use crate::openssl::OpenSslConnection;
