@@ -45,24 +45,6 @@ static s2n_mem_cleanup_callback s2n_mem_cleanup_cb = s2n_mem_cleanup_impl;
 static s2n_mem_malloc_callback s2n_mem_malloc_cb = s2n_mem_malloc_mlock_impl;
 static s2n_mem_free_callback s2n_mem_free_cb = s2n_mem_free_mlock_impl;
 
-
-bool mem_callback_can_continue = false;
-bool at_exit_run = 0;
-
-void nasty_callback() {
-    while (!mem_callback_can_continue) {
-        // 
-    }
-}
-
-int main() {
-    // set the mem callback here
-    s2n_mem_callback
-    return at_exit_run
-}
-
-void other_thread
-
 static int s2n_mem_init_impl(void)
 {
     long sysconf_rc = sysconf(_SC_PAGESIZE);

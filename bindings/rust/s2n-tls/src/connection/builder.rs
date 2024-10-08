@@ -21,6 +21,8 @@ impl Builder for Config {
     fn build_connection(&self, mode: Mode) -> Result<Self::Output, Error> {
         let mut conn = Connection::new(mode);
         conn.set_config(self.clone())?;
+        println!("enabling receive buffering through the config builder impl");
+        conn.set_receive_buffering(true)?;
         Ok(conn)
     }
 }

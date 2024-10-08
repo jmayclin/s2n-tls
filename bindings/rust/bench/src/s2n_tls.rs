@@ -216,6 +216,7 @@ impl TlsConnection for S2NConnection {
         connection
             .set_blinding(Blinding::SelfService)?
             .set_config(config.config.clone())?
+            .set_receive_buffering(true)?
             .set_send_callback(Some(Self::send_cb))?
             .set_receive_callback(Some(Self::recv_cb))?;
         unsafe {

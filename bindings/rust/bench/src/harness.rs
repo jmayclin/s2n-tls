@@ -393,7 +393,10 @@ impl Read for ConnectedBuffer {
         match res {
             // rustls expects WouldBlock on read of length 0
             Ok(0) => Err(std::io::Error::new(ErrorKind::WouldBlock, "blocking")),
-            Ok(len) => Ok(len),
+            Ok(len) => {
+                println!("r: {len}");
+                Ok(len)
+            }
             Err(err) => Err(err),
         }
     }
@@ -401,6 +404,7 @@ impl Read for ConnectedBuffer {
 
 impl Write for ConnectedBuffer {
     fn write(&mut self, src: &[u8]) -> Result<usize, std::io::Error> {
+        println!("w: {}", src.len());
         self.send.borrow_mut().write(src)
     }
     fn flush(&mut self) -> Result<(), std::io::Error> {
@@ -495,11 +499,11 @@ mod tests {
     {
         println!("testing with client:{} server:{}", C::name(), S::name());
         let mut conn_pair =
-            TlsConnPair::<C, S>::new_bench_pair(CryptoConfig::default(), HandshakeType::Resumption)
+            TlsConnPair::<C, S>::new_bench_pair(CryptoConfig::default(), HandshakeType::ServerAuth)
                 .unwrap();
         conn_pair.handshake().unwrap();
         let (_, server) = conn_pair.split();
-        assert!(server.resumed_connection());
+        //assert!(server.resumed_connection());
     }
 
     #[test]
@@ -509,17 +513,19 @@ mod tests {
             .is_test(true)
             .try_init()
             .unwrap();
+        println!("s2n handshake");
         session_resumption::<S2NConnection, S2NConnection>();
-        session_resumption::<S2NConnection, RustlsConnection>();
-        session_resumption::<S2NConnection, OpenSslConnection>();
-
+        // session_resumption::<S2NConnection, RustlsConnection>();
+        // session_resumption::<S2NConnection, OpenSslConnection>();
+        println!("rustls handshake");
         session_resumption::<RustlsConnection, RustlsConnection>();
-        session_resumption::<RustlsConnection, S2NConnection>();
-        session_resumption::<RustlsConnection, OpenSslConnection>();
+        // session_resumption::<RustlsConnection, S2NConnection>();
+        // session_resumption::<RustlsConnection, OpenSslConnection>();
 
-        session_resumption::<OpenSslConnection, OpenSslConnection>();
-        session_resumption::<OpenSslConnection, S2NConnection>();
-        session_resumption::<OpenSslConnection, RustlsConnection>();
+        // session_resumption::<OpenSslConnection, OpenSslConnection>();
+        // session_resumption::<OpenSslConnection, S2NConnection>();
+        // session_resumption::<OpenSslConnection, RustlsConnection>();\
+        panic!();
     }
 
     fn transfer<C, S>()

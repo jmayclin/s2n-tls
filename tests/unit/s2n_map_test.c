@@ -152,13 +152,6 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(memcmp(val.data, valstr, strlen(valstr) + 1));
     }
 
-        void * memory = malloc(10000);
-        if (memory == NULL) {
-            printf("allocation failed :(");
-            return 1;
-        }
-        memory = 0;
-
     /* Check for a key that shouldn't be there */
     EXPECT_SUCCESS(snprintf(keystr, sizeof(keystr), "%04x", TEST_VALUE_COUNT + 1));
     key.data = (void *) keystr;

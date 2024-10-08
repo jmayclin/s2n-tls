@@ -240,19 +240,23 @@ where
     }
 
     unsafe extern "C" fn recv_io_cb(ctx: *mut c_void, buf: *mut u8, len: u32) -> c_int {
-        Self::poll_io(ctx, |stream, async_context| {
+        let r = Self::poll_io(ctx, |stream, async_context| {
             let mut dest = ReadBuf::new(std::slice::from_raw_parts_mut(buf, len as usize));
             stream
                 .poll_read(async_context, &mut dest)
                 .map_ok(|_| dest.filled().len())
-        })
+        });
+        //println!("r: {r}");
+        r
     }
 
     unsafe extern "C" fn send_io_cb(ctx: *mut c_void, buf: *const u8, len: u32) -> c_int {
-        Self::poll_io(ctx, |stream, async_context| {
+        let r = Self::poll_io(ctx, |stream, async_context| {
             let src = std::slice::from_raw_parts(buf, len as usize);
             stream.poll_write(async_context, src)
-        })
+        });
+        //println!("w: {r}");
+        r
     }
 
     /// Polls the blinding timer, if there is any.
