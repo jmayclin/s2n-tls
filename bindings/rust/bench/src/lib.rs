@@ -7,6 +7,7 @@ pub mod openssl;
 #[cfg(feature = "rustls")]
 pub mod rustls;
 pub mod s2n_tls;
+// pub mod mbedtls;
 
 #[cfg(feature = "openssl")]
 pub use crate::openssl::OpenSslConnection;
@@ -14,8 +15,8 @@ pub use crate::openssl::OpenSslConnection;
 pub use crate::rustls::RustlsConnection;
 pub use crate::{
     harness::{
-        get_cert_path, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType, KXGroup, Mode,
-        PemType, SigType, TlsConnPair, TlsConnection,
+        get_cert_path, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, PemType, SigType,
+        TlsConnPair, TlsConnection,
     },
     s2n_tls::S2NConnection,
 };

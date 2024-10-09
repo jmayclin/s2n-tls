@@ -7,8 +7,10 @@ use std::{
     error::Error,
     fmt::Debug,
     fs::read_to_string,
-    io::{ErrorKind, Read, Write},
+    io::{self, ErrorKind, Read, Write},
+    pin::Pin,
     rc::Rc,
+    sync::Arc,
 };
 use strum::EnumIter;
 
@@ -161,10 +163,7 @@ pub trait TlsConnection: Sized {
     fn name() -> String;
 
     /// Make connection from existing config and buffer
-    fn new_from_config(
-        config: &Self::Config,
-        connected_buffer: ConnectedBuffer,
-    ) -> Result<Self, Box<dyn Error>>;
+    fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>>;
 
     /// Run one handshake step: receive msgs from other connection, process, and send new msgs
     fn handshake(&mut self) -> Result<(), Box<dyn Error>>;
@@ -179,34 +178,85 @@ pub trait TlsConnection: Sized {
     /// server connections because of rustls API limitations.
     fn resumed_connection(&self) -> bool;
 
-    /// Send application data to ConnectedBuffer
+    /// Send `data` to the peer
     fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>>;
 
-    /// Read application data from ConnectedBuffer
+    /// Receive `data` from the peer
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
+}
 
-    /// Shrink buffers owned by the connection
-    fn shrink_connection_buffers(&mut self);
+pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
+#[derive(Debug)]
+// We allow dead_code, because otherwise the compiler complains about the tx_streams
+// never being read. This is because it can't reason through the pointers that were
+// passed into the s2n-tls connection io contexts.
+#[allow(dead_code)]
+pub struct TestPairIO {
+    // Pin: since we are dereferencing this pointer (because it is passed as the send/recv ctx)
+    // we need to ensure that the pointer remains in the same place
+    // Box: A Vec (or VecDeque) may be moved or reallocated, so we need another layer of
+    // indirection to have a stable (pinned) reference
+    /// a data buffer that the server writes to and the client reads from
+    pub server_tx_stream: Arc<Pin<Box<LocalDataBuffer>>>,
+    /// a data buffer that the client writes to and the server reads from
+    pub client_tx_stream: Arc<Pin<Box<LocalDataBuffer>>>,
+}
 
-    /// Clear and shrink buffers used for IO with another connection
-    fn shrink_connected_buffer(&mut self);
+impl TestPairIO {
+    fn client_view(&self) -> ViewIO {
+        ViewIO {
+            send_ctx: Arc::clone(&self.client_tx_stream),
+            recv_ctx: Arc::clone(&self.server_tx_stream),
+        }
+    }
 
-    /// Get reference to internal connected buffer
-    fn connected_buffer(&self) -> &ConnectedBuffer;
+    fn server_view(&self) -> ViewIO {
+        ViewIO {
+            send_ctx: Arc::clone(&self.server_tx_stream),
+            recv_ctx: Arc::clone(&self.client_tx_stream),
+        }
+    }
+}
+
+/// A "view" of the IO.
+///
+/// This view is client/server specific, and notably implements the read and write
+/// traits.
+///
+/// This has to be a struct (instead of a tuple of references) because a tuple is
+/// always treated as a foreign struct, which prevents us from implement io::Read
+/// and io::Write on it.
+pub struct ViewIO {
+    pub send_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
+    pub recv_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
+}
+
+impl io::Read for ViewIO {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let res = self.recv_ctx.borrow_mut().read(buf);
+        if let Ok(0) = res {
+            // we are faking a stream, so return WouldBlock on read of length 0
+            Err(std::io::Error::new(ErrorKind::WouldBlock, "blocking"))
+        } else {
+            res
+        }
+    }
+}
+
+impl<'a> io::Write for ViewIO {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.send_ctx.borrow_mut().write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub struct TlsConnPair<C: TlsConnection, S: TlsConnection> {
-    client: C,
-    server: S,
-}
-
-impl<C: TlsConnection, S: TlsConnection> TlsConnPair<C, S> {
-    pub fn new(client_config: &C::Config, server_config: &S::Config) -> TlsConnPair<C, S> {
-        let connected_buffer = ConnectedBuffer::default();
-        let client = C::new_from_config(&client_config, connected_buffer.clone_inverse()).unwrap();
-        let server = S::new_from_config(&server_config, connected_buffer).unwrap();
-        Self { client, server }
-    }
+    pub client: C,
+    pub server: S,
+    pub io: TestPairIO,
 }
 
 impl<C, S> Default for TlsConnPair<C, S>
@@ -242,7 +292,7 @@ where
 
             // handshake the client and server connections. This will result in
             // session ticket getting stored in client_config
-            let mut pair = TlsConnPair::<C, S>::new(&client_config, &server_config);
+            let mut pair = TlsConnPair::<C, S>::from_configs(&client_config, &server_config);
             pair.handshake()?;
             // NewSessionTicket messages are part of the application data and sent
             // after the handshake is complete, so we must trigger an additional
@@ -255,10 +305,13 @@ where
             // on the connection. This results in the session ticket in
             // client_config (from the previous handshake) getting set on the
             // client connection.
-            return Ok(TlsConnPair::<C, S>::new(&client_config, &server_config));
+            return Ok(TlsConnPair::<C, S>::from_configs(
+                &client_config,
+                &server_config,
+            ));
         }
 
-        Ok(TlsConnPair::<C, S>::new(
+        Ok(TlsConnPair::<C, S>::from_configs(
             &C::Config::make_config(Mode::Client, crypto_config, handshake_type).unwrap(),
             &S::Config::make_config(Mode::Server, crypto_config, handshake_type).unwrap(),
         ))
@@ -270,13 +323,16 @@ where
     C: TlsConnection,
     S: TlsConnection,
 {
-    /// Wrap two TlsConnections into a TlsConnPair
-    pub fn wrap(client: C, server: S) -> Self {
-        assert!(
-            client.connected_buffer() == &server.connected_buffer().clone_inverse(),
-            "connected buffers don't match"
-        );
-        Self { client, server }
+    pub fn from_configs(client_config: &C::Config, server_config: &S::Config) -> Self {
+        let io = TestPairIO {
+            server_tx_stream: Arc::new(Box::pin(Default::default())),
+            client_tx_stream: Arc::new(Box::pin(Default::default())),
+        };
+        let client = C::new_from_config(&client_config, io.client_view()).unwrap();
+        let server = S::new_from_config(&server_config, io.server_view()).unwrap();
+
+        Self { client, server, io }
+        //Self::from_connections(client, server)
     }
 
     /// Take back ownership of individual connections in the TlsConnPair
@@ -324,93 +380,6 @@ where
         self.client.recv(data)?;
 
         Ok(())
-    }
-
-    /// Shrink buffers owned by the connections
-    pub fn shrink_connection_buffers(&mut self) {
-        self.client.shrink_connection_buffers();
-        self.server.shrink_connection_buffers();
-    }
-
-    /// Clear and shrink buffers used for IO between the connections
-    pub fn shrink_connected_buffers(&mut self) {
-        self.client.shrink_connected_buffer();
-        self.server.shrink_connected_buffer();
-    }
-}
-
-/// Wrapper of two shared buffers to pass as stream
-/// This wrapper `read()`s into one buffer and `write()`s to another
-/// `Rc<RefCell<VecDeque<u8>>>` allows sharing of references to the buffers for two connections
-#[derive(Clone, Eq)]
-pub struct ConnectedBuffer {
-    recv: Rc<RefCell<VecDeque<u8>>>,
-    send: Rc<RefCell<VecDeque<u8>>>,
-}
-
-impl PartialEq for ConnectedBuffer {
-    /// ConnectedBuffers are equal if and only if they point to the same VecDeques
-    fn eq(&self, other: &ConnectedBuffer) -> bool {
-        Rc::ptr_eq(&self.recv, &other.recv) && Rc::ptr_eq(&self.send, &other.send)
-    }
-}
-
-impl ConnectedBuffer {
-    /// Make a new struct with new internal buffers
-    pub fn new() -> Self {
-        let recv = Rc::new(RefCell::new(VecDeque::new()));
-        let send = Rc::new(RefCell::new(VecDeque::new()));
-
-        // prevent (potentially slow) resizing of buffers for small data transfers,
-        // like with handshake
-        recv.borrow_mut().reserve(10000);
-        send.borrow_mut().reserve(10000);
-
-        Self { recv, send }
-    }
-
-    /// Makes a new ConnectedBuffer that shares internal buffers but swapped,
-    /// ex. `write()` writes to the buffer that the inverse `read()`s from
-    pub fn clone_inverse(&self) -> Self {
-        Self {
-            recv: self.send.clone(),
-            send: self.recv.clone(),
-        }
-    }
-
-    /// Clears and shrinks buffers
-    pub fn shrink(&mut self) {
-        self.recv.borrow_mut().clear();
-        self.recv.borrow_mut().shrink_to_fit();
-        self.send.borrow_mut().clear();
-        self.send.borrow_mut().shrink_to_fit();
-    }
-}
-
-impl Read for ConnectedBuffer {
-    fn read(&mut self, dest: &mut [u8]) -> Result<usize, std::io::Error> {
-        let res = self.recv.borrow_mut().read(dest);
-        match res {
-            // rustls expects WouldBlock on read of length 0
-            Ok(0) => Err(std::io::Error::new(ErrorKind::WouldBlock, "blocking")),
-            Ok(len) => Ok(len),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-impl Write for ConnectedBuffer {
-    fn write(&mut self, src: &[u8]) -> Result<usize, std::io::Error> {
-        self.send.borrow_mut().write(src)
-    }
-    fn flush(&mut self) -> Result<(), std::io::Error> {
-        Ok(()) // data already available to destination
-    }
-}
-
-impl Default for ConnectedBuffer {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
