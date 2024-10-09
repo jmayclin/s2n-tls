@@ -158,6 +158,10 @@ pub struct S2NConnection {
 }
 
 impl S2NConnection {
+    /// Unsafe callback for custom IO C API
+    ///
+    /// s2n-tls IO is usually used with file descriptors to a TCP socket, but we
+    /// reduce overhead and outside noise with a local buffer for benchmarking
     unsafe extern "C" fn send_cb(context: *mut c_void, data: *const u8, len: u32) -> c_int {
         let context = &*(context as *const LocalDataBuffer);
         let data = core::slice::from_raw_parts(data, len as _);
@@ -207,37 +211,22 @@ impl TlsConnection for S2NConnection {
         let mut connection = Connection::new(mode);
         connection
             .set_blinding(Blinding::SelfService)?
-            .set_config(config.config.clone())?
-            .set_receive_buffering(true)?;
+            .set_config(config.config.clone())?;
 
         // register the connection for io
         connection
-            .set_blinding(Blinding::SelfService)
-            .unwrap()
-            .set_send_callback(Some(Self::send_cb))
-            .unwrap()
-            .set_receive_callback(Some(Self::recv_cb))
-            .unwrap();
+            .set_blinding(Blinding::SelfService)?
+            .set_send_callback(Some(Self::send_cb))?
+            .set_receive_callback(Some(Self::recv_cb))?;
         unsafe {
-            // cast 1 : send_ctx as &LocalDataBuffer -> get a plain reference to underlying LocalDataBuffer
-            //
-            // cast 2: &LocalDataBuffer as *const LocalDataBuffer -> cast the reference to a pointer
-            //     SAFETY: the LocalDataBuffer must live as long as the connection does. This can be violated if the
-            //             connections are moved out from the struct.
-            //
-            // cast 3: *const LocalDataBuffer as *mut c_void -> cast into the final *mut c_void required
-            //     SAFETY: serialized access is enforced by the interior RefCell, so it is safe to vend out
-            //             multiple mutable pointers to this item. We ensure this by casting back to an immutable
-            //             reference in the send and recv callbacks
             connection
                 .set_send_context(
                     io.send_ctx.deref() as &LocalDataBuffer as *const LocalDataBuffer
                         as *mut c_void,
-                )
-                .unwrap()
+                )?
                 .set_receive_context(io.recv_ctx.deref() as &LocalDataBuffer
-                    as *const LocalDataBuffer as *mut c_void)
-                .unwrap();
+                    as *const LocalDataBuffer
+                    as *mut c_void)?;
         }
 
         if let Some(ticket) = config.ticket_storage.0.lock().unwrap().borrow_mut().take() {

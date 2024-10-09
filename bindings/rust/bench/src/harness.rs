@@ -181,17 +181,14 @@ pub trait TlsConnection: Sized {
     /// Send `data` to the peer
     fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>>;
 
-    /// Receive `data` from the peer
+    /// Receive from the peer into `data`
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
 }
 
 pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
 #[derive(Debug)]
-// We allow dead_code, because otherwise the compiler complains about the tx_streams
-// never being read. This is because it can't reason through the pointers that were
-// passed into the s2n-tls connection io contexts.
-#[allow(dead_code)]
 pub struct TestPairIO {
+    // Arc: 
     // Pin: since we are dereferencing this pointer (because it is passed as the send/recv ctx)
     // we need to ensure that the pointer remains in the same place
     // Box: A Vec (or VecDeque) may be moved or reallocated, so we need another layer of
@@ -222,10 +219,9 @@ impl TestPairIO {
 ///
 /// This view is client/server specific, and notably implements the read and write
 /// traits.
-///
-/// This has to be a struct (instead of a tuple of references) because a tuple is
-/// always treated as a foreign struct, which prevents us from implement io::Read
-/// and io::Write on it.
+// This struct is used by Openssl and Rustls which both rely on a "stream" abstraction
+// which implements read and write. This is not used by s2n-tls, which relies on
+// lower level callbacks.
 pub struct ViewIO {
     pub send_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
     pub recv_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
@@ -332,7 +328,6 @@ where
         let server = S::new_from_config(&server_config, io.server_view()).unwrap();
 
         Self { client, server, io }
-        //Self::from_connections(client, server)
     }
 
     /// Take back ownership of individual connections in the TlsConnPair
