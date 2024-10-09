@@ -35,7 +35,11 @@ fn bench_throughput_for_library<T>(
         b.iter_batched_ref(
             || -> Result<TlsConnPair<T, T>, Box<dyn Error>> {
                 match (client_config.as_ref(), server_config.as_ref()) {
-                    (Ok(c_conf), Ok(s_conf)) => Ok(TlsConnPair::from_configs(c_conf, s_conf)),
+                    (Ok(c_conf), Ok(s_conf)) => {
+                        let mut pair = TlsConnPair::<T, T>::from_configs(c_conf, s_conf);
+                        pair.handshake()?;
+                        Ok(pair)
+                    },
                     _ => Err("invalid configs".into()),
                 }
             },
