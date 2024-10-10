@@ -153,9 +153,9 @@ pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn std::error:
     }
 }
 
-// a server using simpler PSK setup, only supporting 2 different PSKs. Since there
-// is a small number of PSKs, we directly load each of them onto the connection
-// using the `ConnectionInitializer` trait implemented on `PskStore`.
+// a server using a more complex PSK setup, supporting thousands of different
+// psks. Because of the large number, we only load them onto the connection at
+// the prompting of a PskSelectionCallback on the PskStore.
 pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
     config
