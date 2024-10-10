@@ -72,7 +72,7 @@ static S2N_RESULT s2n_cert_authorities_set_from_trust_store(struct s2n_config *c
     RESULT_GUARD_POSIX(s2n_stuffer_extract_blob(&output, &config->cert_authorities));
     return S2N_RESULT_OK;
 #else
-    RESULT_BAIL(S2N_ERR_INTERNAL_LIBCRYPTO_ERROR);
+    RESULT_BAIL(S2N_ERR_API_UNSUPPORTED_BY_LIBCRYPTO);
 #endif
 }
 
@@ -109,7 +109,7 @@ const s2n_extension_type s2n_cert_authorities_extension = {
     /* s2n-tls supports sending the extension, but does not support parsing it.
      * If received, the extension is ignored.
      *
-     *= https://tools.ietf.org/rfc/rfc8446#section-4.2.4
+     *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.4
      *= type=exception
      *= reason=Extension ignored when received - No customer use case
      *# The "certificate_authorities" extension is used to indicate the

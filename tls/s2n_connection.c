@@ -118,6 +118,9 @@ struct s2n_connection *s2n_connection_new(s2n_mode mode)
 
 static int s2n_connection_zero(struct s2n_connection *conn, int mode, struct s2n_config *config)
 {
+    POSIX_ENSURE_REF(conn);
+    POSIX_ENSURE_REF(config);
+
     /* Zero the whole connection structure */
     POSIX_CHECKED_MEMSET(conn, 0, sizeof(struct s2n_connection));
 
@@ -144,6 +147,8 @@ S2N_RESULT s2n_connection_wipe_all_keyshares(struct s2n_connection *conn)
 
 static int s2n_connection_wipe_keys(struct s2n_connection *conn)
 {
+    POSIX_ENSURE_REF(conn);
+
     /* Free any server key received (we may not have completed a
      * handshake, so this may not have been free'd yet) */
     POSIX_GUARD(s2n_pkey_free(&conn->handshake_params.server_public_key));
@@ -287,11 +292,14 @@ int s2n_connection_set_config(struct s2n_connection *conn, struct s2n_config *co
         return 0;
     }
 
-    const struct s2n_security_policy *security_policy = conn->security_policy_override;
-    if (!security_policy) {
-        security_policy = config->security_policy;
+    /* s2n_config invariant: any s2n_config is always in a state that respects the
+     * config->security_policy certificate preferences. Therefore we only need to
+     * validate certificates here if the connection is using a security policy override.
+     */
+    const struct s2n_security_policy *security_policy_override = conn->security_policy_override;
+    if (security_policy_override) {
+        POSIX_GUARD_RESULT(s2n_config_validate_loaded_certificates(config, security_policy_override));
     }
-    POSIX_GUARD_RESULT(s2n_config_validate_loaded_certificates(config, security_policy));
 
     /* We only support one client certificate */
     if (s2n_config_get_num_default_certs(config) > 1 && conn->mode == S2N_CLIENT) {
@@ -300,12 +308,7 @@ int s2n_connection_set_config(struct s2n_connection *conn, struct s2n_config *co
 
     s2n_x509_validator_wipe(&conn->x509_validator);
 
-    s2n_cert_auth_type auth_type = S2N_CERT_AUTH_NONE;
-    POSIX_GUARD_RESULT(s2n_connection_and_config_get_client_auth_type(conn, config, &auth_type));
-
-    int8_t dont_need_x509_validation = (conn->mode == S2N_SERVER) && (auth_type == S2N_CERT_AUTH_NONE);
-
-    if (config->disable_x509_validation || dont_need_x509_validation) {
+    if (config->disable_x509_validation) {
         POSIX_GUARD(s2n_x509_validator_init_no_x509_validation(&conn->x509_validator));
     } else {
         POSIX_GUARD(s2n_x509_validator_init(&conn->x509_validator, &config->trust_store, config->check_ocsp));
@@ -422,6 +425,8 @@ int s2n_connection_release_buffers(struct s2n_connection *conn)
 
 int s2n_connection_free_handshake(struct s2n_connection *conn)
 {
+    POSIX_ENSURE_REF(conn);
+
     /* We are done with the handshake */
     POSIX_GUARD_RESULT(s2n_handshake_hashes_free(&conn->handshake.hashes));
     POSIX_GUARD_RESULT(s2n_prf_free(conn));
@@ -460,6 +465,8 @@ int s2n_connection_free_handshake(struct s2n_connection *conn)
  */
 int s2n_connection_wipe(struct s2n_connection *conn)
 {
+    POSIX_ENSURE_REF(conn);
+
     /* First make a copy of everything we'd like to save, which isn't very much. */
     int mode = conn->mode;
     struct s2n_config *config = conn->config;
@@ -792,6 +799,8 @@ int s2n_connection_get_client_auth_type(struct s2n_connection *conn,
 
 int s2n_connection_set_client_auth_type(struct s2n_connection *conn, s2n_cert_auth_type client_cert_auth_type)
 {
+    POSIX_ENSURE_REF(conn);
+
     conn->client_cert_auth_type_overridden = 1;
     conn->client_cert_auth_type = client_cert_auth_type;
     return 0;
@@ -924,9 +933,8 @@ int s2n_connection_get_cipher_iana_value(struct s2n_connection *conn, uint8_t *f
     POSIX_ENSURE_MUT(second);
 
     /* ensure we've negotiated a cipher suite */
-    POSIX_ENSURE(memcmp(conn->secure->cipher_suite->iana_value,
-                         s2n_null_cipher_suite.iana_value, sizeof(s2n_null_cipher_suite.iana_value))
-                    != 0,
+    POSIX_ENSURE(!s2n_constant_time_equals(conn->secure->cipher_suite->iana_value,
+                         s2n_null_cipher_suite.iana_value, sizeof(s2n_null_cipher_suite.iana_value)),
             S2N_ERR_INVALID_STATE);
 
     const uint8_t *iana_value = conn->secure->cipher_suite->iana_value;
@@ -967,11 +975,11 @@ const char *s2n_connection_get_kem_group_name(struct s2n_connection *conn)
 {
     PTR_ENSURE_REF(conn);
 
-    if (conn->actual_protocol_version < S2N_TLS13 || !conn->kex_params.client_kem_group_params.kem_group) {
+    if (conn->actual_protocol_version < S2N_TLS13 || !conn->kex_params.server_kem_group_params.kem_group) {
         return "NONE";
     }
 
-    return conn->kex_params.client_kem_group_params.kem_group->name;
+    return conn->kex_params.server_kem_group_params.kem_group->name;
 }
 
 static S2N_RESULT s2n_connection_get_client_supported_version(struct s2n_connection *conn,
@@ -1153,7 +1161,6 @@ int s2n_connection_set_blinding(struct s2n_connection *conn, s2n_blinding blindi
 }
 
 #define ONE_S INT64_C(1000000000)
-#define TEN_S INT64_C(10000000000)
 
 static S2N_RESULT s2n_connection_get_delay_impl(struct s2n_connection *conn, uint64_t *delay)
 {
@@ -1188,13 +1195,57 @@ uint64_t s2n_connection_get_delay(struct s2n_connection *conn)
     }
 }
 
+/* s2n-tls has a random delay that will trigger for sensitive errors. This is a mitigation
+ * for possible timing sidechannels.
+ * 
+ * The historical sidechannel that inspired s2n-tls blinding was the Lucky 13 attack, which takes
+ * advantage of potential timing differences when removing padding from a record encrypted in CBC mode.
+ * The attack is only theoretical in TLS; the attack criteria is unlikely to ever occur 
+ * (See: Fardan, N. J. A., & Paterson, K. G. (2013, May 1). Lucky Thirteen: Breaking the TLS and 
+ * DTLS Record Protocols.) However, we still include blinding to provide a defense in depth mitigation.
+ */
+S2N_RESULT s2n_connection_calculate_blinding(struct s2n_connection *conn, int64_t *min, int64_t *max)
+{
+    RESULT_ENSURE_REF(conn);
+    RESULT_ENSURE_REF(min);
+    RESULT_ENSURE_REF(max);
+    RESULT_ENSURE_REF(conn->config);
+
+    /*
+     * The default delay is a random value between 10-30s. The rational behind the range is that the
+     * floor is the fixed cost that an attacker must pay per attempt, in this case, 10s. The length of
+     * the range then affects the number of attempts that an attacker must perform in order to recover a
+     * byte of plaintext with a certain degree of confidence.
+     *
+     * A uniform distribution of the range [a, b] has a variance of ((b - a)^2)/12. Therefore, given a
+     * hypothetical timing difference of 1us, the number of attempts necessary to distinguish the correct
+     * byte from an incorrect byte in a Lucky13-style attack is (((30 - 10) * 10 ^6)^2)/12 ~= 3.3 trillion
+     * (note that we first have to convert from seconds to microseconds to match the unit of the timing difference.)
+     */
+    *min = S2N_DEFAULT_BLINDING_MIN * ONE_S;
+    *max = S2N_DEFAULT_BLINDING_MAX * ONE_S;
+
+    /* Setting the min to 1/3 of the max is an arbitrary ratio of fixed to variable delay.
+     * It is based on the ratio of our original default values.
+     */
+    if (conn->config->custom_blinding_set) {
+        *max = conn->config->max_blinding * ONE_S;
+        *min = *max / 3;
+    }
+
+    return S2N_RESULT_OK;
+}
+
 static S2N_RESULT s2n_connection_kill(struct s2n_connection *conn)
 {
     RESULT_ENSURE_REF(conn);
     RESULT_GUARD(s2n_connection_set_closed(conn));
 
-    /* Delay between 10 and 30 seconds in nanoseconds */
-    int64_t min = TEN_S, max = 3 * TEN_S;
+    int64_t min = 0, max = 0;
+    RESULT_GUARD(s2n_connection_calculate_blinding(conn, &min, &max));
+    if (max == 0) {
+        return S2N_RESULT_OK;
+    }
 
     /* Keep track of the delay so that it can be enforced */
     uint64_t rand_delay = 0;
@@ -1254,6 +1305,7 @@ S2N_CLEANUP_RESULT s2n_connection_apply_error_blinding(struct s2n_connection **c
         case S2N_ERR_CANCELLED:
         case S2N_ERR_CIPHER_NOT_SUPPORTED:
         case S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED:
+        case S2N_ERR_CONFIG_NULL_BEFORE_CH_CALLBACK:
             RESULT_GUARD(s2n_connection_set_closed(*conn));
             break;
         default:
@@ -1663,7 +1715,7 @@ bool s2n_connection_check_io_status(struct s2n_connection *conn, s2n_io_status s
     bool full_duplex = !read_closed && !write_closed;
 
     /*
-     *= https://tools.ietf.org/rfc/rfc8446#section-6.1
+     *= https://www.rfc-editor.org/rfc/rfc8446#section-6.1
      *# Note that this is a change from versions of TLS prior to TLS 1.3 in
      *# which implementations were required to react to a "close_notify" by
      *# discarding pending writes and sending an immediate "close_notify"

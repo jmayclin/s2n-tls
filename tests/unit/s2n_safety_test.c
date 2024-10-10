@@ -279,6 +279,13 @@ int main(int argc, char **argv)
     EXPECT_SUCCESS(success_ct_pkcs1());
     EXPECT_SUCCESS(success_ct_pkcs1_negative());
 
+    /* Check the special case where one parameter refers to an array of N bytes */
+    /* where all elements are 0x00, and the other parameter is NULL             */
+    uint8_t all_zero[4] = { 0, 0, 0, 0 };
+
+    EXPECT_FALSE(s2n_constant_time_equals(all_zero, NULL, sizeof(all_zero)));
+    EXPECT_FALSE(s2n_constant_time_equals(NULL, all_zero, sizeof(all_zero)));
+
     uint8_t a[4] = { 1, 2, 3, 4 };
     uint8_t b[4] = { 1, 2, 3, 4 };
     uint8_t c[4] = { 5, 6, 7, 8 };
@@ -436,6 +443,18 @@ int main(int argc, char **argv)
             EXPECT_FALSE(S2N_ADD_IS_OVERFLOW_SAFE(v1, v2, max));
             EXPECT_FALSE(S2N_ADD_IS_OVERFLOW_SAFE(v2, v1, max));
         }
+    }
+
+    /* Test: s2n_array_len */
+    {
+        /* Must return correct length */
+        uint16_t test_data[10] = { 0 };
+        EXPECT_EQUAL(s2n_array_len(test_data), 10);
+        EXPECT_NOT_EQUAL(s2n_array_len(test_data), sizeof(test_data));
+
+        /* Must be usable as an array size / constant expression */
+        uint16_t test_data_dup[s2n_array_len(test_data)] = { 0 };
+        EXPECT_EQUAL(sizeof(test_data), sizeof(test_data_dup));
     }
 
     END_TEST();

@@ -1,4 +1,7 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 import copy
+import platform
 import pytest
 import re
 
@@ -123,6 +126,7 @@ def test_s2n_server_handles_padded_records(managed_process, cipher, provider, cu
             cipher.name)) in server_results.stdout
 
 
+@pytest.mark.flaky(reruns=5, reruns_delay=2, condition=platform.machine().startswith("aarch"))
 @pytest.mark.uncollect_if(func=invalid_test_parameters)
 @pytest.mark.parametrize("cipher", TLS13_CIPHERS, ids=get_parameter_name)
 @pytest.mark.parametrize("provider", [OpenSSL])

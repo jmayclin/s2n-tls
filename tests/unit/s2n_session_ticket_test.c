@@ -25,6 +25,7 @@
 
 #define S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS (S2N_TICKET_ENCRYPT_DECRYPT_KEY_LIFETIME_IN_NANOS + S2N_TICKET_DECRYPT_KEY_LIFETIME_IN_NANOS) / ONE_SEC_IN_NANOS
 #define S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES         S2N_STATE_FORMAT_LEN + S2N_SESSION_TICKET_SIZE_LEN
+#define S2N_TICKET_KEY_NAME_LOCATION                    S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES + S2N_TICKET_VERSION_SIZE
 #define ONE_SEC_DELAY                                   1
 
 #define S2N_CLOCK_SYS CLOCK_REALTIME
@@ -229,7 +230,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name1, s2n_array_len(ticket_key_name1));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name1, s2n_array_len(ticket_key_name1));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
@@ -393,7 +395,8 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
 
         /* Verify that the new NST is encrypted using second ST */
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2, s2n_array_len(ticket_key_name2));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name2, s2n_array_len(ticket_key_name2));
 
         EXPECT_SUCCESS(s2n_shutdown_test_server_and_client(server_conn, client_conn));
 
@@ -504,7 +507,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name1, s2n_array_len(ticket_key_name1));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name1, s2n_array_len(ticket_key_name1));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
@@ -574,7 +578,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2, s2n_array_len(ticket_key_name2));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name2, s2n_array_len(ticket_key_name2));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
@@ -640,7 +645,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name1, s2n_array_len(ticket_key_name1));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name1, s2n_array_len(ticket_key_name1));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
@@ -686,7 +692,9 @@ int main(int argc, char **argv)
         /* Verify that client_ticket is empty */
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), 1 + 1 + client_conn->session_id_len + S2N_TLS12_STATE_SIZE_IN_BYTES);
         EXPECT_EQUAL(memcmp(serialized_session_state, &s2n_state_with_session_id, 1), 0);
-        EXPECT_NOT_EQUAL(memcmp(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2, s2n_array_len(ticket_key_name2)), 0);
+        EXPECT_NOT_EQUAL(memcmp(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                                 ticket_key_name2, s2n_array_len(ticket_key_name2)),
+                0);
 
         /* Verify the lifetime hint from the server */
         EXPECT_FAILURE_WITH_ERRNO(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_ERR_SESSION_TICKET_NOT_SUPPORTED);
@@ -809,7 +817,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST which is encrypted using a key which is at it's peak encryption */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name1, s2n_array_len(ticket_key_name1));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name1, s2n_array_len(ticket_key_name1));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), S2N_SESSION_STATE_CONFIGURABLE_LIFETIME_IN_SECS);
@@ -893,7 +902,8 @@ int main(int argc, char **argv)
             serialized_session_state_length = s2n_connection_get_session_length(client_conn);
             EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length),
                     serialized_session_state_length);
-            int result = memcmp(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2,
+            int result = memcmp(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                    ticket_key_name2,
                     s2n_array_len(ticket_key_name2));
             if (result == 0) {
                 expected_key_chosen = true;
@@ -967,7 +977,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST which is encrypted using a key which is at it's peak encryption */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2, s2n_array_len(ticket_key_name2));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name2, s2n_array_len(ticket_key_name2));
 
         /* Verify the lifetime hint from the server */
         EXPECT_EQUAL(s2n_connection_get_session_ticket_lifetime_hint(client_conn), 86400 + 18000);
@@ -1027,7 +1038,8 @@ int main(int argc, char **argv)
         /* Verify that the client received NST which is encrypted using a key which is at it's peak encryption */
         serialized_session_state_length = s2n_connection_get_session_length(client_conn);
         EXPECT_EQUAL(s2n_connection_get_session(client_conn, serialized_session_state, serialized_session_state_length), serialized_session_state_length);
-        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_PARTIAL_SESSION_STATE_INFO_IN_BYTES, ticket_key_name2, s2n_array_len(ticket_key_name2));
+        EXPECT_BYTEARRAY_EQUAL(serialized_session_state + S2N_TICKET_KEY_NAME_LOCATION,
+                ticket_key_name2, s2n_array_len(ticket_key_name2));
 
         /* Verify that the keys are stored from oldest to newest */
         EXPECT_OK(s2n_set_get(server_config->ticket_keys, 0, (void **) &ticket_key));
@@ -1087,7 +1099,7 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_config_free(client_config));
     };
 
-    /* s2n_decrypt_session_ticket fails to decrypt when presented with a valid ticket_key, valid iv and invalid encrypted blob */
+    /* s2n_resume_decrypt_session_ticket fails to decrypt when presented with a valid ticket_key, valid iv and invalid encrypted blob */
     {
         EXPECT_NOT_NULL(server_conn = s2n_connection_new(S2N_SERVER));
         EXPECT_NOT_NULL(server_config = s2n_config_new());
@@ -1097,8 +1109,12 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(server_config, ticket_key_name1, s2n_array_len(ticket_key_name1), ticket_key1, s2n_array_len(ticket_key1), 0));
         EXPECT_SUCCESS(s2n_connection_set_config(server_conn, server_config));
 
-        /* Setup stuffers value containing the valid key name, valid iv and invalid encrypted blob */
+        /* Setup stuffers value containing the valid version number, valid key name, valid info, valid iv and invalid encrypted blob */
+        POSIX_GUARD(s2n_stuffer_write_uint8(&server_conn->client_ticket_to_decrypt, S2N_PRE_ENCRYPTED_STATE_V1));
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, ticket_key_name1, s2n_array_len(ticket_key_name1)));
+
+        uint8_t valid_info[S2N_TICKET_INFO_SIZE] = { 0 };
+        POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, valid_info, sizeof(valid_info)));
 
         uint8_t valid_iv[S2N_TLS_GCM_IV_LEN] = { 0 };
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, valid_iv, sizeof(valid_iv)));
@@ -1107,13 +1123,13 @@ int main(int argc, char **argv)
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, invalid_en_data, sizeof(invalid_en_data)));
 
         server_conn->session_ticket_status = S2N_DECRYPT_TICKET;
-        EXPECT_FAILURE_WITH_ERRNO(s2n_decrypt_session_ticket(server_conn, &server_conn->client_ticket_to_decrypt), S2N_ERR_DECRYPT);
+        EXPECT_ERROR_WITH_ERRNO(s2n_resume_decrypt_session_ticket(server_conn, &server_conn->client_ticket_to_decrypt), S2N_ERR_DECRYPT);
 
         EXPECT_SUCCESS(s2n_connection_free(server_conn));
         EXPECT_SUCCESS(s2n_config_free(server_config));
     };
 
-    /* s2n_decrypt_session_ticket fails with a key not found error when presented with an invalid ticket_key, valid iv and invalid encrypted blob */
+    /* s2n_resume_decrypt_session_ticket fails with a key not found error when presented with an invalid ticket_key, valid iv and invalid encrypted blob */
     {
         EXPECT_NOT_NULL(server_conn = s2n_connection_new(S2N_SERVER));
         EXPECT_NOT_NULL(server_config = s2n_config_new());
@@ -1123,8 +1139,12 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(server_config, ticket_key_name1, s2n_array_len(ticket_key_name1), ticket_key1, s2n_array_len(ticket_key1), 0));
         EXPECT_SUCCESS(s2n_connection_set_config(server_conn, server_config));
 
-        /* Setup stuffers value containing the invalid key name, valid iv and invalid encrypted blob */
+        /* Setup stuffers value containing the valid version number, invalid key name, valid iv, valid info, and invalid encrypted blob */
+        POSIX_GUARD(s2n_stuffer_write_uint8(&server_conn->client_ticket_to_decrypt, S2N_PRE_ENCRYPTED_STATE_V1));
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, ticket_key_name2, s2n_array_len(ticket_key_name2)));
+
+        uint8_t valid_info[S2N_TICKET_INFO_SIZE] = { 0 };
+        POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, valid_info, sizeof(valid_info)));
 
         uint8_t valid_iv[S2N_TLS_GCM_IV_LEN] = { 0 };
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, valid_iv, sizeof(valid_iv)));
@@ -1133,7 +1153,7 @@ int main(int argc, char **argv)
         POSIX_GUARD(s2n_stuffer_write_bytes(&server_conn->client_ticket_to_decrypt, invalid_en_data, sizeof(invalid_en_data)));
 
         server_conn->session_ticket_status = S2N_DECRYPT_TICKET;
-        EXPECT_FAILURE_WITH_ERRNO(s2n_decrypt_session_ticket(server_conn, &server_conn->client_ticket_to_decrypt), S2N_ERR_KEY_USED_IN_SESSION_TICKET_NOT_FOUND);
+        EXPECT_ERROR_WITH_ERRNO(s2n_resume_decrypt_session_ticket(server_conn, &server_conn->client_ticket_to_decrypt), S2N_ERR_KEY_USED_IN_SESSION_TICKET_NOT_FOUND);
 
         EXPECT_SUCCESS(s2n_connection_free(server_conn));
         EXPECT_SUCCESS(s2n_config_free(server_config));
@@ -1241,16 +1261,17 @@ int main(int argc, char **argv)
     if (s2n_is_tls13_fully_supported()) {
         struct s2n_config *config = s2n_config_new();
         EXPECT_NOT_NULL(config);
+
+        /* Freeze time */
+        POSIX_GUARD(config->wall_clock(config->sys_clock_ctx, &now));
+        EXPECT_OK(s2n_config_mock_wall_clock(config, &now));
+
         EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, ecdsa_chain_and_key));
         EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config));
         EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(config, 1));
         EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(config, ticket_key_name1, s2n_array_len(ticket_key_name1),
                 ticket_key1, s2n_array_len(ticket_key1), 0));
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "default_tls13"));
-
-        /* Freeze time */
-        POSIX_GUARD(config->wall_clock(config->sys_clock_ctx, &now));
-        EXPECT_OK(s2n_config_mock_wall_clock(config, &now));
 
         /* Send one NewSessionTicket */
         cb_session_data_len = 0;
@@ -1475,6 +1496,232 @@ int main(int argc, char **argv)
         /* Client does not have a session ticket since it received zero-length NST message */
         EXPECT_EQUAL(client->client_ticket.size, 0);
         EXPECT_EQUAL(client->ticket_lifetime_hint, 0);
+    }
+
+    /* Test: Server disables tls12 tickets */
+    {
+        DEFER_CLEANUP(struct s2n_config *forward_secret_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(forward_secret_config);
+        EXPECT_SUCCESS(s2n_config_require_ticket_forward_secrecy(forward_secret_config, true));
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(forward_secret_config, "default_tls13"));
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(forward_secret_config,
+                chain_and_key));
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(forward_secret_config, 1));
+        EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(forward_secret_config, ticket_key_name1,
+                s2n_array_len(ticket_key_name1), ticket_key1, s2n_array_len(ticket_key1), 0));
+
+        DEFER_CLEANUP(struct s2n_config *tls12_client_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(tls12_client_config);
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(tls12_client_config, 1));
+        EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(tls12_client_config));
+        /* Security policy that does not support TLS1.3 */
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(tls12_client_config, "20240501"));
+
+        DEFER_CLEANUP(struct s2n_config *tls13_client_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(tls12_client_config);
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(tls13_client_config, 1));
+        EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(tls13_client_config));
+        /* Security policy that does support TLS1.3 */
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(tls13_client_config, "default_tls13"));
+
+        /* Server does not send ticket when forward secrecy is enforced and TLS1.2 is negotiated */
+        {
+            DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(client);
+            DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(server);
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, tls12_client_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, forward_secret_config));
+
+            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
+                    s2n_io_stuffer_pair_free);
+            EXPECT_OK(s2n_io_stuffer_pair_init(&test_io));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS12);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS12);
+
+            uint16_t tickets_sent = 0;
+            EXPECT_SUCCESS(s2n_connection_get_tickets_sent(server, &tickets_sent));
+            EXPECT_EQUAL(tickets_sent, 0);
+        }
+
+        /* Server does send tickets when forward secrecy is enforced and TLS1.3 is negotiated */
+        if (s2n_is_tls13_fully_supported()) {
+            DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(client);
+            DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(server);
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, tls13_client_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, forward_secret_config));
+
+            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
+                    s2n_io_stuffer_pair_free);
+            EXPECT_OK(s2n_io_stuffer_pair_init(&test_io));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS13);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS13);
+
+            uint16_t tickets_sent = 0;
+            EXPECT_SUCCESS(s2n_connection_get_tickets_sent(server, &tickets_sent));
+            EXPECT_EQUAL(tickets_sent, 1);
+        }
+
+        /* Server does not accept valid TLS1.2 ticket when forward secrecy is enforced */
+        {
+            DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(client);
+            DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(server);
+
+            /* Disable forward secrecy for the first handshake */
+            EXPECT_SUCCESS(s2n_config_require_ticket_forward_secrecy(forward_secret_config, false));
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, tls12_client_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, forward_secret_config));
+
+            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
+                    s2n_io_stuffer_pair_free);
+            EXPECT_OK(s2n_io_stuffer_pair_init(&test_io));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS12);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS12);
+
+            uint16_t tickets_sent = 0;
+            EXPECT_SUCCESS(s2n_connection_get_tickets_sent(server, &tickets_sent));
+            EXPECT_EQUAL(tickets_sent, 1);
+
+            uint8_t session_data[S2N_TLS12_SESSION_SIZE] = { 0 };
+            EXPECT_SUCCESS(s2n_connection_get_session(client, session_data, sizeof(session_data)));
+
+            /* Enable forward secrecy for the second handshake */
+            EXPECT_SUCCESS(s2n_config_require_ticket_forward_secrecy(forward_secret_config, true));
+
+            EXPECT_SUCCESS(s2n_connection_wipe(client));
+            EXPECT_SUCCESS(s2n_connection_wipe(server));
+
+            EXPECT_SUCCESS(s2n_connection_set_session(client, session_data, sizeof(session_data)));
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, tls12_client_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, forward_secret_config));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS12);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS12);
+
+            /* Session ticket not accepted */
+            EXPECT_TRUE(IS_FULL_HANDSHAKE(client));
+            EXPECT_TRUE(IS_FULL_HANDSHAKE(server));
+
+            /* No ticket issued */
+            EXPECT_SUCCESS(s2n_connection_get_tickets_sent(server, &tickets_sent));
+            EXPECT_EQUAL(tickets_sent, 0);
+        }
+    }
+
+    /* Test: Client disables tls12 tickets */
+    {
+        DEFER_CLEANUP(struct s2n_config *forward_secret_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(forward_secret_config);
+        EXPECT_SUCCESS(s2n_config_require_ticket_forward_secrecy(forward_secret_config, true));
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(forward_secret_config, "default_tls13"));
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(forward_secret_config, 1));
+        EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(forward_secret_config));
+
+        DEFER_CLEANUP(struct s2n_config *tls12_server_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(tls12_server_config);
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(tls12_server_config, 1));
+        /* Security policy that does not support TLS1.3 */
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(tls12_server_config, "20240501"));
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(tls12_server_config,
+                chain_and_key));
+        EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(tls12_server_config, ticket_key_name1,
+                s2n_array_len(ticket_key_name1), ticket_key1, s2n_array_len(ticket_key1), 0));
+
+        DEFER_CLEANUP(struct s2n_config *tls13_server_config = s2n_config_new(),
+                s2n_config_ptr_free);
+        EXPECT_NOT_NULL(tls13_server_config);
+        EXPECT_SUCCESS(s2n_config_set_session_tickets_onoff(tls13_server_config, 1));
+        /* Security policy that does support TLS1.3 */
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(tls13_server_config, "default_tls13"));
+        EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(tls13_server_config,
+                chain_and_key));
+        EXPECT_SUCCESS(s2n_config_add_ticket_crypto_key(tls13_server_config, ticket_key_name1,
+                s2n_array_len(ticket_key_name1), ticket_key1, s2n_array_len(ticket_key1), 0));
+
+        /* No ticket is received when forward secrecy is enforced and TLS1.2 is negotiated */
+        {
+            DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(client);
+            DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(server);
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, forward_secret_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, tls12_server_config));
+
+            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
+                    s2n_io_stuffer_pair_free);
+            EXPECT_OK(s2n_io_stuffer_pair_init(&test_io));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS12);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS12);
+
+            EXPECT_EQUAL(client->client_ticket.size, 0);
+        }
+
+        /* A ticket is received when forward secrecy is enforced and TLS1.3 is negotiated */
+        if (s2n_is_tls13_fully_supported()) {
+            DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(client);
+            DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+                    s2n_connection_ptr_free);
+            EXPECT_NOT_NULL(server);
+
+            EXPECT_SUCCESS(s2n_connection_set_config(client, forward_secret_config));
+            EXPECT_SUCCESS(s2n_connection_set_config(server, tls13_server_config));
+
+            DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
+                    s2n_io_stuffer_pair_free);
+            EXPECT_OK(s2n_io_stuffer_pair_init(&test_io));
+            EXPECT_OK(s2n_connections_set_io_stuffer_pair(client, server, &test_io));
+
+            EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+
+            EXPECT_EQUAL(client->actual_protocol_version, S2N_TLS13);
+            EXPECT_EQUAL(server->actual_protocol_version, S2N_TLS13);
+
+            /* Do a recv call to pick up TLS1.3 ticket */
+            uint8_t data = 1;
+            s2n_blocked_status blocked = S2N_NOT_BLOCKED;
+            EXPECT_FAILURE_WITH_ERRNO(s2n_recv(client, &data, 1, &blocked), S2N_ERR_IO_BLOCKED);
+
+            EXPECT_NOT_EQUAL(client->client_ticket.size, 0);
+        }
     }
 
     EXPECT_SUCCESS(s2n_io_pair_close(&io_pair));

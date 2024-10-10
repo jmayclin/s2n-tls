@@ -85,7 +85,7 @@ static int s2n_generate_default_ecc_key_share(struct s2n_connection *conn, struc
         }
 
         /**
-         *= https://tools.ietf.org/rfc/rfc8446#4.2.8
+         *= https://www.rfc-editor.org/rfc/rfc8446#4.2.8
          *# Otherwise, when sending the new ClientHello, the client MUST
          *# replace the original "key_share" extension with one containing only a
          *# new KeyShareEntry for the group indicated in the selected_group field
@@ -106,7 +106,7 @@ static int s2n_generate_pq_hybrid_key_share(struct s2n_stuffer *out, struct s2n_
     POSIX_ENSURE_REF(kem_group_params);
 
     /* This function should never be called when PQ is disabled */
-    POSIX_ENSURE(s2n_pq_is_enabled(), S2N_ERR_NO_SUPPORTED_LIBCRYPTO_API);
+    POSIX_ENSURE(s2n_pq_is_enabled(), S2N_ERR_UNIMPLEMENTED);
 
     const struct s2n_kem_group *kem_group = kem_group_params->kem_group;
     POSIX_ENSURE_REF(kem_group);
@@ -169,7 +169,7 @@ static int s2n_generate_default_pq_hybrid_key_share(struct s2n_connection *conn,
         }
 
         /**
-         *= https://tools.ietf.org/rfc/rfc8446#4.2.8
+         *= https://www.rfc-editor.org/rfc/rfc8446#4.2.8
          *# Otherwise, when sending the new ClientHello, the client MUST
          *# replace the original "key_share" extension with one containing only a
          *# new KeyShareEntry for the group indicated in the selected_group field
@@ -443,7 +443,7 @@ static int s2n_client_key_share_recv(struct s2n_connection *conn, struct s2n_stu
      * If there were no matching key shares, then we received an empty key share extension
      * or we didn't match a key share with a supported group. We should send a retry.
      *
-     *= https://tools.ietf.org/rfc/rfc8446#4.1.1
+     *= https://www.rfc-editor.org/rfc/rfc8446#4.1.1
      *# If the server selects an (EC)DHE group and the client did not offer a
      *# compatible "key_share" extension in the initial ClientHello, the
      *# server MUST respond with a HelloRetryRequest (Section 4.1.4) message.

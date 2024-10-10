@@ -3,6 +3,8 @@
 
 #![allow(clippy::missing_safety_doc)] // TODO add safety docs
 
+#[cfg(feature = "unstable-renegotiate")]
+use crate::renegotiate::RenegotiateState;
 use crate::{
     callbacks::*,
     cert_chain::CertificateChain,
@@ -24,14 +26,21 @@ use core::{
 };
 use libc::c_void;
 use s2n_tls_sys::*;
-use std::ffi::CStr;
+use std::{any::Any, ffi::CStr};
 
 mod builder;
 pub use builder::*;
 
-macro_rules! static_const_str {
+/// return a &str scoped to the lifetime of the surrounding function
+///
+/// SAFETY: must be called on a null terminated string
+///
+/// SAFETY: the underlying data must live at least as long as the surrounding scope
+// We use a macro instead of a function so that the lifetime of the output is
+// automatically inferred to match the surrounding scope.
+macro_rules! const_str {
     ($c_chars:expr) => {
-        unsafe { CStr::from_ptr($c_chars) }
+        CStr::from_ptr($c_chars)
             .to_str()
             .map_err(|_| Error::INVALID_INPUT)
     };
@@ -390,6 +399,14 @@ impl Connection {
         Ok(self)
     }
 
+    /// # Safety
+    ///
+    /// The `context` pointer must live at least as long as the connection
+    pub unsafe fn set_send_context(&mut self, context: *mut c_void) -> Result<&mut Self, Error> {
+        s2n_connection_set_send_ctx(self.connection.as_ptr(), context).into_result()?;
+        Ok(self)
+    }
+
     /// Sets the callback to use for verifying that a hostname from an X.509 certificate is
     /// trusted.
     ///
@@ -424,14 +441,6 @@ impl Connection {
         Ok(self)
     }
 
-    /// # Safety
-    ///
-    /// The `context` pointer must live at least as long as the connection
-    pub unsafe fn set_send_context(&mut self, context: *mut c_void) -> Result<&mut Self, Error> {
-        s2n_connection_set_send_ctx(self.connection.as_ptr(), context).into_result()?;
-        Ok(self)
-    }
-
     /// Connections prefering low latency will be encrypted using small record sizes that
     /// can be decrypted sooner by the recipient.
     pub fn prefer_low_latency(&mut self) -> Result<&mut Self, Error> {
@@ -442,6 +451,18 @@ impl Connection {
     /// Connections prefering throughput will use large record sizes that minimize overhead.
     pub fn prefer_throughput(&mut self) -> Result<&mut Self, Error> {
         unsafe { s2n_connection_prefer_throughput(self.connection.as_ptr()).into_result() }?;
+        Ok(self)
+    }
+
+    /// Configure the connection to reduce potentially expensive calls to recv.
+    ///
+    /// Refer to the corresponding C API
+    /// [s2n_connection_set_recv_buffering](https://aws.github.io/s2n-tls/doxygen/s2n_8h.html)
+    /// for more information.
+    pub fn set_receive_buffering(&mut self, enabled: bool) -> Result<&mut Self, Error> {
+        unsafe {
+            s2n_connection_set_recv_buffering(self.connection.as_ptr(), enabled).into_result()
+        }?;
         Ok(self)
     }
 
@@ -459,6 +480,25 @@ impl Connection {
         Ok(self)
     }
 
+    pub(crate) fn wipe_method<F, T>(&mut self, wipe: F) -> Result<(), Error>
+    where
+        F: FnOnce(&mut Self) -> Result<T, Error>,
+    {
+        let mode = self.mode();
+
+        // Safety:
+        // We re-init the context after the wipe
+        unsafe { self.drop_context()? };
+
+        let result = wipe(self);
+        // We must initialize the context again whether or not wipe succeeds.
+        // A connection without a context is invalid and has undefined behavior.
+        self.init_context(mode);
+        result?;
+
+        Ok(())
+    }
+
     /// wipes an existing connection and allows it to be reused.
     ///
     /// This method erases all data associated with a connection including pending reads.
@@ -466,70 +506,16 @@ impl Connection {
     /// called. Reusing the same connection handle(s) is more performant than repeatedly
     /// calling s2n_connection_new and s2n_connection_free
     pub fn wipe(&mut self) -> Result<&mut Self, Error> {
-        let mode = self.mode();
-        unsafe {
-            // Wiping the connection will wipe the pointer to the context,
-            // so retrieve and drop that memory first.
-            let ctx = self.context_mut();
-            drop(Box::from_raw(ctx));
-
-            s2n_connection_wipe(self.connection.as_ptr()).into_result()
-        }?;
-
-        self.init_context(mode);
+        self.wipe_method(|conn| unsafe { s2n_connection_wipe(conn.as_ptr()).into_result() })?;
         Ok(self)
     }
 
-    /// Performs the TLS handshake to completion
-    ///
-    /// Multiple callbacks can be configured for a connection and config, but
-    /// [`Self::poll_negotiate()`] can only execute and block on one callback at a time.
-    /// The handshake is sequential, not concurrent, and stops execution when
-    /// it encounters an async callback.
-    ///
-    /// The handshake does not continue execution (and therefore can't call
-    /// any other callbacks) until the blocking async task reports completion.
-    pub fn poll_negotiate(&mut self) -> Poll<Result<&mut Self, Error>> {
-        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
+    fn trigger_initializer(&mut self) {
         if !core::mem::replace(&mut self.context_mut().connection_initialized, true) {
             if let Some(config) = self.config() {
                 if let Some(callback) = config.context().connection_initializer.as_ref() {
                     let future = callback.initialize_connection(self);
                     AsyncCallback::trigger(future, self);
-                }
-            }
-        }
-
-        loop {
-            // check if an async task exists and poll it to completion
-            if let Some(fut) = self.poll_async_task() {
-                match fut {
-                    Poll::Ready(Ok(())) => {
-                        // happy case:
-                        // continue and call s2n_negotiate to make progress on the handshake
-                    }
-                    Poll::Ready(Err(err)) => {
-                        // error case:
-                        // if the callback returned an error then abort the handshake
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending => return Poll::Pending,
-                }
-            }
-
-            let res = unsafe { s2n_negotiate(self.connection.as_ptr(), &mut blocked).into_poll() };
-
-            match res {
-                Poll::Ready(res) => {
-                    let res = res.map(|_| self);
-                    return Poll::Ready(res);
-                }
-                Poll::Pending => {
-                    // if there is no connection_future then return, otherwise continue
-                    // looping and polling the future
-                    if self.context_mut().async_callback.is_none() {
-                        return Poll::Pending;
-                    }
                 }
             }
         }
@@ -553,15 +539,80 @@ impl Connection {
         })
     }
 
+    pub(crate) fn poll_negotiate_method<F, T>(
+        &mut self,
+        mut negotiate: F,
+    ) -> Poll<Result<(), Error>>
+    where
+        F: FnMut(&mut Connection) -> Poll<Result<T, Error>>,
+    {
+        self.trigger_initializer();
+
+        loop {
+            // Check whether renegotiate is blocked by any async callbacks
+            match self.poll_async_task().unwrap_or(Poll::Ready(Ok(()))) {
+                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(_)) => {}
+            };
+
+            match negotiate(self) {
+                Poll::Ready(res) => return Poll::Ready(res.map(|_| ())),
+                Poll::Pending => {
+                    // If `negotiate` returned `Pending` it could be blocked on a connection future
+                    // (i.e. not socket IO) so before we return, we need to make sure we poll
+                    // the associated future at least once. Otherwise, we will violate the waker contract.
+                    //
+                    // See https://github.com/aws/s2n-quic/pull/2248
+                    if self.context_mut().async_callback.is_some() {
+                        // continuing in the loop will poll the task
+                        continue;
+                    }
+
+                    // we don't have anything else to poll so return `Pending`
+                    return Poll::Pending;
+                }
+            }
+        }
+    }
+
+    /// Performs the TLS handshake to completion
+    ///
+    /// Multiple callbacks can be configured for a connection and config, but
+    /// [`Self::poll_negotiate()`] can only execute and block on one callback at a time.
+    /// The handshake is sequential, not concurrent, and stops execution when
+    /// it encounters an async callback.
+    ///
+    /// The handshake does not continue execution (and therefore can't call
+    /// any other callbacks) until the blocking async task reports completion.
+    pub fn poll_negotiate(&mut self) -> Poll<Result<&mut Self, Error>> {
+        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
+        self.poll_negotiate_method(|conn| unsafe {
+            s2n_negotiate(conn.as_ptr(), &mut blocked).into_poll()
+        })
+        .map_ok(|_| self)
+    }
+
     /// Encrypts and sends data on a connection where
     /// [negotiate](`Self::poll_negotiate`) has succeeded.
     ///
     /// Returns the number of bytes written, and may indicate a partial write.
+    #[cfg(not(feature = "unstable-renegotiate"))]
     pub fn poll_send(&mut self, buf: &[u8]) -> Poll<Result<usize, Error>> {
         let mut blocked = s2n_blocked_status::NOT_BLOCKED;
         let buf_len: isize = buf.len().try_into().map_err(|_| Error::INVALID_INPUT)?;
         let buf_ptr = buf.as_ptr() as *const ::libc::c_void;
         unsafe { s2n_send(self.connection.as_ptr(), buf_ptr, buf_len, &mut blocked).into_poll() }
+    }
+
+    #[cfg(not(feature = "unstable-renegotiate"))]
+    pub(crate) fn poll_recv_raw(
+        &mut self,
+        buf_ptr: *mut ::libc::c_void,
+        buf_len: isize,
+    ) -> Poll<Result<usize, Error>> {
+        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
+        unsafe { s2n_recv(self.connection.as_ptr(), buf_ptr, buf_len, &mut blocked).into_poll() }
     }
 
     /// Reads and decrypts data from a connection where
@@ -570,10 +621,9 @@ impl Connection {
     /// Returns the number of bytes read, and may indicate a partial read.
     /// 0 bytes returned indicates EOF due to connection closure.
     pub fn poll_recv(&mut self, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
-        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
         let buf_len: isize = buf.len().try_into().map_err(|_| Error::INVALID_INPUT)?;
         let buf_ptr = buf.as_ptr() as *mut ::libc::c_void;
-        unsafe { s2n_recv(self.connection.as_ptr(), buf_ptr, buf_len, &mut blocked).into_poll() }
+        self.poll_recv_raw(buf_ptr, buf_len)
     }
 
     /// Reads and decrypts data from a connection where
@@ -586,12 +636,11 @@ impl Connection {
     /// Safety: this function is always safe to call, and additionally:
     /// 1. It will never deinitialize any bytes in `buf`.
     /// 2. If it returns `Ok(n)`, then the first `n` bytes of `buf`
-    /// will have been initialized by this function.
+    ///    will have been initialized by this function.
     pub fn poll_recv_uninitialized(
         &mut self,
         buf: &mut [MaybeUninit<u8>],
     ) -> Poll<Result<usize, Error>> {
-        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
         let buf_len: isize = buf.len().try_into().map_err(|_| Error::INVALID_INPUT)?;
         let buf_ptr = buf.as_ptr() as *mut ::libc::c_void;
 
@@ -600,7 +649,7 @@ impl Connection {
         // 2. if s2n_recv returns `+n`, it guarantees that the first
         // `n` bytes of `buf` have been initialized, which allows this
         // function to return `Ok(n)`
-        unsafe { s2n_recv(self.connection.as_ptr(), buf_ptr, buf_len, &mut blocked).into_poll() }
+        self.poll_recv_raw(buf_ptr, buf_len)
     }
 
     /// Attempts to flush any data previously buffered by a call to [send](`Self::poll_send`).
@@ -771,6 +820,23 @@ impl Connection {
         }
     }
 
+    /// Drop the context
+    ///
+    /// SAFETY:
+    /// A connection without a context is invalid. After calling this method
+    /// from anywhere other than Drop, you must reinitialize the context.
+    unsafe fn drop_context(&mut self) -> Result<(), Error> {
+        let ctx = s2n_connection_get_ctx(self.connection.as_ptr()).into_result();
+        if let Ok(ctx) = ctx {
+            drop(Box::from_raw(ctx.as_ptr() as *mut Context));
+        }
+        // Setting a NULL context is important: if we don't also remove the context
+        // from the connection, then the invalid memory is still accessible and
+        // may even be double-freed.
+        s2n_connection_set_ctx(self.connection.as_ptr(), core::ptr::null_mut()).into_result()?;
+        Ok(())
+    }
+
     /// Mark that the server_name extension was used to configure the connection.
     pub fn server_name_extension_used(&mut self) {
         // TODO: requiring the application to call this method is a pretty sharp edge.
@@ -853,6 +919,7 @@ impl Connection {
         Ok(())
     }
 
+    /// Access the protocol version selected for the connection.
     pub fn actual_protocol_version(&self) -> Result<Version, Error> {
         let version = unsafe {
             s2n_connection_get_actual_protocol_version(self.connection.as_ptr()).into_result()?
@@ -860,25 +927,53 @@ impl Connection {
         version.try_into()
     }
 
+    /// Detects if the client hello is using the SSLv2 format.
+    ///
+    /// s2n-tls will not negotiate SSLv2, but will accept SSLv2 ClientHellos
+    /// advertising a higher protocol version like SSLv3 or TLS1.0.
+    /// [Connection::actual_protocol_version()] can be used to retrieve the
+    /// protocol version that is actually used on the connection.
+    pub fn client_hello_is_sslv2(&self) -> Result<bool, Error> {
+        let version = unsafe {
+            s2n_connection_get_client_hello_version(self.connection.as_ptr()).into_result()?
+        };
+        let version: Version = version.try_into()?;
+        Ok(version == Version::SSLV2)
+    }
+
     pub fn handshake_type(&self) -> Result<&str, Error> {
         let handshake = unsafe {
             s2n_connection_get_handshake_type_name(self.connection.as_ptr()).into_result()?
         };
-        // The strings returned by s2n_connection_get_handshake_type_name
-        // are static and immutable after they are first calculated
-        static_const_str!(handshake)
+        unsafe {
+            // SAFETY: Constructed strings have a null byte appended to them.
+            // SAFETY: The data has a 'static lifetime, because it resides in a
+            //         static char array, and is never modified after its initial
+            //         creation.
+            const_str!(handshake)
+        }
     }
 
     pub fn cipher_suite(&self) -> Result<&str, Error> {
         let cipher = unsafe { s2n_connection_get_cipher(self.connection.as_ptr()).into_result()? };
-        // The strings returned by s2n_connection_get_cipher
-        // are static and immutable since they are const fields on static const structs
-        static_const_str!(cipher)
+        unsafe {
+            // SAFETY: The data is null terminated because it is declared as a C
+            //         string literal.
+            // SAFETY: cipher has a static lifetime because it lives on s2n_cipher_suite,
+            //         a static struct.
+            const_str!(cipher)
+        }
     }
 
     pub fn selected_curve(&self) -> Result<&str, Error> {
         let curve = unsafe { s2n_connection_get_curve(self.connection.as_ptr()).into_result()? };
-        static_const_str!(curve)
+        unsafe {
+            // SAFETY: The data is null terminated because it is declared as a C
+            //         string literal.
+            // SAFETY: curve has a static lifetime because it lives on s2n_ecc_named_curve,
+            //         which is a static const struct.
+            const_str!(curve)
+        }
     }
 
     pub fn selected_signature_algorithm(&self) -> Result<SignatureAlgorithm, Error> {
@@ -927,6 +1022,14 @@ impl Connection {
             s2n_tls_hash_algorithm::NONE => None,
             hash_alg => Some(hash_alg.try_into()?),
         })
+    }
+
+    pub fn application_protocol(&self) -> Option<&[u8]> {
+        let protocol = unsafe { s2n_get_application_protocol(self.connection.as_ptr()) };
+        if protocol.is_null() {
+            return None;
+        }
+        Some(unsafe { CStr::from_ptr(protocol).to_bytes() })
     }
 
     /// Provides access to the TLS-Exporter functionality.
@@ -1079,6 +1182,55 @@ impl Connection {
         }
         Ok(())
     }
+    
+    /// Associates an arbitrary application context with the Connection to be later retrieved via
+    /// the [`Self::application_context()`] and [`Self::application_context_mut()`] APIs.
+    ///
+    /// This API will override an existing application context set on the Connection.
+    pub fn set_application_context<T: Send + Sync + 'static>(&mut self, app_context: T) {
+        self.context_mut().app_context = Some(Box::new(app_context));
+    }
+
+    /// Retrieves a reference to the application context associated with the Connection.
+    ///
+    /// If an application context hasn't already been set on the Connection, or if the set
+    /// application context isn't of type T, None will be returned.
+    ///
+    /// To set a context on the connection, use [`Self::set_application_context()`]. To retrieve a
+    /// mutable reference to the context, use [`Self::application_context_mut()`].
+    pub fn application_context<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        match self.context().app_context.as_ref() {
+            None => None,
+            // The Any trait keeps track of the application context's type. downcast_ref() returns
+            // Some only if the correct type is provided:
+            // https://doc.rust-lang.org/std/any/trait.Any.html#method.downcast_ref
+            Some(app_context) => app_context.downcast_ref::<T>(),
+        }
+    }
+
+    /// Retrieves a mutable reference to the application context associated with the Connection.
+    ///
+    /// If an application context hasn't already been set on the Connection, or if the set
+    /// application context isn't of type T, None will be returned.
+    ///
+    /// To set a context on the connection, use [`Self::set_application_context()`]. To retrieve an
+    /// immutable reference to the context, use [`Self::application_context()`].
+    pub fn application_context_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+        match self.context_mut().app_context.as_mut() {
+            None => None,
+            Some(app_context) => app_context.downcast_mut::<T>(),
+        }
+    }
+
+    #[cfg(feature = "unstable-renegotiate")]
+    pub(crate) fn renegotiate_state_mut(&mut self) -> &mut RenegotiateState {
+        &mut self.context_mut().renegotiate_state
+    }
+
+    #[cfg(feature = "unstable-renegotiate")]
+    pub(crate) fn renegotiate_state(&self) -> &RenegotiateState {
+        &self.context().renegotiate_state
+    }
 }
 
 struct Context {
@@ -1087,6 +1239,9 @@ struct Context {
     async_callback: Option<AsyncCallback>,
     verify_host_callback: Option<Box<dyn VerifyHostNameCallback>>,
     connection_initialized: bool,
+    app_context: Option<Box<dyn Any + Send + Sync>>,
+    #[cfg(feature = "unstable-renegotiate")]
+    pub(crate) renegotiate_state: RenegotiateState,
 }
 
 impl Context {
@@ -1097,6 +1252,9 @@ impl Context {
             async_callback: None,
             verify_host_callback: None,
             connection_initialized: false,
+            app_context: None,
+            #[cfg(feature = "unstable-renegotiate")]
+            renegotiate_state: RenegotiateState::default(),
         }
     }
 }
@@ -1180,10 +1338,7 @@ impl Drop for Connection {
         // ignore failures since there's not much we can do about it
         unsafe {
             // clean up context
-            let prev_ctx = self.context_mut();
-            drop(Box::from_raw(prev_ctx));
-            let _ = s2n_connection_set_ctx(self.connection.as_ptr(), core::ptr::null_mut())
-                .into_result();
+            let _ = self.drop_context();
 
             // cleanup config
             let _ = self.drop_config();
@@ -1210,5 +1365,72 @@ mod tests {
     fn context_sync_test() {
         fn assert_sync<T: 'static + Sync>() {}
         assert_sync::<Context>();
+    }
+
+    /// Test that an application context can be set and retrieved.
+    #[test]
+    fn test_app_context_set_and_retrieve() {
+        let mut connection = Connection::new_server();
+
+        // Before a context is set, None is returned.
+        assert!(connection.application_context::<u32>().is_none());
+
+        let test_value: u32 = 1142;
+        connection.set_application_context(test_value);
+
+        // After a context is set, the application data is returned.
+        assert_eq!(*connection.application_context::<u32>().unwrap(), 1142);
+    }
+
+    /// Test that an application context can be modified.
+    #[test]
+    fn test_app_context_modify() {
+        let test_value: u64 = 0;
+
+        let mut connection = Connection::new_server();
+        connection.set_application_context(test_value);
+
+        let context_value = connection.application_context_mut::<u64>().unwrap();
+        *context_value += 1;
+
+        assert_eq!(*connection.application_context::<u64>().unwrap(), 1);
+    }
+
+    /// Test that an application context can be overridden.
+    #[test]
+    fn test_app_context_override() {
+        let mut connection = Connection::new_server();
+
+        let test_value: u16 = 1142;
+        connection.set_application_context(test_value);
+
+        assert_eq!(*connection.application_context::<u16>().unwrap(), 1142);
+
+        // Override the context with a new value.
+        let test_value: u16 = 10;
+        connection.set_application_context(test_value);
+
+        assert_eq!(*connection.application_context::<u16>().unwrap(), 10);
+
+        // Override the context with a new type.
+        let test_value: i16 = -20;
+        connection.set_application_context(test_value);
+
+        assert_eq!(*connection.application_context::<i16>().unwrap(), -20);
+    }
+
+    /// Test that a context of another type can't be retrieved.
+    #[test]
+    fn test_app_context_invalid_type() {
+        let mut connection = Connection::new_server();
+
+        let test_value: u32 = 0;
+        connection.set_application_context(test_value);
+
+        // A context type that wasn't set shouldn't be returned.
+        assert!(connection.application_context::<i16>().is_none());
+
+        // Retrieving the correct type succeeds.
+        assert!(connection.application_context::<u32>().is_some());
     }
 }

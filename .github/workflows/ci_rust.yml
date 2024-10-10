@@ -14,6 +14,7 @@ env:
   RUST_NIGHTLY_TOOLCHAIN: nightly-2024-01-01
   ROOT_PATH: bindings/rust
   EXAMPLE_WORKSPACE: bindings/rust-examples
+  PCAP_TEST_PATH: tests/pcap
 
 jobs:
   generate:
@@ -32,7 +33,7 @@ jobs:
           rustup override set stable
 
       # https://github.com/aws/aws-lc-rs/blob/main/aws-lc-fips-sys/README.md#build-prerequisites
-      # go required to build aws-lc-rs in FIPS mode
+      # go required for generate.sh to build aws-lc-rs in FIPS mode
       - name: Install go
         uses: actions/setup-go@v4
         with:
@@ -43,14 +44,19 @@ jobs:
       - name: Generate
         run: ${{env.ROOT_PATH}}/generate.sh
 
-      - name: Tests
-        working-directory: ${{env.ROOT_PATH}}
-        run: cargo test --all-features
-
       # Ensure that all tests pass with the default feature set
       - name: Default Tests
         working-directory: ${{env.ROOT_PATH}}
         run: cargo test
+
+      - name: "Feature Tests: Fingerprint, kTLS, QUIC, and PQ"
+        working-directory: ${{env.ROOT_PATH}}
+        # Test all features except for FIPS, which is tested separately.
+        run: cargo test --features unstable-fingerprint,unstable-ktls,quic,pq
+
+      - name: "Feature Test: Renegotiate"
+        working-directory: ${{env.ROOT_PATH}}
+        run: cargo test --features unstable-renegotiate
 
       - name: Test external build
         # if this test is failing, make sure that api headers are appropriately
@@ -158,7 +164,11 @@ jobs:
         run: cargo test --all-features
 
   fips:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -185,7 +195,16 @@ jobs:
       - name: Test fips
         working-directory: ${{env.ROOT_PATH}}
         run: |
-          cargo test --features fips
+          # The doc tests fail to link to AWS-LC in FIPS mode due to
+          # https://github.com/rust-lang/cargo/issues/8531. The --tests flag is provided to disable
+          # the doc tests. The doc tests are tested in the generate test, where FIPS is disabled.
+          cargo test --tests --features fips
+
+      # Test all features, including FIPS
+      - name: Test all
+        working-directory: ${{env.ROOT_PATH}}
+        run: |
+          cargo test --tests --all-features
 
   rustfmt:
     runs-on: ubuntu-latest
@@ -239,6 +258,7 @@ jobs:
       - name: Run cargo clippy
         run: |
           cargo clippy --manifest-path ${{env.ROOT_PATH}}/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path ${{env.ROOT_PATH}}/Cargo.toml --all-targets --all-features -- -D warnings
 
   msrv:
     runs-on: ubuntu-latest
@@ -256,3 +276,34 @@ jobs:
       - name: Check MSRV of s2n-tokio
         run: grep "rust-version = \"$(cat ${{env.ROOT_PATH}}/rust-toolchain)\"" ${{env.ROOT_PATH}}/s2n-tls-tokio/Cargo.toml
 
+  pcaps:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Install Rust toolchain
+        id: toolchain
+        run: |
+          rustup toolchain install stable --component clippy
+          rustup override set stable
+
+      - name: Install tshark
+        run: |
+          sudo apt-get install -y tshark
+          tshark --version
+
+      - name: Generate bindings
+        working-directory: ${{env.ROOT_PATH}}
+        run: ./generate.sh --skip-tests
+
+      - name: Run lints
+        working-directory: ${{env.PCAP_TEST_PATH}}
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Run tests
+        working-directory: ${{env.PCAP_TEST_PATH}}
+        run: cargo test --all-features

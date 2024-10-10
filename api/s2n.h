@@ -801,13 +801,13 @@ S2N_API extern int s2n_config_add_cert_chain_and_key(struct s2n_config *config, 
 
 /**
  * The preferred method of associating a certificate chain and private key pair with an `s2n_config` object.
- * This method may be called multiple times to support multiple key types(RSA, ECDSA) and multiple domains.
- * On the server side, the certificate selected will be based on the incoming SNI value and the
- * client's capabilities(supported ciphers).
+ * This method may be called multiple times to support multiple key types (RSA, RSA-PSS, ECDSA) and multiple
+ * domains. On the server side, the certificate selected will be based on the incoming SNI value and the
+ * client's capabilities (supported ciphers).
  *
  * In the case of no certificate matching the client's SNI extension or if no SNI extension was sent by
- * the client, the certificate from the `first` call to `s2n_config_add_cert_chain_and_key_to_store`
- * will be selected.
+ * the client, the certificate from the `first` call to `s2n_config_add_cert_chain_and_key_to_store()`
+ * will be selected. Use `s2n_config_set_cert_chain_and_key_defaults()` to set different defaults.
  * 
  * @warning It is not recommended to free or modify the `cert_key_pair` as any subsequent changes will be
  * reflected in the config. 
@@ -849,6 +849,16 @@ S2N_API extern int s2n_config_set_cert_chain_and_key_defaults(struct s2n_config 
  *
  * @note The trust store will be initialized with the common locations for the host
  * operating system by default.
+ *
+ * @warning This API uses the PEM parsing implementation from the linked libcrypto. This
+ * implementation will typically make a best-effort attempt to parse all of the certificates in the
+ * provided file or directory. This permissive approach may silently ignore malformed certificates,
+ * leading to possible connection failures if a certificate was expected to exist in the trust
+ * store but was skipped while parsing. As such, this API should only be used on PEMs that are
+ * known to be well-formed and parsable with the linked libcrypto, such as the system trust store.
+ * For all other PEMs, `s2n_config_add_pem_to_trust_store()` should be used instead, which parses
+ * more strictly.
+ *
  * @param config The configuration object being updated
  * @param ca_pem_filename A string for the file path of the CA PEM file.
  * @param ca_dir A string for the directory of the CA PEM files.
@@ -862,6 +872,14 @@ S2N_API extern int s2n_config_set_verification_ca_location(struct s2n_config *co
  * When configs are created with `s2n_config_new()`, the trust store is initialized with default
  * system certificates. To completely override these certificates, call
  * `s2n_config_wipe_trust_store()` before calling this function.
+ *
+ * @note This API uses the s2n-tls PEM parsing implementation, which is more strict than typical
+ * libcrypto implementations such as OpenSSL. An error is returned if any unexpected data is
+ * encountered while parsing `pem`. This allows applications to be made aware of any malformed
+ * certificates rather than attempt to negotiate with a partial trust store. However, some PEMs may
+ * need to be loaded that are not under control of the application, such as system trust stores. In
+ * this case, `s2n_config_set_verification_ca_location()` may be used, which performs more widely
+ * compatible and permissive parsing from the linked libcrypto.
  *
  * @param config The configuration object being updated
  * @param pem The string value of the PEM certificate.
@@ -1112,6 +1130,13 @@ typedef enum {
  * Sets up a connection to request the certificate status of a peer during an SSL handshake. If set
  * to S2N_STATUS_REQUEST_NONE, no status request is made.
  *
+ * @note SHA-1 is the only supported hash algorithm for the `certID` field. This is different
+ * from the hash algorithm used for the OCSP signature. See 
+ * [RFC 6960](https://datatracker.ietf.org/doc/html/rfc6960#section-4.1.1) for more information.
+ * While unlikely to be the case, if support for a different hash algorithm is required, the
+ * s2n-tls validation can be disabled with `s2n_config_set_check_stapled_ocsp_response()` and the
+ * response can be retrieved for manual validation with `s2n_connection_get_ocsp_response()`.
+ * 
  * @param config The configuration object being updated
  * @param type The desired request status type
  * @returns S2N_SUCCESS on success. S2N_FAILURE on failure
@@ -1269,6 +1294,22 @@ S2N_API extern int s2n_config_set_ticket_decrypt_key_lifetime(struct s2n_config 
  */
 S2N_API extern int s2n_config_add_ticket_crypto_key(struct s2n_config *config, const uint8_t *name, uint32_t name_len,
         uint8_t *key, uint32_t key_len, uint64_t intro_time_in_seconds_from_epoch);
+
+/**
+ * Requires that session tickets are only used when forward secrecy is possible.
+ *
+ * Restricts session resumption to TLS1.3, as the tickets used in TLS1.2 resumption are
+ * not forward secret. Clients should not expect to receive new session tickets and servers
+ * will not send new session tickets when TLS1.2 is negotiated and ticket forward secrecy is required.
+ * 
+ * @note The default behavior is that forward secrecy is not required.
+ *
+ * @param config The config object being updated
+ * @param enabled Indicates if forward secrecy is required or not on tickets
+ * @returns S2N_SUCCESS on success. S2N_FAILURE on failure
+ */
+S2N_API extern int s2n_config_require_ticket_forward_secrecy(struct s2n_config *config, bool enabled);
+
 /**
  * Sets user defined context on the `s2n_config` object.
  *
@@ -1974,6 +2015,34 @@ S2N_API extern int s2n_connection_set_blinding(struct s2n_connection *conn, s2n_
 S2N_API extern uint64_t s2n_connection_get_delay(struct s2n_connection *conn);
 
 /**
+ * Configures the maximum blinding delay enforced after errors.
+ *
+ * Blinding protects your application from timing side channel attacks like Lucky13. While s2n-tls
+ * implements other, more specific mitigations for known timing side channels, blinding is important
+ * as a defense against currently unknown or unreported timing attacks.
+ * 
+ * Setting a maximum delay lower than the recommended default (30s) will make timing attacks against
+ * your application easier. The lower you set the delay, the fewer requests and less total time an
+ * attacker will require to execute an attack. If you must lower the delay for reasons such as client
+ * timeouts, then you should choose the highest value practically possible to limit your risk.
+ *
+ * If you lower the blinding delay, you should also consider implementing monitoring and filtering
+ * to detect and reject suspicious traffic that could be gathering timing information from a potential
+ * side channel. Timing attacks usually involve repeatedly triggering TLS errors.
+ *
+ * @warning Do NOT set a lower blinding delay unless you understand the risks and have other
+ * mitigations for timing side channels in place.
+ *
+ * @note This delay needs to be set lower than any timeouts, such as your TCP socket timeout.
+ *
+ * @param config The config object being updated.
+ * @param seconds The maximum number of seconds that s2n-tls will delay for in the event of a
+ * sensitive error.
+ * @returns S2N_SUCCESS on success. S2N_FAILURE on failure.
+ */
+S2N_API extern int s2n_config_set_max_blinding_delay(struct s2n_config *config, uint32_t seconds);
+
+/**
  * Sets the cipher preference override for the s2n_connection. Calling this function is not necessary
  * unless you want to set the cipher preferences on the connection to something different than what is in the s2n_config.
  *
@@ -2291,7 +2360,22 @@ S2N_API extern int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_st
 /**
  * Used to declare what type of client certificate authentication to use.
  *
- * Currently the default for s2n-tls is for neither the server side or the client side to use Client (aka Mutual) authentication.
+ * A s2n_connection will enforce client certificate authentication (mTLS) differently based on
+ * the `s2n_cert_auth_type` and `s2n_mode` (client/server) of the connection, as described below.
+ *
+ * Server behavior:
+ * - None (default): Will not request client authentication.
+ * - Optional: Request the client's certificate and validate it. If no certificate is received then
+ *     no validation is performed.
+ * - Required: Request the client's certificate and validate it. Abort the handshake if a client
+ *     certificate is not received.
+ *
+ * Client behavior:
+ * - None: Abort the handshake if the server requests client authentication.
+ * - Optional (default): Sends the client certificate if the server requests client
+ *     authentication. No certificate is sent if the application hasn't provided a certificate.
+ * - Required: Send the client certificate. Abort the handshake if the server doesn't request
+ *     client authentication or if the application hasn't provided a certificate.
  */
 typedef enum {
     S2N_CERT_AUTH_NONE,

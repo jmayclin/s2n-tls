@@ -918,11 +918,11 @@ int s2n_set_hello_retry_required(struct s2n_connection *conn)
 
     /* HelloRetryRequests also indicate rejection of early data.
      *
-     *= https://tools.ietf.org/rfc/rfc8446#section-4.2.10
+     *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.10
      *# A server which receives an "early_data" extension MUST behave in one
      *# of three ways:
      *
-     *= https://tools.ietf.org/rfc/rfc8446#section-4.2.10
+     *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.10
      *# -  Request that the client send another ClientHello by responding
      *#    with a HelloRetryRequest.
      **/
@@ -994,7 +994,7 @@ static S2N_RESULT s2n_validate_ems_status(struct s2n_connection *conn)
     bool ems_extension_recv = S2N_CBIT_TEST(conn->extension_requests_received, ems_ext_id);
 
     /**
-     *= https://tools.ietf.org/rfc/rfc7627#section-5.3
+     *= https://www.rfc-editor.org/rfc/rfc7627#section-5.3
      *# If the original session used the "extended_master_secret"
      *# extension but the new ClientHello does not contain it, the server
      *# MUST abort the abbreviated handshake.
@@ -1046,7 +1046,7 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
             /* We reuse the session if a valid TLS12 ticket is provided.
              * Otherwise, we will perform a full handshake and then generate
              * a new session ticket. */
-            if (s2n_decrypt_session_ticket(conn, &conn->client_ticket_to_decrypt) == S2N_SUCCESS) {
+            if (s2n_result_is_ok(s2n_resume_decrypt_session_ticket(conn, &conn->client_ticket_to_decrypt))) {
                 return S2N_SUCCESS;
             }
 
@@ -1407,7 +1407,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         int r = s2n_read_full_record(conn, &record_type, &isSSLv2);
 
         /**
-         *= https://tools.ietf.org/rfc/rfc8446#section-4.2.10
+         *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.10
          *# If the client attempts a 0-RTT handshake but the server
          *# rejects it, the server will generally not have the 0-RTT record
          *# protection keys and must instead use trial decryption (either with
@@ -1496,30 +1496,29 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
             return S2N_SUCCESS;
         }
 
-        s2n_cert_auth_type client_cert_auth_type;
-        POSIX_GUARD(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
+        if (conn->mode == S2N_CLIENT) {
+            s2n_cert_auth_type client_cert_auth_type = { 0 };
+            POSIX_GUARD(s2n_connection_get_client_auth_type(conn, &client_cert_auth_type));
+            /* If client auth is optional, we initially assume it will not be requested.
+             * If we received a request, switch to a client auth handshake.
+             */
+            if (client_cert_auth_type != S2N_CERT_AUTH_REQUIRED && message_type == TLS_CERT_REQ) {
+                POSIX_ENSURE(client_cert_auth_type == S2N_CERT_AUTH_OPTIONAL, S2N_ERR_UNEXPECTED_CERT_REQUEST);
+                POSIX_ENSURE(IS_FULL_HANDSHAKE(conn), S2N_ERR_HANDSHAKE_STATE);
+                POSIX_GUARD_RESULT(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
+            }
 
-        /* If client auth is optional, we initially assume it will not be requested.
-         * If we received a request, switch to a client auth handshake.
-         */
-        if (conn->mode == S2N_CLIENT
-                && client_cert_auth_type != S2N_CERT_AUTH_REQUIRED
-                && message_type == TLS_CERT_REQ) {
-            POSIX_ENSURE(client_cert_auth_type == S2N_CERT_AUTH_OPTIONAL, S2N_ERR_UNEXPECTED_CERT_REQUEST);
-            POSIX_ENSURE(IS_FULL_HANDSHAKE(conn), S2N_ERR_HANDSHAKE_STATE);
-            POSIX_GUARD_RESULT(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
-        }
-
-        /* According to rfc6066 section 8, server may choose not to send "CertificateStatus" message even if it has
-         * sent "status_request" extension in the ServerHello message. */
-        if (conn->mode == S2N_CLIENT
-                && EXPECTED_MESSAGE_TYPE(conn) == TLS_SERVER_CERT_STATUS
-                && message_type != TLS_SERVER_CERT_STATUS) {
-            POSIX_GUARD_RESULT(s2n_handshake_type_unset_tls12_flag(conn, OCSP_STATUS));
+            /* According to rfc6066 section 8, the server may choose not to send a "CertificateStatus"
+             * message even if it has sent a "status_request" extension in the ServerHello message.
+             */
+            if (EXPECTED_MESSAGE_TYPE(conn) == TLS_SERVER_CERT_STATUS
+                    && message_type != TLS_SERVER_CERT_STATUS) {
+                POSIX_GUARD_RESULT(s2n_handshake_type_unset_tls12_flag(conn, OCSP_STATUS));
+            }
         }
 
         /*
-         *= https://tools.ietf.org/rfc/rfc5246#section-7.4
+         *= https://www.rfc-editor.org/rfc/rfc5246#section-7.4
          *# The one message that is not bound by these ordering rules
          *# is the HelloRequest message, which can be sent at any time, but which
          *# SHOULD be ignored by the client if it arrives in the middle of a handshake.
