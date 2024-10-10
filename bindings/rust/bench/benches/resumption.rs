@@ -3,7 +3,7 @@
 
 use bench::{
     harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, S2NConnection,
-    SigType, TlsConnPair, TlsConnection,
+    SigType, Harness, TlsConnection,
 };
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
@@ -20,7 +20,7 @@ where
         bench_group.bench_function(format!("{:?}-{}", handshake, T::name()), |b| {
             b.iter_batched_ref(
                 || {
-                    TlsConnPair::<T, T>::new_bench_pair(
+                    Harness::<T, T>::new_bench_pair(
                         CryptoConfig::new(CipherSuite::default(), KXGroup::default(), sig_type),
                         handshake,
                     )
@@ -45,7 +45,7 @@ where
         bench_group.bench_function(format!("{:?}-{}", handshake, T::name()), |b| {
             b.iter_batched_ref(
                 || {
-                    let pair = TlsConnPair::<T, T>::new_bench_pair(
+                    let pair = Harness::<T, T>::new_bench_pair(
                         CryptoConfig::new(CipherSuite::default(), KXGroup::default(), sig_type),
                         handshake,
                     )

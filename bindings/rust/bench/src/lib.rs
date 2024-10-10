@@ -1,22 +1,21 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
-pub mod bench_config;
+pub mod crypto_config;
 pub mod harness;
 #[cfg(feature = "openssl")]
 pub mod openssl;
 #[cfg(feature = "rustls")]
 pub mod rustls;
 pub mod s2n_tls;
-// pub mod mbedtls;
 
 #[cfg(feature = "openssl")]
 pub use crate::openssl::OpenSslConnection;
 #[cfg(feature = "rustls")]
 pub use crate::rustls::RustlsConnection;
 pub use crate::{
-    bench_config::{CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, PemType, SigType},
     harness::{
-        TlsConnPair, TlsConnection,
+        get_cert_path, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType, KXGroup, Mode,
+        PemType, SigType, Harness, TlsConnection,
     },
     s2n_tls::S2NConnection,
 };

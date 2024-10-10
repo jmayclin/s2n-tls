@@ -7,7 +7,7 @@ use bench::OpenSslConnection;
 use bench::RustlsConnection;
 use bench::{
     harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode,
-    S2NConnection, SigType, TlsConnPair, TlsConnection, PROFILER_FREQUENCY,
+    S2NConnection, SigType, Harness, TlsConnection, PROFILER_FREQUENCY,
 };
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
@@ -34,9 +34,9 @@ fn bench_handshake_for_library<T>(
     // only include negotiation and not config/connection initialization
     bench_group.bench_function(T::name(), |b| {
         b.iter_batched_ref(
-            || -> Result<TlsConnPair<T, T>, Box<dyn Error>> {
+            || -> Result<Harness<T, T>, Box<dyn Error>> {
                 match (client_config.as_ref(), server_config.as_ref()) {
-                    (Ok(c_conf), Ok(s_conf)) => Ok(TlsConnPair::from_configs(c_conf, s_conf)),
+                    (Ok(c_conf), Ok(s_conf)) => Ok(Harness::from_configs(c_conf, s_conf)),
                     _ => Err("invalid configs".into()),
                 }
             },

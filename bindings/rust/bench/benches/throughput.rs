@@ -7,7 +7,7 @@ use bench::OpenSslConnection;
 use bench::RustlsConnection;
 use bench::{
     harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode,
-    S2NConnection, SigType, TlsConnPair, TlsConnection, PROFILER_FREQUENCY,
+    S2NConnection, SigType, Harness, TlsConnection, PROFILER_FREQUENCY,
 };
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
@@ -33,10 +33,10 @@ fn bench_throughput_for_library<T>(
 
     bench_group.bench_function(T::name(), |b| {
         b.iter_batched_ref(
-            || -> Result<TlsConnPair<T, T>, Box<dyn Error>> {
+            || -> Result<Harness<T, T>, Box<dyn Error>> {
                 match (client_config.as_ref(), server_config.as_ref()) {
                     (Ok(c_conf), Ok(s_conf)) => {
-                        let mut pair = TlsConnPair::<T, T>::from_configs(c_conf, s_conf);
+                        let mut pair = Harness::<T, T>::from_configs(c_conf, s_conf);
                         pair.handshake()?;
                         Ok(pair)
                     },

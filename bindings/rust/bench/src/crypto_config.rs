@@ -14,7 +14,7 @@ use std::{
 };
 use strum::EnumIter;
 
-use crate::{TlsConnPair, TlsConnection};
+use crate::{Harness, TlsConnection};
 
 
 #[derive(Clone, Copy, EnumIter)]
@@ -157,7 +157,7 @@ pub trait TlsBenchConfig: Sized {
     ) -> Result<Self, Box<dyn Error>>;
 }
 
-impl<C, S> TlsConnPair<C, S>
+impl<C, S> Harness<C, S>
 where
     C: TlsConnection,
     S: TlsConnection,
@@ -178,7 +178,7 @@ where
 
             // handshake the client and server connections. This will result in
             // session ticket getting stored in client_config
-            let mut pair = TlsConnPair::<C, S>::from_configs(&client_config, &server_config);
+            let mut pair = Harness::<C, S>::from_configs(&client_config, &server_config);
             pair.handshake()?;
             // NewSessionTicket messages are part of the application data and sent
             // after the handshake is complete, so we must trigger an additional
@@ -191,13 +191,13 @@ where
             // on the connection. This results in the session ticket in
             // client_config (from the previous handshake) getting set on the
             // client connection.
-            return Ok(TlsConnPair::<C, S>::from_configs(
+            return Ok(Harness::<C, S>::from_configs(
                 &client_config,
                 &server_config,
             ));
         }
 
-        Ok(TlsConnPair::<C, S>::from_configs(
+        Ok(Harness::<C, S>::from_configs(
             &C::Config::make_config(Mode::Client, crypto_config, handshake_type).unwrap(),
             &S::Config::make_config(Mode::Server, crypto_config, handshake_type).unwrap(),
         ))

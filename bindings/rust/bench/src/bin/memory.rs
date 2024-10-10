@@ -6,7 +6,7 @@ use bench::OpenSslConnection;
 #[cfg(feature = "rustls")]
 use bench::RustlsConnection;
 use bench::{
-    ConnectedBuffer, CryptoConfig, HandshakeType, Mode, S2NConnection, TlsConnPair, TlsConnection,
+    ConnectedBuffer, CryptoConfig, HandshakeType, Mode, S2NConnection, Harness, TlsConnection,
 };
 use std::{error::Error, fs::create_dir_all};
 use structopt::{clap::arg_enum, StructOpt};
@@ -78,7 +78,7 @@ fn memory_bench<T: TlsConnection>(opt: &Opt) -> Result<(), Box<dyn Error>> {
         .collect();
 
     // handshake one harness to initalize libraries
-    let mut conn_pair = TlsConnPair::<T, T>::default();
+    let mut conn_pair = Harness::<T, T>::default();
     conn_pair.handshake().unwrap();
 
     // make configs
@@ -106,9 +106,9 @@ fn memory_bench<T: TlsConnection>(opt: &Opt) -> Result<(), Box<dyn Error>> {
                 &server_config,
                 client_conn.connected_buffer().clone_inverse(),
             )?;
-            conn_pair = TlsConnPair::wrap(client_conn, server_conn);
+            conn_pair = Harness::wrap(client_conn, server_conn);
         } else {
-            conn_pair = TlsConnPair::<T, T>::new(
+            conn_pair = Harness::<T, T>::new(
                 CryptoConfig::default(),
                 HandshakeType::default(),
                 buffers.pop().unwrap(),

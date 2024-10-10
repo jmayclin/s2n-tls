@@ -23,7 +23,7 @@ pub trait TlsConnection: Sized {
     /// Name of the connection type
     fn name() -> String;
 
-    /// Make connection from existing config and buffer
+    /// Make connection from existing config and io view.
     fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>>;
 
     /// Run one handshake step: receive msgs from other connection, process, and send new msgs
@@ -31,7 +31,7 @@ pub trait TlsConnection: Sized {
 
     fn handshake_completed(&self) -> bool;
 
-    fn get_negotiated_cipher_suite(&self) -> CipherSuite;
+    fn get_negotiated_cipher_suite(&self) -> crypto_config::CipherSuite;
 
     fn negotiated_tls13(&self) -> bool;
 
@@ -46,13 +46,16 @@ pub trait TlsConnection: Sized {
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
 }
 
-pub struct TlsConnPair<C: TlsConnection, S: TlsConnection> {
+/// A Scaffold owns the client and server tls connections along with the IO buffers.
+/// 
+/// 
+pub struct Harness<C: TlsConnection, S: TlsConnection> {
     pub client: C,
     pub server: S,
     pub io: TestPairIO,
 }
 
-impl<C, S> Default for TlsConnPair<C, S>
+impl<C, S> Default for Harness<C, S>
 where
     C: TlsConnection,
     S: TlsConnection,
@@ -64,7 +67,7 @@ where
     }
 }
 
-impl<C, S> TlsConnPair<C, S>
+impl<C, S> Harness<C, S>
 where
     C: TlsConnection,
     S: TlsConnection,
@@ -130,13 +133,9 @@ where
 
 
 pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
+
 #[derive(Debug)]
 pub struct TestPairIO {
-    // Arc: 
-    // Pin: since we are dereferencing this pointer (because it is passed as the send/recv ctx)
-    // we need to ensure that the pointer remains in the same place
-    // Box: A Vec (or VecDeque) may be moved or reallocated, so we need another layer of
-    // indirection to have a stable (pinned) reference
     /// a data buffer that the server writes to and the client reads from
     pub server_tx_stream: Arc<Pin<Box<LocalDataBuffer>>>,
     /// a data buffer that the client writes to and the server reads from
@@ -183,7 +182,7 @@ impl io::Read for ViewIO {
     }
 }
 
-impl<'a> io::Write for ViewIO {
+impl io::Write for ViewIO {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.send_ctx.borrow_mut().write(buf)
     }
@@ -201,7 +200,7 @@ mod tests {
     use crate::OpenSslConnection;
     #[cfg(feature = "rustls")]
     use crate::RustlsConnection;
-    use crate::{S2NConnection, TlsConnPair};
+    use crate::{S2NConnection, Harness};
     use std::path::Path;
     use strum::IntoEnumIterator;
 
@@ -238,6 +237,10 @@ mod tests {
         transfer::<C, S>();
     }
 
+    /// For `C` and `S`, assert that a handshake can happen successfully with
+    /// every possible config.
+    /// 
+    /// handshake_type * cipher_suite * key_exchange * signature_type
     fn handshake_configs<C, S>()
     where
         S: TlsConnection,
@@ -251,7 +254,7 @@ mod tests {
                     for sig_type in SigType::iter() {
                         let crypto_config = CryptoConfig::new(cipher_suite, kx_group, sig_type);
                         let mut conn_pair =
-                            TlsConnPair::<C, S>::new_bench_pair(crypto_config, handshake_type)
+                            Harness::<C, S>::new_bench_pair(crypto_config, handshake_type)
                                 .unwrap();
 
                         assert!(!conn_pair.handshake_completed());
@@ -275,7 +278,7 @@ mod tests {
     {
         println!("testing with client:{} server:{}", C::name(), S::name());
         let mut conn_pair =
-            TlsConnPair::<C, S>::new_bench_pair(CryptoConfig::default(), HandshakeType::Resumption)
+            Harness::<C, S>::new_bench_pair(CryptoConfig::default(), HandshakeType::Resumption)
                 .unwrap();
         conn_pair.handshake().unwrap();
         let (_, server) = conn_pair.split();
@@ -315,7 +318,7 @@ mod tests {
             let crypto_config =
                 CryptoConfig::new(cipher_suite, KXGroup::default(), SigType::default());
             let mut conn_pair =
-                TlsConnPair::<C, S>::new_bench_pair(crypto_config, HandshakeType::default())
+                Harness::<C, S>::new_bench_pair(crypto_config, HandshakeType::default())
                     .unwrap();
             conn_pair.handshake().unwrap();
             conn_pair.round_trip_transfer(&mut buf).unwrap();
