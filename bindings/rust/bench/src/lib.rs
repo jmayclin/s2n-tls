@@ -13,10 +13,7 @@ pub use crate::openssl::OpenSslConnection;
 #[cfg(feature = "rustls")]
 pub use crate::rustls::RustlsConnection;
 pub use crate::{
-    harness::{
-        get_cert_path, CipherSuite, ConnectedBuffer, CryptoConfig, HandshakeType, KXGroup, Mode,
-        PemType, SigType, Harness, TlsConnection,
-    },
+    harness::{Harness, TlsConnection},
     s2n_tls::S2NConnection,
 };
 

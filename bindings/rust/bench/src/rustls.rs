@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    harness::{
-        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig,
-        TlsConnection, ViewIO,
+    crypto_config::{
+        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, PemType, SigType,
+        TlsBenchConfig,
     },
-    PemType::{self, *},
-    SigType,
+    harness::ViewIO,
+    TlsConnection,
 };
 use rustls::{
     crypto::{
@@ -60,8 +60,11 @@ impl RustlsConfig {
     fn get_root_cert_store(sig_type: SigType) -> RootCertStore {
         let mut root_store = RootCertStore::empty();
         root_store.add_parsable_certificates(
-            rustls_pemfile::certs(&mut BufReader::new(&*read_to_bytes(CACert, sig_type)))
-                .map(|r| r.unwrap()),
+            rustls_pemfile::certs(&mut BufReader::new(&*read_to_bytes(
+                PemType::CACert,
+                sig_type,
+            )))
+            .map(|r| r.unwrap()),
         );
         root_store
     }
@@ -77,7 +80,7 @@ impl RustlsConfig {
             rustls_pemfile::read_one(&mut BufReader::new(&*read_to_bytes(pem_type, sig_type)))
                 .unwrap();
         if let Some(rustls_pemfile::Item::Pkcs8Key(pkcs_8_key)) = key {
-            return pkcs_8_key.into();
+            pkcs_8_key.into()
         } else {
             // https://docs.rs/rustls-pemfile/latest/rustls_pemfile/enum.Item.html
             panic!("unexpected key type: {:?}", key);
@@ -124,8 +127,8 @@ impl TlsBenchConfig for RustlsConfig {
                         builder.with_no_client_auth()
                     }
                     HandshakeType::MutualAuth => builder.with_client_auth_cert(
-                        Self::get_cert_chain(ClientCertChain, crypto_config.sig_type),
-                        Self::get_key(ClientKey, crypto_config.sig_type),
+                        Self::get_cert_chain(PemType::ClientCertChain, crypto_config.sig_type),
+                        Self::get_key(PemType::ClientKey, crypto_config.sig_type),
                     )?,
                 };
 
@@ -154,8 +157,8 @@ impl TlsBenchConfig for RustlsConfig {
                 };
 
                 let config = builder.with_single_cert(
-                    Self::get_cert_chain(ServerCertChain, crypto_config.sig_type),
-                    Self::get_key(ServerKey, crypto_config.sig_type),
+                    Self::get_cert_chain(PemType::ServerCertChain, crypto_config.sig_type),
+                    Self::get_key(PemType::ServerKey, crypto_config.sig_type),
                 )?;
 
                 Ok(RustlsConfig::Server(Arc::new(config)))

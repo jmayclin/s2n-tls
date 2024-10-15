@@ -1,21 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    error::Error,
-    fmt::Debug,
-    fs::read_to_string,
-    io::{self, ErrorKind, Read, Write},
-    pin::Pin,
-    rc::Rc,
-    sync::Arc,
-};
+use std::{error::Error, fmt::Debug, fs};
 use strum::EnumIter;
 
 use crate::{Harness, TlsConnection};
-
 
 #[derive(Clone, Copy, EnumIter)]
 pub enum PemType {
@@ -75,7 +64,7 @@ pub fn get_cert_path(pem_type: PemType, sig_type: SigType) -> String {
 }
 
 pub fn read_to_bytes(pem_type: PemType, sig_type: SigType) -> Vec<u8> {
-    read_to_string(get_cert_path(pem_type, sig_type))
+    fs::read_to_string(get_cert_path(pem_type, sig_type))
         .unwrap()
         .into_bytes()
 }

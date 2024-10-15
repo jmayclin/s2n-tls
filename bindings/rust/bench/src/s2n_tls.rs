@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    harness::{
-        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer, Mode,
-        TlsConnection, ViewIO,
+    crypto_config::{
+        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode,
+        PemType::{self, *},
+        TlsBenchConfig,
     },
-    PemType::*,
+    harness::{LocalDataBuffer, ViewIO},
+    TlsConnection,
 };
 use s2n_tls::{
     callbacks::{SessionTicketCallback, VerifyHostNameCallback},
@@ -19,10 +21,9 @@ use std::{
     borrow::BorrowMut,
     error::Error,
     ffi::c_void,
-    io::{ErrorKind, Read, Write},
+    io::{Read, Write},
     ops::Deref,
     os::raw::c_int,
-    pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,
     time::SystemTime,
@@ -64,7 +65,7 @@ pub struct S2NConfig {
     ticket_storage: SessionTicketStorage,
 }
 
-impl crate::harness::TlsBenchConfig for S2NConfig {
+impl TlsBenchConfig for S2NConfig {
     fn make_config(
         mode: Mode,
         crypto_config: CryptoConfig,
@@ -97,7 +98,7 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
         match mode {
             Mode::Client => {
                 builder
-                    .trust_pem(read_to_bytes(CACert, crypto_config.sig_type).as_slice())?
+                    .trust_pem(read_to_bytes(PemType::CACert, crypto_config.sig_type).as_slice())?
                     .set_verify_host_callback(HostNameHandler {
                         expected_server_name: "localhost",
                     })?;
@@ -118,14 +119,16 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
             }
             Mode::Server => {
                 builder.load_pem(
-                    read_to_bytes(ServerCertChain, crypto_config.sig_type).as_slice(),
-                    read_to_bytes(ServerKey, crypto_config.sig_type).as_slice(),
+                    read_to_bytes(PemType::ServerCertChain, crypto_config.sig_type).as_slice(),
+                    read_to_bytes(PemType::ServerKey, crypto_config.sig_type).as_slice(),
                 )?;
 
                 match handshake_type {
                     HandshakeType::MutualAuth => {
                         builder
-                            .trust_pem(read_to_bytes(CACert, crypto_config.sig_type).as_slice())?
+                            .trust_pem(
+                                read_to_bytes(PemType::CACert, crypto_config.sig_type).as_slice(),
+                            )?
                             .set_verify_host_callback(HostNameHandler {
                                 expected_server_name: "localhost",
                             })?;

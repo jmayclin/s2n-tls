@@ -2,18 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    error::Error,
-    fmt::Debug,
-    fs::read_to_string,
-    io::{self, ErrorKind, Read, Write},
-    pin::Pin,
-    rc::Rc,
-    sync::Arc,
+    cell::RefCell, collections::VecDeque, error::Error, fmt::Debug, io::{self, ErrorKind}, pin::Pin, rc::Rc
 };
-use strum::EnumIter;
 
+use crate::crypto_config::{self, CipherSuite, CryptoConfig, HandshakeType, TlsBenchConfig};
 
 /// The TlsConnection object can be created from a corresponding config type.
 pub trait TlsConnection: Sized {
@@ -23,7 +15,10 @@ pub trait TlsConnection: Sized {
     /// Name of the connection type
     fn name() -> String;
 
-    /// Make connection from existing config and io view.
+    /// Make a new connection.
+    ///
+    /// * `config`: The config to be associated with the connection
+    /// * `io`: The io layer that the connection should read and write to.
     fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>>;
 
     /// Run one handshake step: receive msgs from other connection, process, and send new msgs
@@ -46,9 +41,7 @@ pub trait TlsConnection: Sized {
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
 }
 
-/// A Scaffold owns the client and server tls connections along with the IO buffers.
-/// 
-/// 
+/// A Harness owns the client and server tls connections along with the IO buffers.
 pub struct Harness<C: TlsConnection, S: TlsConnection> {
     pub client: C,
     pub server: S,
@@ -74,11 +67,11 @@ where
 {
     pub fn from_configs(client_config: &C::Config, server_config: &S::Config) -> Self {
         let io = TestPairIO {
-            server_tx_stream: Arc::new(Box::pin(Default::default())),
-            client_tx_stream: Arc::new(Box::pin(Default::default())),
+            server_tx_stream: Rc::new(Box::pin(Default::default())),
+            client_tx_stream: Rc::new(Box::pin(Default::default())),
         };
-        let client = C::new_from_config(&client_config, io.client_view()).unwrap();
-        let server = S::new_from_config(&server_config, io.server_view()).unwrap();
+        let client = C::new_from_config(client_config, io.client_view()).unwrap();
+        let server = S::new_from_config(server_config, io.server_view()).unwrap();
 
         Self { client, server, io }
     }
@@ -131,29 +124,28 @@ where
     }
 }
 
-
 pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
 
 #[derive(Debug)]
 pub struct TestPairIO {
     /// a data buffer that the server writes to and the client reads from
-    pub server_tx_stream: Arc<Pin<Box<LocalDataBuffer>>>,
+    pub server_tx_stream: Rc<Pin<Box<LocalDataBuffer>>>,
     /// a data buffer that the client writes to and the server reads from
-    pub client_tx_stream: Arc<Pin<Box<LocalDataBuffer>>>,
+    pub client_tx_stream: Rc<Pin<Box<LocalDataBuffer>>>,
 }
 
 impl TestPairIO {
     fn client_view(&self) -> ViewIO {
         ViewIO {
-            send_ctx: Arc::clone(&self.client_tx_stream),
-            recv_ctx: Arc::clone(&self.server_tx_stream),
+            send_ctx: Rc::clone(&self.client_tx_stream),
+            recv_ctx: Rc::clone(&self.server_tx_stream),
         }
     }
 
     fn server_view(&self) -> ViewIO {
         ViewIO {
-            send_ctx: Arc::clone(&self.server_tx_stream),
-            recv_ctx: Arc::clone(&self.client_tx_stream),
+            send_ctx: Rc::clone(&self.server_tx_stream),
+            recv_ctx: Rc::clone(&self.client_tx_stream),
         }
     }
 }
@@ -162,19 +154,22 @@ impl TestPairIO {
 ///
 /// This view is client/server specific, and notably implements the read and write
 /// traits.
+///
 // This struct is used by Openssl and Rustls which both rely on a "stream" abstraction
 // which implements read and write. This is not used by s2n-tls, which relies on
 // lower level callbacks.
 pub struct ViewIO {
-    pub send_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
-    pub recv_ctx: Arc<Pin<Box<LocalDataBuffer>>>,
+    pub send_ctx: Rc<Pin<Box<LocalDataBuffer>>>,
+    pub recv_ctx: Rc<Pin<Box<LocalDataBuffer>>>,
 }
 
 impl io::Read for ViewIO {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let res = self.recv_ctx.borrow_mut().read(buf);
         if let Ok(0) = res {
-            // we are faking a stream, so return WouldBlock on read of length 0
+            // We are "faking" a TcpStream, where a read of length 0 indicates
+            // EoF. That is incorrect for this scenario. Instead we return WouldBlock
+            // to indicate that there is simply no more data to be read.
             Err(std::io::Error::new(ErrorKind::WouldBlock, "blocking"))
         } else {
             res
@@ -192,7 +187,6 @@ impl io::Write for ViewIO {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,7 +194,8 @@ mod tests {
     use crate::OpenSslConnection;
     #[cfg(feature = "rustls")]
     use crate::RustlsConnection;
-    use crate::{S2NConnection, Harness};
+    use crate::{Harness, S2NConnection};
+    use crypto_config::{get_cert_path, KXGroup, PemType, SigType};
     use std::path::Path;
     use strum::IntoEnumIterator;
 
@@ -239,7 +234,7 @@ mod tests {
 
     /// For `C` and `S`, assert that a handshake can happen successfully with
     /// every possible config.
-    /// 
+    ///
     /// handshake_type * cipher_suite * key_exchange * signature_type
     fn handshake_configs<C, S>()
     where
@@ -254,8 +249,7 @@ mod tests {
                     for sig_type in SigType::iter() {
                         let crypto_config = CryptoConfig::new(cipher_suite, kx_group, sig_type);
                         let mut conn_pair =
-                            Harness::<C, S>::new_bench_pair(crypto_config, handshake_type)
-                                .unwrap();
+                            Harness::<C, S>::new_bench_pair(crypto_config, handshake_type).unwrap();
 
                         assert!(!conn_pair.handshake_completed());
                         conn_pair.handshake().unwrap();
@@ -318,8 +312,7 @@ mod tests {
             let crypto_config =
                 CryptoConfig::new(cipher_suite, KXGroup::default(), SigType::default());
             let mut conn_pair =
-                Harness::<C, S>::new_bench_pair(crypto_config, HandshakeType::default())
-                    .unwrap();
+                Harness::<C, S>::new_bench_pair(crypto_config, HandshakeType::default()).unwrap();
             conn_pair.handshake().unwrap();
             conn_pair.round_trip_transfer(&mut buf).unwrap();
         }

@@ -5,10 +5,7 @@
 use bench::OpenSslConnection;
 #[cfg(feature = "rustls")]
 use bench::RustlsConnection;
-use bench::{
-    harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode,
-    S2NConnection, SigType, Harness, TlsConnection, PROFILER_FREQUENCY,
-};
+use bench::{crypto_config::*, Harness, S2NConnection, TlsConnection, PROFILER_FREQUENCY};
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
     Throughput,
@@ -39,7 +36,7 @@ fn bench_throughput_for_library<T>(
                         let mut pair = Harness::<T, T>::from_configs(c_conf, s_conf);
                         pair.handshake()?;
                         Ok(pair)
-                    },
+                    }
                     _ => Err("invalid configs".into()),
                 }
             },

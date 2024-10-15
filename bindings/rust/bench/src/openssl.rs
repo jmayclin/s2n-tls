@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    get_cert_path,
-    harness::{
-        CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig, TlsConnection,
-        ViewIO,
+    crypto_config::{
+        get_cert_path, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, PemType,
+        TlsBenchConfig,
     },
-    PemType::*,
+    harness::{TlsConnection, ViewIO},
 };
 use openssl::ssl::{
     ErrorCode, Ssl, SslContext, SslFiletype, SslMethod, SslSession, SslSessionCacheMode, SslStream,
@@ -72,17 +71,17 @@ impl TlsBenchConfig for OpenSslConfig {
 
         match mode {
             Mode::Client => {
-                builder.set_ca_file(get_cert_path(CACert, crypto_config.sig_type))?;
+                builder.set_ca_file(get_cert_path(PemType::CACert, crypto_config.sig_type))?;
                 builder.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
 
                 match handshake_type {
                     HandshakeType::MutualAuth => {
                         builder.set_certificate_chain_file(get_cert_path(
-                            ClientCertChain,
+                            PemType::ClientCertChain,
                             crypto_config.sig_type,
                         ))?;
                         builder.set_private_key_file(
-                            get_cert_path(ClientKey, crypto_config.sig_type),
+                            get_cert_path(PemType::ClientKey, crypto_config.sig_type),
                             SslFiletype::PEM,
                         )?;
                     }
@@ -105,16 +104,16 @@ impl TlsBenchConfig for OpenSslConfig {
             }
             Mode::Server => {
                 builder.set_certificate_chain_file(get_cert_path(
-                    ServerCertChain,
+                    PemType::ServerCertChain,
                     crypto_config.sig_type,
                 ))?;
                 builder.set_private_key_file(
-                    get_cert_path(ServerKey, crypto_config.sig_type),
+                    get_cert_path(PemType::ServerKey, crypto_config.sig_type),
                     SslFiletype::PEM,
                 )?;
 
                 if handshake_type == HandshakeType::MutualAuth {
-                    builder.set_ca_file(get_cert_path(CACert, crypto_config.sig_type))?;
+                    builder.set_ca_file(get_cert_path(PemType::CACert, crypto_config.sig_type))?;
                     builder.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
                 }
                 if handshake_type == HandshakeType::Resumption {
