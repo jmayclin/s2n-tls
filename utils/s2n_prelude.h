@@ -14,7 +14,7 @@
  */
 
 #pragma once
-
+// IWYU pragma: begin_exports
 /* Let modules know that the prelude was included */
 #define _S2N_PRELUDE_INCLUDED
 
@@ -43,3 +43,4 @@
      */
     #define S2N_API __attribute__((visibility("default")))
 #endif
+// IWYU pragma: end_exports
