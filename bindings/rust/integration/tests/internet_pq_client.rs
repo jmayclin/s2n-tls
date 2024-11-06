@@ -4,11 +4,12 @@
 use s2n_tls::config::Config;
 use std::error::Error;
 use tokio::net::TcpStream;
+use tracing::level_filters::LevelFilter;
 
 /// Purpose: ensure that we remain compatible with existing pq AWS deployments.
-/// 
+///
 /// This test makes network calls over the public internet.
-/// 
+///
 /// KMS is a notable service with PQ support. Assert that we successfully negotiate
 /// with that service
 #[tokio::test]
@@ -16,19 +17,25 @@ async fn pq_test() -> Result<(), Box<dyn Error>> {
     const DOMAIN: &str = "kms.us-east-1.amazonaws.com";
     const SOCKET_ADDR: (&str, u16) = (DOMAIN, 443);
 
+    #[derive(Debug)]
     struct TestCase {
         s2n_security_policy: &'static str,
         expected_cipher: &'static str,
         expected_kem: Option<&'static str>,
     }
 
+    // When KMS moves to standardized ML-KEM, this test will fail. The test should
+    // then be updated with the new security policy that supports ML-KEM.
     const TEST_CASES: &[TestCase] = &[
-        // TODO: ask the pq people why the no-pq cases have been left in 🧐
+        // positive case: negotiates kyber
         TestCase {
             s2n_security_policy: "KMS-PQ-TLS-1-0-2020-07",
             expected_cipher: "ECDHE-KYBER-RSA-AES256-GCM-SHA384",
             expected_kem: Some("kyber512r3"),
         },
+        // negative cases: these policies support a variety of early kyber drafts.
+        // We want to confirm that non-supported kyber drafts successfully fall
+        // back to a full handshake.
         TestCase {
             s2n_security_policy: "KMS-PQ-TLS-1-0-2019-06",
             expected_cipher: "ECDHE-RSA-AES256-GCM-SHA384",
@@ -64,11 +71,16 @@ async fn pq_test() -> Result<(), Box<dyn Error>> {
         // complete the TLS handshake
         let tls = client.connect(DOMAIN, stream).await?;
 
+        tracing::info!("executing test case: {:#?}", test_case);
         assert_eq!(tls.as_ref().cipher_suite()?, test_case.expected_cipher);
         assert_eq!(tls.as_ref().kem_name()?, test_case.expected_kem);
 
         Ok(())
     }
+
+    tracing_subscriber::fmt()
+        .with_max_level(LevelFilter::TRACE)
+        .init();
 
     for test_case in TEST_CASES {
         test(test_case).await?
