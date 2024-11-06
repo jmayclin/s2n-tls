@@ -22,7 +22,6 @@
 
 #pragma once
 
-// IWYU pragma: begin_exports
 #ifndef S2N_API
     /**
      * Marks a function as belonging to the public s2n API.
@@ -3909,7 +3908,7 @@ S2N_API int s2n_connection_deserialize(struct s2n_connection *conn, uint8_t *buf
  * @returns S2N_SUCCESS on success. S2N_FAILURE on failure.
  */
 S2N_API int s2n_config_set_cert_authorities_from_trust_store(struct s2n_config *config);
-// IWYU pragma: end_exports
+
 #ifdef __cplusplus
 }
 #endif
