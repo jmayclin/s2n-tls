@@ -972,6 +972,43 @@ impl Connection {
         }
     }
 
+    pub fn kem_name(&self) -> Result<Option<&str>, Error> {
+        let kem_name = unsafe {s2n_connection_get_kem_name(self.connection.as_ptr()).into_result()?};
+        let name = unsafe {
+            // TODO: check these are true
+            // TODO Result<Option<&str>>??
+            // SAFETY: The data is null terminated because it is declared as a C
+            //         string literal.
+            // SAFETY: cipher has a static lifetime because it lives on s2n_cipher_suite,
+            //         a static struct.
+            const_str!(kem_name)
+        };
+
+        match name {
+            Ok("NONE") => Ok(None),
+            Ok(name) => Ok(Some(name)),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn kem_group_name(&self) -> Result<Option<&str>, Error> {
+        let kem_group_name = unsafe {s2n_connection_get_kem_group_name(self.connection.as_ptr()).into_result()?};
+        let name = unsafe {
+            // TODO: check these are true
+            // SAFETY: The data is null terminated because it is declared as a C
+            //         string literal.
+            // SAFETY: cipher has a static lifetime because it lives on s2n_cipher_suite,
+            //         a static struct.
+            const_str!(kem_group_name)
+        };
+
+        match name {
+            Ok("NONE") => Ok(None),
+            Ok(name) => Ok(Some(name)),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn selected_curve(&self) -> Result<&str, Error> {
         let curve = unsafe { s2n_connection_get_curve(self.connection.as_ptr()).into_result()? };
         unsafe {
