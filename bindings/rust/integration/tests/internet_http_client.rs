@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use bytes::Bytes;
-use http::{status, StatusCode, Uri};
+use http::{StatusCode, Uri};
 use http_body_util::{BodyExt, Empty};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use s2n_tls::config::Config;
 use s2n_tls_hyper::connector::HttpsConnector;
 use std::{error::Error, str::FromStr};
-use tokio::net::TcpStream;
 use tracing_subscriber::filter::LevelFilter;
 
 /// Purpose: ensure that s2n-tls is compatible with other http/TLS implementations
@@ -35,8 +34,12 @@ async fn http_get() -> Result<(), Box<dyn Error>> {
     }
 
     const TEST_CASES: &[TestCase] = &[
-        // "https://www.akamai.com", HANGS?
+        // This test currently seems to hang infinitely?
+        // TestCase::new("https://www.akamai.com/solutions/cloud-computing", 200),
+
+        // this is a link to our s2n-tls unit test coverage report, hosted on cloudfront
         TestCase::new("https://dx1inn44oyl7n.cloudfront.net/main/index.html", 200),
+        // this is a link to a non-existent S3 item
         TestCase::new("https://notmybucket.s3.amazonaws.com/folder/afile.jpg", 403),
         TestCase::new("https://www.amazon.com", 200),
         TestCase::new("https://www.apple.com", 200),
@@ -80,6 +83,8 @@ async fn http_get() -> Result<(), Box<dyn Error>> {
         Ok(())
     }
 
+    // enable tracing metrics. hyper/http has extensive logging, so these logs
+    // are very useful if failures happen in CI.
     tracing_subscriber::fmt()
         .with_max_level(LevelFilter::TRACE)
         .init();

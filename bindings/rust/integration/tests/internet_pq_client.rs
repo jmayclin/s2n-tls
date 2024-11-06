@@ -1,16 +1,16 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use bytes::Bytes;
-use http::{status, StatusCode, Uri};
-use http_body_util::{BodyExt, Empty};
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use s2n_tls::config::Config;
-use s2n_tls_hyper::connector::HttpsConnector;
-use std::{error::Error, str::FromStr};
+use std::error::Error;
 use tokio::net::TcpStream;
-use tracing_subscriber::filter::LevelFilter;
 
+/// Purpose: ensure that we remain compatible with existing pq AWS deployments.
+/// 
+/// This test makes network calls over the public internet.
+/// 
+/// KMS is a notable service with PQ support. Assert that we successfully negotiate
+/// with that service
 #[tokio::test]
 async fn pq_test() -> Result<(), Box<dyn Error>> {
     const DOMAIN: &str = "kms.us-east-1.amazonaws.com";
@@ -23,6 +23,12 @@ async fn pq_test() -> Result<(), Box<dyn Error>> {
     }
 
     const TEST_CASES: &[TestCase] = &[
+        // TODO: ask the pq people why the no-pq cases have been left in 🧐
+        TestCase {
+            s2n_security_policy: "KMS-PQ-TLS-1-0-2020-07",
+            expected_cipher: "ECDHE-KYBER-RSA-AES256-GCM-SHA384",
+            expected_kem: Some("kyber512r3"),
+        },
         TestCase {
             s2n_security_policy: "KMS-PQ-TLS-1-0-2019-06",
             expected_cipher: "ECDHE-RSA-AES256-GCM-SHA384",
@@ -32,11 +38,6 @@ async fn pq_test() -> Result<(), Box<dyn Error>> {
             s2n_security_policy: "PQ-SIKE-TEST-TLS-1-0-2019-11",
             expected_cipher: "ECDHE-RSA-AES256-GCM-SHA384",
             expected_kem: None,
-        },
-        TestCase {
-            s2n_security_policy: "KMS-PQ-TLS-1-0-2020-07",
-            expected_cipher: "ECDHE-KYBER-RSA-AES256-GCM-SHA384",
-            expected_kem: Some("kyber512r3"),
         },
         TestCase {
             s2n_security_policy: "KMS-PQ-TLS-1-0-2020-02",
@@ -57,24 +58,17 @@ async fn pq_test() -> Result<(), Box<dyn Error>> {
             test_case.s2n_security_policy,
         )?)?;
 
-        // Create the TlsConnector based on the configuration.
         let client = s2n_tls_tokio::TlsConnector::new(config.build()?);
-
-        // Connect to the server.
+        // open the TCP stream
         let stream = TcpStream::connect(SOCKET_ADDR).await?;
+        // complete the TLS handshake
         let tls = client.connect(DOMAIN, stream).await?;
 
-        let conn = tls.as_ref();
-
-        assert_eq!(conn.cipher_suite()?, test_case.expected_cipher);
-        assert_eq!(conn.kem_name()?, test_case.expected_kem);
+        assert_eq!(tls.as_ref().cipher_suite()?, test_case.expected_cipher);
+        assert_eq!(tls.as_ref().kem_name()?, test_case.expected_kem);
 
         Ok(())
     }
-
-    tracing_subscriber::fmt()
-        .with_max_level(LevelFilter::TRACE)
-        .init();
 
     for test_case in TEST_CASES {
         test(test_case).await?
