@@ -219,7 +219,7 @@ class S2N(Provider):
         if self.options.use_mainline_version is True:
             cmd_line.append('s2nc_head')
         else:
-            cmd_line.append('s2nc')
+            cmd_line.append('/home/ubuntu/workspace/s2n-tls/build/bin/s2nc')
         cmd_line.append('--non-blocking')
 
         # Tests requiring reconnects can't wait on echo data,

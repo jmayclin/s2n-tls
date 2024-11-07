@@ -8,9 +8,9 @@ from common import ProviderOptions, Ciphers, pq_enabled
 from fixtures import managed_process  # lgtm [py/unused-import]
 from global_flags import get_flag, is_criterion_on, S2N_FIPS_MODE, S2N_USE_CRITERION
 from providers import Provider, S2N
-from test_pq_handshake import PQ_ENABLED_FLAG
 from utils import invalid_test_parameters, get_parameter_name, to_bytes
 
+PQ_ENABLED_FLAG = "PQ key exchange enabled"
 
 ENDPOINTS = [
     "www.akamai.com",
