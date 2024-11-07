@@ -13,7 +13,7 @@ use tracing::level_filters::LevelFilter;
 /// KMS is a notable service with PQ support. Assert that we successfully negotiate
 /// with that service
 #[tokio::test]
-async fn pq_test() -> Result<(), Box<dyn Error>> {
+async fn kms_pq_test() -> Result<(), Box<dyn Error>> {
     const DOMAIN: &str = "kms.us-east-1.amazonaws.com";
     const SOCKET_ADDR: (&str, u16) = (DOMAIN, 443);
 

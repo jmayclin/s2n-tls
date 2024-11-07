@@ -5,7 +5,7 @@ use bytes::Bytes;
 use http::{StatusCode, Uri};
 use http_body_util::{BodyExt, Empty};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use s2n_tls::config::Config;
+use s2n_tls::{config::Config, security::Policy};
 use s2n_tls_hyper::connector::HttpsConnector;
 use std::{error::Error, str::FromStr};
 use tracing_subscriber::filter::LevelFilter;
@@ -65,19 +65,25 @@ async fn http_get() -> Result<(), Box<dyn Error>> {
     ];
 
     async fn get(test_case: &TestCase) -> Result<(), Box<dyn Error>> {
-        let connector = HttpsConnector::new(Config::default());
-        let client: Client<_, Empty<Bytes>> =
-            Client::builder(TokioExecutor::new()).build(connector);
+        for sp in [Policy::from_version("test_all_tls12")?, s2n_tls::security::DEFAULT_TLS13] {
 
-        let uri = Uri::from_str(test_case.domain)?;
-        let response = client.get(uri).await?;
+            let mut config = s2n_tls::config::Builder::new();
+            config.set_security_policy(&sp)?;
 
-        let expected_status = StatusCode::from_u16(test_case.expected_status_code).unwrap();
-        assert_eq!(response.status(), expected_status);
+            let connector = HttpsConnector::new(config.build()?);
+            let client: Client<_, Empty<Bytes>> =
+                Client::builder(TokioExecutor::new()).build(connector);
 
-        if expected_status == StatusCode::OK {
-            let body = response.into_body().collect().await?.to_bytes();
-            assert!(!body.is_empty());
+            let uri = Uri::from_str(test_case.domain)?;
+            let response = client.get(uri).await?;
+
+            let expected_status = StatusCode::from_u16(test_case.expected_status_code).unwrap();
+            assert_eq!(response.status(), expected_status);
+
+            if expected_status == StatusCode::OK {
+                let body = response.into_body().collect().await?.to_bytes();
+                assert!(!body.is_empty());
+            }
         }
 
         Ok(())
