@@ -35,6 +35,13 @@ async fn cloudflare_pq_test() -> Result<(), Box<dyn Error>> {
             successful_handshake: true,
             expected_kem_group: Some("X25519MLKEM768"),
         },
+        // 20241001_pq_mixed includes support for both standard and draft PQ. 
+        // negotiation should be succesful.
+        TestCase {
+            s2n_security_policy: "20241001_pq_mixed",
+            successful_handshake: true,
+            expected_kem_group: Some("X25519MLKEM768"),
+        },
         // KMS-PQ-TLS-1-0-2020-07 only includes support for draft versions of kyber,
         // which cloudflare does not support. Negotiation is expected to fail.
         TestCase {
@@ -42,12 +49,15 @@ async fn cloudflare_pq_test() -> Result<(), Box<dyn Error>> {
             successful_handshake: false,
             expected_kem_group: None,
         },
-        // 20241001_pq_mixed includes support for both standard and draft PQ. 
-        // negotiation should be succesful.
         TestCase {
-            s2n_security_policy: "20241001_pq_mixed",
-            successful_handshake: true,
-            expected_kem_group: Some("X25519MLKEM768"),
+            s2n_security_policy: "test_all_tls12",
+            successful_handshake: false,
+            expected_kem_group: None,
+        },
+        TestCase {
+            s2n_security_policy: "test_all",
+            successful_handshake: false,
+            expected_kem_group: None,
         },
         // default doesn't support pq, and should also succeed.
         // TODO: switch to numbered policy
