@@ -37,6 +37,7 @@ async fn cloudflare_pq_test() -> Result<(), Box<dyn Error>> {
         },
         // 20241001_pq_mixed includes support for both standard and draft PQ. 
         // negotiation should be succesful.
+        // does not include s2n_ecdhe_kyber_rsa_with_aes
         TestCase {
             s2n_security_policy: "20241001_pq_mixed",
             successful_handshake: true,
@@ -54,9 +55,16 @@ async fn cloudflare_pq_test() -> Result<(), Box<dyn Error>> {
             successful_handshake: false,
             expected_kem_group: None,
         },
+        // includes the TLS 1.2 PQ stuff
         TestCase {
             s2n_security_policy: "test_all",
             successful_handshake: false,
+            expected_kem_group: None,
+        },
+        // 20240730 only supports r3 drafts
+        TestCase {
+            s2n_security_policy: "20240730",
+            successful_handshake: true,
             expected_kem_group: None,
         },
         // default doesn't support pq, and should also succeed.
