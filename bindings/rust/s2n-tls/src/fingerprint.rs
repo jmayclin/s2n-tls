@@ -6,7 +6,7 @@
 //! See [the C API documentation](https://github.com/aws/s2n-tls/blob/main/api/unstable/fingerprint.h).
 
 use crate::{
-    client_hello::ClientHello,
+    client_hello::{ClientHelloRef, ClientHello},
     error::{Error, Fallible},
     ffi::*,
 };
@@ -250,9 +250,9 @@ impl Builder {
     }
 
     /// Creates a fingerprint operation for a given [ClientHello].
-    pub fn build<'a>(&'a mut self, client_hello: &ClientHello) -> Result<Fingerprint<'a>, Error> {
+    pub fn build<'a>(&'a mut self, client_hello: &ClientHelloRef) -> Result<Fingerprint<'a>, Error> {
         unsafe {
-            s2n_fingerprint_set_client_hello(self.ptr.as_ptr(), client_hello.deref_mut_ptr())
+            s2n_fingerprint_set_client_hello(self.ptr.as_ptr(), client_hello.as_s2n_ptr())
                 .into_result()
         }?;
         Ok(Fingerprint(self))
@@ -271,7 +271,7 @@ impl Drop for Builder {
 
 // Legacy versions of the fingerprinting methods
 const MD5_HASH_SIZE: u32 = 16;
-impl ClientHello {
+impl ClientHelloRef {
     /// `fingerprint_hash` calculates the hash, and also returns the size
     /// required for the full fingerprint string. The return value can be used
     /// to construct a string of appropriate capacity to call
@@ -279,13 +279,13 @@ impl ClientHello {
     /// the full hash.
     ///
     /// ```no_run
-    /// use s2n_tls::client_hello::{ClientHello, FingerprintType};
+    /// use s2n_tls::client_hello::{ClientHelloRef, FingerprintType};
     /// use s2n_tls::connection::Connection;
     /// use s2n_tls::enums::Mode;
     ///
     /// let mut conn = Connection::new(Mode::Server);
     /// // handshake happens
-    /// let mut client_hello: &ClientHello = conn.client_hello().unwrap();
+    /// let mut client_hello: &ClientHelloRef = conn.client_hello().unwrap();
     /// let mut hash = Vec::new();
     /// let string_size = client_hello.fingerprint_hash(FingerprintType::JA3, &mut hash).unwrap();
     /// // hash has been resized so that it can store the fingerprint hash
@@ -309,7 +309,7 @@ impl ClientHello {
         }
         unsafe {
             s2n_client_hello_get_fingerprint_hash(
-                self.deref_mut_ptr(),
+                self.as_s2n_ptr(),
                 hash.into(),
                 MD5_HASH_SIZE,
                 output.as_mut_ptr(),
@@ -336,7 +336,7 @@ impl ClientHello {
         let mut output_size = 0;
         unsafe {
             s2n_tls_sys::s2n_client_hello_get_fingerprint_string(
-                self.deref_mut_ptr(),
+                self.as_s2n_ptr(),
                 hash.into(),
                 output.capacity() as u32,
                 output.as_mut_ptr(),

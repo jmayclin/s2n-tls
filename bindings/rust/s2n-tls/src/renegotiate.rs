@@ -431,7 +431,7 @@ mod tests {
         error::{ErrorSource, ErrorType},
         testing::{CertKeyPair, InsecureAcceptAllCertificatesHandler, TestPair, TestPairIO},
     };
-    use foreign_types::ForeignTypeRef;
+    use openssl_foreign_types::ForeignTypeRef;
     use futures_test::task::new_count_waker;
     use openssl::ssl::{
         ErrorCode, Ssl, SslContext, SslFiletype, SslMethod, SslStream, SslVerifyMode, SslVersion,

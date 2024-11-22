@@ -26,6 +26,7 @@ pub mod pool;
 #[cfg(feature = "unstable-renegotiate")]
 pub mod renegotiate;
 pub mod security;
+mod ffi_traits;
 
 pub use s2n_tls_sys as ffi;
 

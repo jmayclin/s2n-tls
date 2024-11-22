@@ -1,9 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::error::{Error, Fallible};
+use crate::{error::{Error, Fallible}, ffi_traits::Opaque};
+// use foreign_types::foreign_type;
 use s2n_tls_sys::*;
-use std::fmt;
+use std::{fmt, ops::Deref, ptr::NonNull};
 
 // ClientHello is an opaque wrapper struct around `s2n_client_hello`. Note that
 // the size of this type is not known, and as such it can only be used through
@@ -19,22 +20,50 @@ use std::fmt;
 // the connection struct. This is best represented as a reference tied to the
 // lifetime of the `Connection` struct.
 
-pub struct ClientHello(s2n_client_hello);
+pub struct ClientHello {
+    ptr: NonNull<s2n_client_hello>
+}
 
 impl ClientHello {
-    pub fn parse_client_hello(hello: &[u8]) -> Result<Box<Self>, crate::error::Error> {
+    pub fn parse_client_hello(hello: &[u8]) -> Result<Self, crate::error::Error> {
         crate::init::init();
         let handle = unsafe {
             s2n_client_hello_parse_message(hello.as_ptr(), hello.len() as u32).into_result()?
         };
-        let client_hello = handle.as_ptr() as *mut ClientHello;
         // safety: s2n_client_hello_parse_message returns a pointer that "owns"
         // its memory. This memory must be cleaned up by the application. The
         // Box<Self> will call Self::Drop when it goes out of scope so memory
         // will be automatically managed.
-        unsafe { Ok(Box::from_raw(client_hello)) }
+        Ok( Self {
+            ptr: handle,
+        })
     }
+}
 
+impl Drop for ClientHello {
+    fn drop(&mut self) {
+        let mut client_hello = self.as_s2n_ptr();
+        // ignore failures. There isn't anything to be done to handle them, but
+        // allowing the program to continue is preferable to crashing.
+        let _ = unsafe {
+            s2n_tls_sys::s2n_client_hello_free(std::ptr::addr_of_mut!(client_hello)).into_result()
+        };
+    }
+}
+
+impl Deref for ClientHello {
+    type Target = ClientHelloRef;
+    
+    fn deref(&self) -> &Self::Target {
+        ClientHelloRef::from_ptr(unsafe {self.ptr.as_ref()})
+    }
+}
+
+pub struct ClientHelloRef(Opaque);
+
+//pub struct ClientHello(s2n_client_hello);
+
+impl ClientHelloRef {
     // this accepts a mut ref instead of a pointer, so that lifetimes are nicely
     // calculated for us. As is always the case, the reference must not be null.
     // this is marked "pub(crate)" to expose it to the connection module but
@@ -44,7 +73,7 @@ impl ClientHello {
         // repr(packed(N)), repr(align(N)), and repr(C) structs: if all fields of a
         // struct have size 0, then the struct has size 0.
         // https://rust-lang.github.io/unsafe-code-guidelines/layout/structs-and-tuples.html#zero-sized-structs
-        unsafe { &*(hello as *const s2n_client_hello as *const ClientHello) }
+        unsafe { &*(hello as *const s2n_client_hello as *const ClientHelloRef) }
     }
 
     // SAFETY: casting *const s2n_client_hello -> *mut s2n_client_hello: This is
@@ -52,14 +81,14 @@ impl ClientHello {
     // we know that the get_hash and get_fingerprint methods do not mutate the
     // data, and use mut pointers as a matter of convention because it makes
     // working with s2n_stuffers and s2n_blobs easier.
-    pub(crate) fn deref_mut_ptr(&self) -> *mut s2n_client_hello {
-        &self.0 as *const s2n_client_hello as *mut s2n_client_hello
+    pub(crate) fn as_s2n_ptr(&self) -> *mut s2n_client_hello {
+        self as *const _ as *mut _
     }
 
     pub fn session_id(&self) -> Result<Vec<u8>, Error> {
         let mut session_id_length = 0;
         unsafe {
-            s2n_client_hello_get_session_id_length(self.deref_mut_ptr(), &mut session_id_length)
+            s2n_client_hello_get_session_id_length(self.as_s2n_ptr(), &mut session_id_length)
                 .into_result()?;
         }
 
@@ -67,7 +96,7 @@ impl ClientHello {
         let mut out_length = 0;
         unsafe {
             s2n_client_hello_get_session_id(
-                self.deref_mut_ptr(),
+                self.as_s2n_ptr(),
                 session_id.as_mut_ptr(),
                 &mut out_length,
                 session_id_length,
@@ -80,7 +109,7 @@ impl ClientHello {
     pub fn server_name(&self) -> Result<Vec<u8>, Error> {
         let mut server_name_length = 0;
         unsafe {
-            s2n_client_hello_get_server_name_length(self.deref_mut_ptr(), &mut server_name_length)
+            s2n_client_hello_get_server_name_length(self.as_s2n_ptr(), &mut server_name_length)
                 .into_result()?;
         }
 
@@ -88,7 +117,7 @@ impl ClientHello {
         let mut out_length = 0;
         unsafe {
             s2n_client_hello_get_server_name(
-                self.deref_mut_ptr(),
+                self.as_s2n_ptr(),
                 server_name.as_mut_ptr(),
                 server_name_length,
                 &mut out_length,
@@ -100,12 +129,12 @@ impl ClientHello {
 
     pub fn raw_message(&self) -> Result<Vec<u8>, Error> {
         let message_length =
-            unsafe { s2n_client_hello_get_raw_message_length(self.deref_mut_ptr()).into_result()? };
+            unsafe { s2n_client_hello_get_raw_message_length(self.as_s2n_ptr()).into_result()? };
 
         let mut raw_message = vec![0; message_length];
         unsafe {
             s2n_client_hello_get_raw_message(
-                self.deref_mut_ptr(),
+                self.as_s2n_ptr(),
                 raw_message.as_mut_ptr(),
                 message_length as u32,
             )
@@ -115,18 +144,7 @@ impl ClientHello {
     }
 }
 
-impl Drop for ClientHello {
-    fn drop(&mut self) {
-        let mut client_hello: *mut s2n_client_hello = &mut self.0;
-        // ignore failures. There isn't anything to be done to handle them, but
-        // allowing the program to continue is preferable to crashing.
-        let _ = unsafe {
-            s2n_tls_sys::s2n_client_hello_free(std::ptr::addr_of_mut!(client_hello)).into_result()
-        };
-    }
-}
-
-impl fmt::Debug for ClientHello {
+impl fmt::Debug for ClientHelloRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let session_id = self.session_id().map_err(|_| fmt::Error)?;
         let session_id = hex::encode(session_id);
@@ -144,7 +162,7 @@ pub use crate::fingerprint::FingerprintType;
 
 #[cfg(test)]
 mod tests {
-    use crate::client_hello::ClientHello;
+    use super::*;
 
     #[test]
     fn invalid_client_bytes() {

@@ -7,7 +7,7 @@
 use crate::renegotiate::RenegotiateState;
 use crate::{
     callbacks::*,
-    cert_chain::CertificateChain,
+    cert_chain::{CertificateChain, CertificateChainRef},
     config::Config,
     enums::*,
     error::{Error, Fallible, Pollable},
@@ -889,7 +889,7 @@ impl Connection {
     //
     /// Returns a reference to the ClientHello associated with the connection.
     /// ```compile_fail
-    /// use s2n_tls::client_hello::ClientHello;
+    /// use s2n_tls::client_hello::ClientHelloRef;
     /// use s2n_tls::connection::Connection;
     /// use s2n_tls::enums::Mode;
     ///
@@ -902,19 +902,19 @@ impl Connection {
     /// The compilation could be failing for a variety of reasons, so make sure
     /// that the test case is actually good.
     /// ```no_run
-    /// use s2n_tls::client_hello::ClientHello;
+    /// use s2n_tls::client_hello::ClientHelloRef;
     /// use s2n_tls::connection::Connection;
     /// use s2n_tls::enums::Mode;
     ///
     /// let mut conn = Connection::new(Mode::Server);
-    /// let mut client_hello: &ClientHello = conn.client_hello().unwrap();
+    /// let mut client_hello: &ClientHelloRef = conn.client_hello().unwrap();
     /// client_hello.raw_message();
     /// drop(conn);
     /// ```
-    pub fn client_hello(&self) -> Result<&crate::client_hello::ClientHello, Error> {
+    pub fn client_hello(&self) -> Result<&crate::client_hello::ClientHelloRef, Error> {
         let mut handle =
             unsafe { s2n_connection_get_client_hello(self.connection.as_ptr()).into_result()? };
-        Ok(crate::client_hello::ClientHello::from_ptr(unsafe {
+        Ok(crate::client_hello::ClientHelloRef::from_ptr(unsafe {
             handle.as_mut()
         }))
     }
@@ -1096,12 +1096,12 @@ impl Connection {
     /// Returns the validated peer certificate chain.
     // 'static lifetime is because this copies the certificate chain from the connection into a new
     // chain, so the lifetime is independent of the connection.
-    pub fn peer_cert_chain(&self) -> Result<CertificateChain<'static>, Error> {
+    pub fn peer_cert_chain(&self) -> Result<CertificateChain, Error> {
         unsafe {
             let mut chain = CertificateChain::new()?;
             s2n_connection_get_peer_cert_chain(
                 self.connection.as_ptr(),
-                chain.as_mut_ptr().as_ptr(),
+                chain.as_const_s2n_ptr() as *mut s2n_cert_chain_and_key,
             )
             .into_result()
             .map(|_| ())?;
@@ -1116,7 +1116,7 @@ impl Connection {
     /// - If `self` is a client connection, the certificate sent in response to a CertificateRequest
     ///   message is returned. Currently s2n-tls supports loading only one certificate in client mode. Note that
     ///   not all TLS endpoints will request a certificate.
-    pub fn selected_cert(&self) -> Option<CertificateChain<'_>> {
+    pub fn selected_cert(&self) -> Option<&CertificateChainRef> {
         unsafe {
             // The API only returns null, no error is actually set.
             // Clippy doesn't realize from_ptr_reference is unsafe.
@@ -1124,7 +1124,7 @@ impl Connection {
             if let Some(ptr) =
                 NonNull::new(s2n_connection_get_selected_cert(self.connection.as_ptr()))
             {
-                Some(CertificateChain::from_ptr_reference(ptr))
+                Some(CertificateChainRef::from_s2n_ptr(ptr.as_ref()))
             } else {
                 None
             }
