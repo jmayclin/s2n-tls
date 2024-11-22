@@ -1,123 +1,23 @@
-# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
 import collections
 
-from common import Certificates, Ciphers, Curves, Protocols, AvailablePorts
-from constants import TEST_SNI_CERT_DIRECTORY
-from providers import S2N, OpenSSL, JavaSSL
+class Ciphers(object):
+    """
+    When referencing ciphers, use these class values.
+    """
+    ECDHE_ECDSA_AES128_GCM_SHA256 = "ECDHE_ECDSA_AES128_GCM_SHA256",
+    ECDHE_ECDSA_AES128_SHA = "ECDHE_ECDSA_AES128_SHA",
+    ECDHE_ECDSA_AES128_SHA256 = "ECDHE_ECDSA_AES128_SHA256",
+    ECDHE_RSA_AES128_GCM_SHA256 = "ECDHE_RSA_AES128_GCM_SHA256",
+    ECDHE_RSA_AES128_SHA = "ECDHE_RSA_AES128_SHA",
+    ECDHE_RSA_AES128_SHA256 = "ECDHE_RSA_AES128_SHA256",
+    AES128_GCM_SHA256 = "AES128_GCM_SHA256",
 
+def make_test_case(key, cert_value):
+    # TEST_SNI_CERT_DIRECTORY<key>_cert.pem
+    pem_key = cert_value[0][len(TEST_SNI_CERT_DIRECTORY):-len("_cert.pem")]
+    print(f"TestCase::new({key}, {pem_key}, &[{",".join(cert_value[3])}])")
 
-# The boolean configuration will let a test run for True and False
-# for some value. For example, using the insecure flag.
-BOOLEAN = [True, False]
-
-
-# List of all protocols to be tested
-PROTOCOLS = [
-    Protocols.TLS13,
-    Protocols.TLS12,
-    Protocols.TLS11,
-    Protocols.TLS10,
-    Protocols.SSLv3,
-]
-
-
-# List of providers that will be tested.
-PROVIDERS = [S2N, OpenSSL, JavaSSL]
-
-
-# List of binary TLS13 settings
-TLS13 = [True, False]
-
-
-# List of all curves that will be tested.
-ALL_TEST_CURVES = [
-    Curves.X25519,
-    Curves.P256,
-    Curves.P384,
-    Curves.P521
-]
-
-
-# List of all certificates that will be tested.
-ALL_TEST_CERTS = [
-    Certificates.RSA_1024_SHA256,
-    Certificates.RSA_1024_SHA384,
-    Certificates.RSA_1024_SHA512,
-    Certificates.RSA_2048_SHA256,
-    Certificates.RSA_2048_SHA384,
-    Certificates.RSA_2048_SHA512,
-    Certificates.RSA_3072_SHA256,
-    Certificates.RSA_3072_SHA384,
-    Certificates.RSA_3072_SHA512,
-    Certificates.RSA_4096_SHA256,
-    Certificates.RSA_4096_SHA384,
-    Certificates.RSA_4096_SHA512,
-    Certificates.ECDSA_256,
-    Certificates.ECDSA_384,
-    Certificates.ECDSA_521,
-    Certificates.RSA_PSS_2048_SHA256,
-]
-
-
-# List of certificates which enable all cipher suites
-MINIMAL_TEST_CERTS = [
-    Certificates.RSA_2048_SHA512,
-    Certificates.RSA_4096_SHA256,
-    Certificates.ECDSA_256,
-    Certificates.ECDSA_384,
-    Certificates.RSA_PSS_2048_SHA256
-]
-
-
-# List of all ciphers that will be tested.
-ALL_TEST_CIPHERS = [
-    Ciphers.DHE_RSA_AES128_SHA,
-    Ciphers.DHE_RSA_AES256_SHA,
-    Ciphers.DHE_RSA_AES128_SHA256,
-    Ciphers.DHE_RSA_AES256_SHA256,
-    Ciphers.DHE_RSA_AES128_GCM_SHA256,
-    Ciphers.DHE_RSA_AES256_GCM_SHA384,
-    Ciphers.DHE_RSA_CHACHA20_POLY1305,
-
-    Ciphers.AES128_SHA,
-    Ciphers.AES256_SHA,
-    Ciphers.AES128_SHA256,
-    Ciphers.AES256_SHA256,
-    Ciphers.AES128_GCM_SHA256,
-    Ciphers.AES256_GCM_SHA384,
-
-    Ciphers.ECDHE_ECDSA_AES128_GCM_SHA256,
-    Ciphers.ECDHE_ECDSA_AES256_GCM_SHA384,
-    Ciphers.ECDHE_ECDSA_AES128_SHA256,
-    Ciphers.ECDHE_ECDSA_AES256_SHA384,
-    Ciphers.ECDHE_ECDSA_AES128_SHA,
-    Ciphers.ECDHE_ECDSA_AES256_SHA,
-    Ciphers.ECDHE_ECDSA_CHACHA20_POLY1305,
-
-    Ciphers.ECDHE_RSA_AES128_SHA,
-    Ciphers.ECDHE_RSA_AES256_SHA,
-    Ciphers.ECDHE_RSA_AES128_SHA256,
-    Ciphers.ECDHE_RSA_AES256_SHA384,
-    Ciphers.ECDHE_RSA_AES128_GCM_SHA256,
-    Ciphers.ECDHE_RSA_AES256_GCM_SHA384,
-    Ciphers.ECDHE_RSA_CHACHA20_POLY1305,
-
-    Ciphers.CHACHA20_POLY1305_SHA256,
-]
-
-# List of TLS13 Ciphers
-TLS13_CIPHERS = [
-    Ciphers.CHACHA20_POLY1305_SHA256,
-    Ciphers.AES128_GCM_SHA256,
-    Ciphers.AES256_GCM_SHA384,
-]
-
-
-# List of ports available to tests.
-available_ports = AvailablePorts()
-
-
+TEST_SNI_CERT_DIRECTORY = "<CERT_DIRECTORY>"
 # Server certificates used to test matching domain names client with server_name
 # ( cert_path, private_key_path, domains[] )
 SNI_CERTS = {
@@ -421,3 +321,13 @@ MULTI_CERT_TEST_CASES.extend([MultiCertTest(
     client_ciphers=[Ciphers.ECDHE_RSA_AES128_SHA],
     expected_cert=SNI_CERTS["many_animals_mixed_case"],
     expect_matching_hostname=True) for many_animal_domain in SNI_CERTS["many_animals_mixed_case"][2]])
+
+def make_test_case(key, cert_value):
+    # TEST_SNI_CERT_DIRECTORY<key>_cert.pem
+    pem_key = cert_value[0][len(TEST_SNI_CERT_DIRECTORY):-len("_cert.pem")]
+    quoted_cert_values = [f'"{domain}"' for domain in cert_value[2]]
+    print(f'TestCase::new("{key}", "{pem_key}", &[{",".join(quoted_cert_values)}])')
+
+if __name__ == "__main__":
+    for (key, value) in SNI_CERTS.items():
+        make_test_case(key, value)
