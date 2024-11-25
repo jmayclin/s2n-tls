@@ -67,7 +67,7 @@ impl CertificateChain<'_> {
         // count to allow for the "reference" held by the s2n_connection.
         let clone_to_increment_refcount = Arc::clone(&handle);
         std::mem::forget(clone_to_increment_refcount);
-        // handle & owning struct
+        // `handle` + owning struct = 2
         debug_assert_eq!(Arc::strong_count(&handle), 2);
 
         CertificateChain {
@@ -189,97 +189,180 @@ unsafe impl Send for Certificate<'_> {}
 mod tests {
     use crate::{
         config,
-        security::{Policy, DEFAULT_TLS13},
-        testing::{CertKeyPair, InsecureAcceptAllCertificatesHandler, TestPair},
+        security::DEFAULT_TLS13,
+        testing::{InsecureAcceptAllCertificatesHandler, SniTestCerts, TestPair},
     };
 
     use super::*;
 
     #[test]
-    fn ref_counts() -> Result<(), crate::error::Error> {
-        let cert = CertKeyPair::default();
-
-        let chain = CertificateChain::load_pems(cert.cert(), cert.key())?;
-        assert_eq!(Arc::strong_count(&chain.ptr), 1);
-
-        let mut list = Vec::new();
-        for _ in 0..10 {
-            list.push(chain.clone());
-        }
-        assert_eq!(Arc::strong_count(&chain.ptr), 1 + 10);
-        drop(list);
-        assert_eq!(Arc::strong_count(&chain.ptr), 1);
-
-        Ok(())
-    }
-
-    #[test]
-    fn sanity_check() -> Result<(), crate::error::Error> {
-        let cert = CertKeyPair::default();
-
-        {
-            let mut server = config::Builder::new();
-            server.set_security_policy(&DEFAULT_TLS13)?;
-            server.load_pem(cert.cert(), cert.key())?;
-
-            let mut client = config::Builder::new();
-            client.set_security_policy(&DEFAULT_TLS13)?;
-            client.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
-            client.trust_pem(cert.cert())?;
-
-            let mut pair = TestPair::from_configs(&client.build()?, &server.build()?);
-
-            pair.handshake().unwrap();
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn config_drop() -> Result<(), crate::error::Error> {
-        let cert = CertKeyPair::default();
-
-        let chain = CertificateChain::load_pems(cert.cert(), cert.key())?;
+    fn reference_count_increment() -> Result<(), crate::error::Error> {
+        let alligator_cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
 
         // cert on a single config
         {
             let mut server = config::Builder::new();
-            server.set_security_policy(&DEFAULT_TLS13)?;
-            server.add_to_store(chain.clone())?;
-            server.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
-            server.trust_pem(cert.cert())?;
+            server.add_to_store(alligator_cert.clone())?;
 
             // after being added, the reference count should have increased
-            assert_eq!(Arc::strong_count(&chain.ptr), 2);
-
-            let mut pair = TestPair::from_config(&server.build()?);
-            assert!(pair.handshake().is_ok());
-
-            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+            assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
         }
+
         // after the config goes out of scope and is dropped, the ref count should
         // decrement
-        assert_eq!(Arc::strong_count(&chain.ptr), 1);
+        assert_eq!(Arc::strong_count(&alligator_cert.ptr), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn cert_is_dropped() {
+        let weak_ref;
         {
-            
-        // cert on a single config
+            let cert = SniTestCerts::AlligatorEcdsa.get().into_certificate_chain();
+            weak_ref = Arc::downgrade(&cert.ptr);
+            assert_eq!(Arc::strong_count(&cert.ptr), 1);
+        }
+        assert_eq!(weak_ref.strong_count(), 0);
+        assert!(weak_ref.upgrade().is_none());
+    }
+
+    /// Create a test pair using SNI certs
+    /// * `certs`: takes references to already created cert chains. This is useful
+    ///            to assert on expected reference counts.
+    /// * `types`: Used to find the CA paths for the client configs
+    fn sni_test_pair(
+        certs: Vec<CertificateChain<'static>>,
+        defaults: Option<Vec<CertificateChain<'static>>>,
+        types: &[SniTestCerts],
+    ) -> Result<TestPair, crate::error::Error> {
+        let mut server_config = config::Builder::new();
+        server_config
+            .with_system_certs(false)?
+            .set_security_policy(&DEFAULT_TLS13)?;
+        for cert in certs.into_iter() {
+            server_config.add_to_store(cert)?;
+        }
+        if let Some(defaults) = defaults {
+            server_config.set_default_cert_chain_and_key(defaults)?;
+        }
+
+        let mut client_config = config::Builder::new();
+        client_config
+            .with_system_certs(false)?
+            .set_security_policy(&DEFAULT_TLS13)?
+            .set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
+        for tipe in types {
+            client_config.trust_pem(tipe.get().cert())?;
+        }
+        Ok(TestPair::from_configs(
+            &client_config.build()?,
+            &server_config.build()?,
+        ))
+    }
+
+    /// This is a useful (but inefficient) test utility to check if CertificateChain
+    /// structs are equal. It does this by comparing the serialized `der` representation.
+    fn cert_chains_are_equal<'a, 'b>(
+        this: &CertificateChain<'a>,
+        that: &CertificateChain<'b>,
+    ) -> bool {
+        let this: Vec<Vec<u8>> = this
+            .iter()
+            .map(|cert| cert.unwrap().der().unwrap().to_owned())
+            .collect();
+        let that: Vec<Vec<u8>> = that
+            .iter()
+            .map(|cert| cert.unwrap().der().unwrap().to_owned())
+            .collect();
+        this == that
+    }
+
+    // a cert can be successfully shared across multiple configs
+    #[test]
+    fn shared_certs() -> Result<(), crate::error::Error> {
+        let test_key_pair = SniTestCerts::AlligatorRsa.get();
+        let cert = test_key_pair.into_certificate_chain();
+
+        let mut test_pair_1 =
+            sni_test_pair(vec![cert.clone()], None, &[SniTestCerts::AlligatorRsa])?;
+        let mut test_pair_2 =
+            sni_test_pair(vec![cert.clone()], None, &[SniTestCerts::AlligatorRsa])?;
+
+        assert_eq!(Arc::strong_count(&cert.ptr), 3);
+
+        assert!(test_pair_1.handshake().is_ok());
+        assert!(test_pair_2.handshake().is_ok());
+
+        assert_eq!(Arc::strong_count(&cert.ptr), 3);
+
+        drop(test_pair_1);
+        assert_eq!(Arc::strong_count(&cert.ptr), 2);
+        drop(test_pair_2);
+        assert_eq!(Arc::strong_count(&cert.ptr), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn default_effects() -> Result<(), crate::error::Error> {
+        let alligator_cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
+        let beaver_cert = SniTestCerts::BeaverRsa.get().into_certificate_chain();
+
+        // when no default is explicitly set, the first loaded cert is the default
         {
-            let mut server = config::Builder::new();
-            server.set_security_policy(&DEFAULT_TLS13)?;
-            server.add_to_store(chain.clone())?;
-            server.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
-            server.trust_pem(cert.cert())?;
+            let mut test_pair = sni_test_pair(
+                vec![alligator_cert.clone(), beaver_cert.clone()],
+                None,
+                &[SniTestCerts::AlligatorRsa, SniTestCerts::BeaverRsa],
+            )?;
 
-            // after being added, the reference count should have increased
-            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+            assert!(test_pair.handshake().is_ok());
 
-            let mut pair = TestPair::from_config(&server.build()?);
-            assert!(pair.handshake().is_ok());
+            assert!(cert_chains_are_equal(
+                &alligator_cert,
+                &test_pair.client.peer_cert_chain().unwrap()
+            ));
 
-            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+            assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
+            assert_eq!(Arc::strong_count(&beaver_cert.ptr), 2);
         }
+
+        // set an explicit default
+        {
+            let mut test_pair = sni_test_pair(
+                vec![alligator_cert.clone(), beaver_cert.clone()],
+                Some(vec![beaver_cert.clone()]),
+                &[SniTestCerts::AlligatorRsa, SniTestCerts::BeaverRsa],
+            )?;
+
+            assert!(test_pair.handshake().is_ok());
+
+            assert!(cert_chains_are_equal(
+                &beaver_cert,
+                &test_pair.client.peer_cert_chain().unwrap()
+            ));
+
+            assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
+            assert_eq!(Arc::strong_count(&beaver_cert.ptr), 3);
         }
 
+        // set a default without adding it to the store
+        {
+            let mut test_pair = sni_test_pair(
+                vec![alligator_cert.clone()],
+                Some(vec![beaver_cert.clone()]),
+                &[SniTestCerts::AlligatorRsa, SniTestCerts::BeaverRsa],
+            )?;
+
+            assert!(test_pair.handshake().is_ok());
+
+            assert!(cert_chains_are_equal(
+                &beaver_cert,
+                &test_pair.client.peer_cert_chain().unwrap()
+            ));
+
+            assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
+            assert_eq!(Arc::strong_count(&beaver_cert.ptr), 2);
+        }
 
         Ok(())
     }

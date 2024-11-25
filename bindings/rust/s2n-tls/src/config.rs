@@ -7,7 +7,7 @@ use crate::{
     callbacks::*,
     cert_chain::CertificateChain,
     enums::*,
-    error::{Error, Fallible},
+    error::{Error, ErrorType, Fallible},
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
@@ -16,7 +16,11 @@ use std::{
     ffi::{c_void, CString},
     path::Path,
     pin::Pin,
-    sync::atomic::{AtomicUsize, Ordering},
+    ptr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     task::Poll,
     time::{Duration, SystemTime},
 };
@@ -294,7 +298,15 @@ impl Builder {
     }
 
     pub fn add_to_store(&mut self, chain: CertificateChain<'static>) -> Result<&mut Self, Error> {
-        // TODO: should we hold the extra reference before or after loading the cert?
+        // Out of an abudance of caution, we hold a reference to the CertificateChain
+        // regardless of whether add_to_store fails or succeeds. We have limited
+        // visibility into the failure modes, so this behavior ensures that _if_
+        // the C library held the reference despite the failure, it would continue
+        // to be valid memory.
+        self.context_mut()
+            .application_owned_certs
+            .push(chain.clone());
+
         unsafe {
             s2n_config_add_cert_chain_and_key_to_store(
                 self.as_mut_ptr(),
@@ -305,7 +317,35 @@ impl Builder {
             .into_result()
         }?;
 
-        self.context_mut().application_owned_certs.push(chain);
+        Ok(self)
+    }
+
+    /// Set the default cert for a particular auth type. Auth types are
+    /// - RSA
+    /// - ECDSA
+    /// - RSA-PSS
+    /// Repeated calls to this function will overwrite previous defaults.
+    pub fn set_default_cert_chain_and_key(
+        &mut self,
+        chains: Vec<CertificateChain<'static>>,
+    ) -> Result<&mut Self, Error> {
+        self.context_mut()
+            .application_owned_certs
+            .extend(chains.clone());
+
+        let raw_certs: Vec<*mut s2n_cert_chain_and_key> = chains
+            .into_iter()
+            .map(|cert| cert.as_ptr() as *mut _)
+            .collect();
+
+        unsafe {
+            s2n_config_set_cert_chain_and_key_defaults(
+                self.as_mut_ptr(),
+                raw_certs.as_ptr() as *mut _,
+                raw_certs.len() as u32,
+            );
+        }
+
         Ok(self)
     }
 
