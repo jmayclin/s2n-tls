@@ -5,6 +5,7 @@
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
     callbacks::*,
+    cert_chain::CertificateChain,
     enums::*,
     error::{Error, Fallible},
     security,
@@ -151,6 +152,7 @@ impl Drop for Config {
         // https://github.com/rust-lang/rust/blob/e012a191d768adeda1ee36a99ef8b92d51920154/library/alloc/src/sync.rs#L1637
         std::sync::atomic::fence(Ordering::Acquire);
 
+        println!("dropping the config/context!");
         unsafe {
             // This is the last instance so free the context.
             let context = Box::from_raw(context);
@@ -288,6 +290,22 @@ impl Builder {
             )
             .into_result()
         }?;
+        Ok(self)
+    }
+
+    pub fn add_to_store(&mut self, chain: CertificateChain<'static>) -> Result<&mut Self, Error> {
+        // TODO: should we hold the extra reference before or after loading the cert?
+        unsafe {
+            s2n_config_add_cert_chain_and_key_to_store(
+                self.as_mut_ptr(),
+                // SAFETY: audit of add_to_store shows that the certificate chain
+                // is not mutated
+                chain.as_ptr() as *mut _,
+            )
+            .into_result()
+        }?;
+
+        self.context_mut().application_owned_certs.push(chain);
         Ok(self)
     }
 
@@ -811,6 +829,7 @@ impl Default for Builder {
 
 pub(crate) struct Context {
     refcount: AtomicUsize,
+    application_owned_certs: Vec<CertificateChain<'static>>,
     pub(crate) client_hello_callback: Option<Box<dyn ClientHelloCallback>>,
     pub(crate) private_key_callback: Option<Box<dyn PrivateKeyCallback>>,
     pub(crate) verify_host_callback: Option<Box<dyn VerifyHostNameCallback>>,
@@ -830,6 +849,7 @@ impl Default for Context {
 
         Self {
             refcount,
+            application_owned_certs: Vec::new(),
             client_hello_callback: None,
             private_key_callback: None,
             verify_host_callback: None,

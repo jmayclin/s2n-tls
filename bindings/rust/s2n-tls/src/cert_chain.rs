@@ -6,23 +6,52 @@ use s2n_tls_sys::*;
 use std::{
     marker::PhantomData,
     ptr::{self, NonNull},
+    sync::Arc,
 };
 
+struct CertificateChainHandle(pub NonNull<s2n_cert_chain_and_key>);
+
+impl Drop for CertificateChainHandle {
+    fn drop(&mut self) {
+        // ignore failures since there's not much we can do about it
+        unsafe {
+            let _ = s2n_cert_chain_and_key_free(self.0.as_ptr()).into_result();
+        }
+    }
+}
+
 /// A CertificateChain represents a chain of X.509 certificates.
+///
+/// Certificate chains are internally reference counted and are cheaply cloneable.
+#[derive(Clone)]
 pub struct CertificateChain<'a> {
-    ptr: NonNull<s2n_cert_chain_and_key>,
-    is_owned: bool,
+    ptr: Arc<CertificateChainHandle>,
     _lifetime: PhantomData<&'a s2n_cert_chain_and_key>,
 }
 
 impl CertificateChain<'_> {
+    pub fn load_pems(cert: &[u8], key: &[u8]) -> Result<CertificateChain<'static>, Error> {
+        let mut chain = Self::allocate_owned()?;
+        unsafe {
+            s2n_cert_chain_and_key_load_pem_bytes(
+                chain.as_mut_ptr().as_ptr(),
+                cert.as_ptr() as *mut _,
+                cert.len() as u32,
+                key.as_ptr() as *mut _,
+                key.len() as u32,
+            )
+            .into_result()
+        }?;
+
+        Ok(chain)
+    }
+
     /// This allocates a new certificate chain from s2n.
-    pub(crate) fn new() -> Result<CertificateChain<'static>, Error> {
+    pub(crate) fn allocate_owned() -> Result<CertificateChain<'static>, Error> {
         unsafe {
             let ptr = s2n_cert_chain_and_key_new().into_result()?;
             Ok(CertificateChain {
-                ptr,
-                is_owned: true,
+                ptr: Arc::new(CertificateChainHandle(ptr)),
                 _lifetime: PhantomData,
             })
         }
@@ -31,9 +60,18 @@ impl CertificateChain<'_> {
     pub(crate) unsafe fn from_ptr_reference<'a>(
         ptr: NonNull<s2n_cert_chain_and_key>,
     ) -> CertificateChain<'a> {
+        let handle = Arc::new(CertificateChainHandle(ptr));
+
+        // This is a reference. When this CertificateChain goes out of scope, the
+        // data must not be freed. We have to manually increment the reference
+        // count to allow for the "reference" held by the s2n_connection.
+        let clone_to_increment_refcount = Arc::clone(&handle);
+        std::mem::forget(clone_to_increment_refcount);
+        // handle & owning struct
+        debug_assert_eq!(Arc::strong_count(&handle), 2);
+
         CertificateChain {
-            ptr,
-            is_owned: false,
+            ptr: handle,
             _lifetime: PhantomData,
         }
     }
@@ -55,7 +93,7 @@ impl CertificateChain<'_> {
     pub fn len(&self) -> usize {
         let mut length: u32 = 0;
         let res =
-            unsafe { s2n_cert_chain_get_length(self.ptr.as_ptr(), &mut length).into_result() };
+            unsafe { s2n_cert_chain_get_length(self.ptr.0.as_ptr(), &mut length).into_result() };
         if res.is_err() {
             // Errors should only happen on empty chains (we guarantee that `ptr` is a valid chain).
             return 0;
@@ -73,7 +111,11 @@ impl CertificateChain<'_> {
     }
 
     pub(crate) fn as_mut_ptr(&mut self) -> NonNull<s2n_cert_chain_and_key> {
-        self.ptr
+        self.ptr.0
+    }
+
+    pub(crate) fn as_ptr(&self) -> *const s2n_cert_chain_and_key {
+        self.ptr.0.as_ptr() as *const _
     }
 }
 
@@ -81,17 +123,7 @@ impl CertificateChain<'_> {
 //
 // s2n_cert_chain_and_key objects can be sent across threads.
 unsafe impl Send for CertificateChain<'_> {}
-
-impl Drop for CertificateChain<'_> {
-    fn drop(&mut self) {
-        if self.is_owned {
-            // ignore failures since there's not much we can do about it
-            unsafe {
-                let _ = s2n_cert_chain_and_key_free(self.ptr.as_ptr()).into_result();
-            }
-        }
-    }
-}
+unsafe impl Sync for CertificateChain<'_> {}
 
 pub struct CertificateChainIter<'a> {
     idx: u32,
@@ -112,7 +144,7 @@ impl<'a> Iterator for CertificateChainIter<'a> {
         let mut out = ptr::null_mut();
         unsafe {
             if let Err(e) =
-                s2n_cert_chain_get_cert(self.chain.ptr.as_ptr(), &mut out, idx).into_result()
+                s2n_cert_chain_get_cert(self.chain.ptr.0.as_ptr(), &mut out, idx).into_result()
             {
                 return Some(Err(e));
             }
@@ -152,3 +184,85 @@ impl<'a> Certificate<'a> {
 //
 // Certificates just reference data in the chain, so share the Send-ness of the chain.
 unsafe impl Send for Certificate<'_> {}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        config,
+        security::{Policy, DEFAULT_TLS13},
+        testing::{CertKeyPair, InsecureAcceptAllCertificatesHandler, TestPair},
+    };
+
+    use super::*;
+
+    #[test]
+    fn ref_counts() -> Result<(), crate::error::Error> {
+        let cert = CertKeyPair::default();
+
+        let chain = CertificateChain::load_pems(cert.cert(), cert.key())?;
+        assert_eq!(Arc::strong_count(&chain.ptr), 1);
+
+        let mut list = Vec::new();
+        for _ in 0..10 {
+            list.push(chain.clone());
+        }
+        assert_eq!(Arc::strong_count(&chain.ptr), 1 + 10);
+        drop(list);
+        assert_eq!(Arc::strong_count(&chain.ptr), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sanity_check() -> Result<(), crate::error::Error> {
+        let cert = CertKeyPair::default();
+
+        {
+            let mut server = config::Builder::new();
+            server.set_security_policy(&DEFAULT_TLS13)?;
+            server.load_pem(cert.cert(), cert.key())?;
+
+            let mut client = config::Builder::new();
+            client.set_security_policy(&DEFAULT_TLS13)?;
+            client.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
+            client.trust_pem(cert.cert())?;
+
+            let mut pair = TestPair::from_configs(&client.build()?, &server.build()?);
+
+            pair.handshake().unwrap();
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn config_drop() -> Result<(), crate::error::Error> {
+        let cert = CertKeyPair::default();
+
+        let chain = CertificateChain::load_pems(cert.cert(), cert.key())?;
+
+        // cert on a single config
+        {
+            let mut server = config::Builder::new();
+            server.set_security_policy(&DEFAULT_TLS13)?;
+            server.add_to_store(chain.clone())?;
+            server.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
+            server.trust_pem(cert.cert())?;
+
+            // after being added, the reference count should have increased
+            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+
+            let mut pair = TestPair::from_config(&server.build()?);
+            assert!(pair.handshake().is_ok());
+
+            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+        }
+        // after the config goes out of scope and is dropped, the ref count should
+        // decrement
+        assert_eq!(Arc::strong_count(&chain.ptr), 1);
+
+
+
+        Ok(())
+    }
+}
