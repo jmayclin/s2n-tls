@@ -260,7 +260,25 @@ mod tests {
         // after the config goes out of scope and is dropped, the ref count should
         // decrement
         assert_eq!(Arc::strong_count(&chain.ptr), 1);
+        {
+            
+        // cert on a single config
+        {
+            let mut server = config::Builder::new();
+            server.set_security_policy(&DEFAULT_TLS13)?;
+            server.add_to_store(chain.clone())?;
+            server.set_verify_host_callback(InsecureAcceptAllCertificatesHandler {})?;
+            server.trust_pem(cert.cert())?;
 
+            // after being added, the reference count should have increased
+            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+
+            let mut pair = TestPair::from_config(&server.build()?);
+            assert!(pair.handshake().is_ok());
+
+            assert_eq!(Arc::strong_count(&chain.ptr), 2);
+        }
+        }
 
 
         Ok(())
