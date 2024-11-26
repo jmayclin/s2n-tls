@@ -12,6 +12,122 @@ struct TestCert {
     domains: Vec<&'static str>,
 }
 
+enum SniTestCert {
+    AlligatorRsa,
+    AlligatorRsa2,
+    AlligatorEcdsa,
+    BeaverRsa,
+    ManyAnimalsRsa,
+    NarwhalCn,
+    OctopusCnPlatypusSan,
+    QuailCnRattlesnakeSan,
+    ManyAnimalsMixedCase,
+    EmbeddedWildcard,
+    NonEmptyLabelWildcard,
+    TrailingWildcard,
+    WildcardInsect,
+    Termite,
+    Underwing,
+}
+
+struct TestCase {
+    certs: Vec<SniTestCert>,
+    default: Option<SniTestCert>,
+}
+
+impl TestCase {
+    /// This method handles assertions internally
+    fn request(sni: Option<&str>, expected_cert: SniTestCert) {
+        // disable hostname validation on the client
+
+        // the only trusted cert is the expected cert. So if something other than
+        // the expected cert is returned, then the handshake will fail.
+    }
+}
+
+#[test]
+fn positive_sni_match() {
+    // sni match for default cert
+
+    // sni match for non-default cert
+}
+
+#[test]
+fn negative_sni_match() {
+    // default cert is returned if there are no SNI matches
+
+    // default cert is returned if no SNI is sent
+}
+
+#[test]
+fn auth_priority() {
+    // server returns the supported auth type
+    // when
+    //     - the server supports multiple auth types for the request domain
+    //     - the client supports a single auth type
+    // then
+    //    -> the server chooses the client-supported option
+
+    // server returns server preference auth type
+    // when
+    //     - the server supports multiple auth types AND
+    //     - the client supports multiple auth types
+    // then
+    //     -> the server chooses the server-preferred option
+
+
+}
+
+#[test]
+fn match_priority() {
+    // domain match has greater priotity than auth match
+}
+
+#[test]
+fn cn_matching() {
+    // positive - cert with single CN and no SANs
+
+    // postive - cert with multiple CNs and no SANs
+
+    // negative - cert with CN and SANs will not match on CN
+}
+
+#[test]
+fn san_matching() {
+    // positive - cert with a single SAN will match
+    // positive - cert with multiple SANs will match
+}
+
+#[test]
+fn wildcard_matching() {
+    // s2n-tls only supports wildcards with a single * as the left label, e.g. *.b.c
+    // positive case(s): 
+
+    // negative case: embedded wildcard is not treated as a wildcard e.g. a.*.c
+
+    // negative case: trailing * is not treated as a wildcard, e.g. a.b.*
+}
+
+#[test]
+fn wildcard_matching_priority() {
+    // exact sni match is preferred over wildcard match
+
+    // exact sni match is preferred over wildcard match, even if client
+}
+
+#[test]
+fn loading_order() {
+
+}
+
+#[test]
+fn case_sensitivity() {
+    // case insensitive SAN match
+
+    // case insensitive wildcard match
+}
+
+
 impl TestCert {
     /// Create a reference to an existing TestCert
     ///
