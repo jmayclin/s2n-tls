@@ -30,14 +30,31 @@ enum SniTestCert {
     Underwing,
 }
 
+enum AuthType {
+    Rsa,
+    Ecdsa
+}
+
 struct TestCase {
     certs: Vec<SniTestCert>,
     default: Option<SniTestCert>,
 }
 
 impl TestCase {
+    fn new(certs: Vec<SniTestCert>, default: Option<SniTestCert>) -> Self {
+        Self { certs, default }
+    }
+
     /// This method handles assertions internally
-    fn request(sni: Option<&str>, expected_cert: SniTestCert) {
+    fn request(&self, sni: Option<&str>, expected_cert: SniTestCert) {
+        // disable hostname validation on the client
+
+        // the only trusted cert is the expected cert. So if something other than
+        // the expected cert is returned, then the handshake will fail.
+    }
+
+    /// This method handles assertions internally
+    fn request_with_client_support(&self, sni: Option<&str>, client_support: Vec<AuthType>, expected_cert: SniTestCert) {
         // disable hostname validation on the client
 
         // the only trusted cert is the expected cert. So if something other than
@@ -46,17 +63,45 @@ impl TestCase {
 }
 
 #[test]
+fn harness_sanity_check() {
+    // ensure that returning a non-expected cert results in a failure
+}
+
+#[test]
 fn positive_sni_match() {
+    let setup = TestCase::new(
+        vec![
+            SniTestCert::AlligatorRsa,
+            SniTestCert::BeaverRsa,
+            SniTestCert::ManyAnimalsRsa,
+        ],
+        Some(SniTestCert::AlligatorRsa),
+    );
+
     // sni match for default cert
+    setup.request(Some("www.alligator.com"), SniTestCert::AlligatorRsa);
 
     // sni match for non-default cert
+    setup.request(Some("www.beaver.com"), SniTestCert::BeaverRsa);
 }
 
 #[test]
 fn negative_sni_match() {
+    let setup = TestCase::new(
+        vec![
+            SniTestCert::AlligatorRsa,
+            SniTestCert::BeaverRsa,
+            SniTestCert::AlligatorEcdsa,
+        ],
+        Some(SniTestCert::AlligatorRsa),
+    );
+
     // default cert is returned if there are no SNI matches
+    setup.request(Some("no.matching.domain"), SniTestCert::AlligatorRsa);
 
     // default cert is returned if no SNI is sent
+    setup.request(None, SniTestCert::AlligatorRsa);
+
 }
 
 #[test]
@@ -74,8 +119,6 @@ fn auth_priority() {
     //     - the client supports multiple auth types
     // then
     //     -> the server chooses the server-preferred option
-
-
 }
 
 #[test]
@@ -101,7 +144,7 @@ fn san_matching() {
 #[test]
 fn wildcard_matching() {
     // s2n-tls only supports wildcards with a single * as the left label, e.g. *.b.c
-    // positive case(s): 
+    // positive case(s):
 
     // negative case: embedded wildcard is not treated as a wildcard e.g. a.*.c
 
@@ -116,9 +159,7 @@ fn wildcard_matching_priority() {
 }
 
 #[test]
-fn loading_order() {
-
-}
+fn loading_order() {}
 
 #[test]
 fn case_sensitivity() {
@@ -126,7 +167,6 @@ fn case_sensitivity() {
 
     // case insensitive wildcard match
 }
-
 
 impl TestCert {
     /// Create a reference to an existing TestCert
