@@ -110,7 +110,7 @@ impl CertKeyPair {
     /// - s2n-tls/tests/pems/permutations/rsae_pkcs_4096_sha384/server-key.pem
     /// - s2n-tls/tests/pems/permutations/rsae_pkcs_4096_sha384/ca-cert.pem
     ///
-    /// ```
+    /// ```ignore
     /// let cert = CertKeyPair::from(
     ///     "permutations/rsae_pkcs_4096_sha384/",
     ///     "server-chain",

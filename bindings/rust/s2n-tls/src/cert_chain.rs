@@ -244,9 +244,9 @@ mod tests {
 
     /// This is a useful (but inefficient) test utility to check if CertificateChain
     /// structs are equal. It does this by comparing the serialized `der` representation.
-    fn cert_chains_are_equal<'a, 'b>(
-        this: &CertificateChain<'a>,
-        that: &CertificateChain<'b>,
+    fn cert_chains_are_equal(
+        this: &CertificateChain<'_>,
+        that: &CertificateChain<'_>,
     ) -> bool {
         let this: Vec<Vec<u8>> = this
             .iter()

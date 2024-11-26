@@ -7,7 +7,7 @@ use crate::{
     callbacks::*,
     cert_chain::CertificateChain,
     enums::*,
-    error::{Error, ErrorType, Fallible},
+    error::{Error, Fallible},
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
@@ -16,11 +16,7 @@ use std::{
     ffi::{c_void, CString},
     path::Path,
     pin::Pin,
-    ptr,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicUsize, Ordering},
     task::Poll,
     time::{Duration, SystemTime},
 };
@@ -877,10 +873,10 @@ pub(crate) struct Context {
     ///
     /// In the bindings, application owned certificate chains are reference counted.
     /// The C library is not aware of the reference counts, so a naive implementation
-    /// would result in certs being prematurely cleaned because the "reference"
+    /// would result in certs being prematurely freed because the "reference"
     /// held by the C library wouldn't be accounted for.
     ///
-    /// Storing the CertificateChain's in this Vec ensures that reference counts
+    /// Storing the CertificateChains in this Vec ensures that reference counts
     /// behave as expected when stored in an s2n-tls config.
     application_owned_certs: Vec<CertificateChain<'static>>,
     pub(crate) client_hello_callback: Option<Box<dyn ClientHelloCallback>>,
