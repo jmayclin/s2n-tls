@@ -233,6 +233,7 @@ MultiCertTest = collections.namedtuple(
     'MultiCertTest', 'description server_certs client_sni client_ciphers expected_cert expect_matching_hostname')
 MULTI_CERT_TEST_CASES = [
     MultiCertTest(
+        # positive sni match, case 1
         description="Test basic SNI match for default cert.",
         server_certs=[SNI_CERTS["alligator"],
                       SNI_CERTS["beaver"], SNI_CERTS["alligator_ecdsa"]],
@@ -241,6 +242,7 @@ MULTI_CERT_TEST_CASES = [
         expected_cert=SNI_CERTS["alligator"],
         expect_matching_hostname=True),
     MultiCertTest(
+        # positive sni match, case 2
         description="Test basic SNI matches for non-default cert.",
         server_certs=[SNI_CERTS["alligator"],
                       SNI_CERTS["beaver"], SNI_CERTS["alligator_ecdsa"]],
@@ -249,6 +251,7 @@ MULTI_CERT_TEST_CASES = [
         expected_cert=SNI_CERTS["beaver"],
         expect_matching_hostname=True),
     MultiCertTest(
+        # negative sni match, case 1
         description="Test default cert is selected when there are no SNI matches.",
         server_certs=[SNI_CERTS["alligator"],
                       SNI_CERTS["beaver"], SNI_CERTS["alligator_ecdsa"]],
@@ -257,6 +260,7 @@ MULTI_CERT_TEST_CASES = [
         expected_cert=SNI_CERTS["alligator"],
         expect_matching_hostname=False),
     MultiCertTest(
+        # negative sni match, case 2
         description="Test default cert is selected when no SNI is sent.",
         server_certs=[SNI_CERTS["alligator"],
                       SNI_CERTS["beaver"], SNI_CERTS["alligator_ecdsa"]],

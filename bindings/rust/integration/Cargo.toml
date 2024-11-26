@@ -38,3 +38,5 @@ http-body-util = "0.1"
 bytes = "1.8"
 hyper = "1.5"
 hyper-util = "0.1"
+
+openssl = "0.10"
