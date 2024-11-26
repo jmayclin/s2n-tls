@@ -1099,12 +1099,9 @@ impl Connection {
     pub fn peer_cert_chain(&self) -> Result<CertificateChain<'static>, Error> {
         unsafe {
             let mut chain = CertificateChain::allocate_owned()?;
-            s2n_connection_get_peer_cert_chain(
-                self.connection.as_ptr(),
-                chain.as_mut_ptr(),
-            )
-            .into_result()
-            .map(|_| ())?;
+            s2n_connection_get_peer_cert_chain(self.connection.as_ptr(), chain.as_mut_ptr())
+                .into_result()
+                .map(|_| ())?;
             Ok(chain)
         }
     }

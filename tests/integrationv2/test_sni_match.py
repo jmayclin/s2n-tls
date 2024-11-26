@@ -70,6 +70,7 @@ def test_sni_match(managed_process, provider, other_provider, protocol, cert_tes
         results.assert_success()
         assert to_bytes("Actual protocol version: {}".format(
             expected_version)) in results.stdout
+        # isn't this just asserting that the server received an SNI from the client?
         if cert_test_case.client_sni is not None:
             assert to_bytes("Server name: {}".format(
                 cert_test_case.client_sni)) in results.stdout

@@ -10,7 +10,7 @@ use std::{
 };
 
 /// Internal wrapper type used for a convenient drop implementation.
-/// 
+///
 /// [CertificateChain] is internally reference counted. The reference counted `T`
 /// must have a drop implementation.
 struct CertificateChainHandle(pub NonNull<s2n_cert_chain_and_key>);
@@ -35,8 +35,8 @@ pub struct CertificateChain<'a> {
 
 impl CertificateChain<'_> {
     /// Create an internally reference counted cert chain.
-    /// 
-    /// This can be used with [crate::config::Builder::add_to_store] to share a 
+    ///
+    /// This can be used with [crate::config::Builder::add_to_store] to share a
     /// single cert across multiple configs.
     pub fn load_pems(cert: &[u8], key: &[u8]) -> Result<CertificateChain<'static>, Error> {
         let mut chain = Self::allocate_owned()?;
@@ -76,7 +76,7 @@ impl CertificateChain<'_> {
         let handle = Arc::new(CertificateChainHandle(ptr));
 
         // When this CertificateChain goes out of scope, the data must not be
-        // freed. We manually increment the reference count to allow for the 
+        // freed. We manually increment the reference count to allow for the
         // "reference" held by the external struct.
         let clone_to_increment_refcount = Arc::clone(&handle);
         std::mem::forget(clone_to_increment_refcount);
@@ -105,8 +105,7 @@ impl CertificateChain<'_> {
     /// expensive API to call.
     pub fn len(&self) -> usize {
         let mut length: u32 = 0;
-        let res =
-            unsafe { s2n_cert_chain_get_length(self.ptr.0.as_ptr(), &mut length).into_result() };
+        let res = unsafe { s2n_cert_chain_get_length(self.as_ptr(), &mut length).into_result() };
         if res.is_err() {
             // Errors should only happen on empty chains (we guarantee that `ptr` is a valid chain).
             return 0;
@@ -157,7 +156,7 @@ impl<'a> Iterator for CertificateChainIter<'a> {
         let mut out = ptr::null_mut();
         unsafe {
             if let Err(e) =
-                s2n_cert_chain_get_cert(self.chain.ptr.0.as_ptr(), &mut out, idx).into_result()
+                s2n_cert_chain_get_cert(self.chain.as_ptr(), &mut out, idx).into_result()
             {
                 return Some(Err(e));
             }
@@ -201,7 +200,10 @@ unsafe impl Send for Certificate<'_> {}
 #[cfg(test)]
 mod tests {
     use crate::{
-        config, error::ErrorType, security::DEFAULT_TLS13, testing::{InsecureAcceptAllCertificatesHandler, SniTestCerts, TestPair}
+        config,
+        error::ErrorType,
+        security::DEFAULT_TLS13,
+        testing::{InsecureAcceptAllCertificatesHandler, SniTestCerts, TestPair},
     };
 
     use super::*;
@@ -386,15 +388,17 @@ mod tests {
         let cert_for_lib = SniTestCerts::BeaverRsa.get();
 
         let mut config = config::Builder::new();
-        
+
         // library owned certs can not be used with application owned certs
         config.add_to_store(application_owned_cert)?;
-        let err = config.load_pem(cert_for_lib.cert(), cert_for_lib.key()).err().unwrap();
-        
+        let err = config
+            .load_pem(cert_for_lib.cert(), cert_for_lib.key())
+            .err()
+            .unwrap();
+
         assert_eq!(err.kind(), ErrorType::UsageError);
         assert_eq!(err.name(), "S2N_ERR_CERT_OWNERSHIP");
 
         Ok(())
     }
-
 }

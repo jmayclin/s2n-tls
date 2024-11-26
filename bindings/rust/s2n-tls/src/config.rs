@@ -156,7 +156,6 @@ impl Drop for Config {
         // https://github.com/rust-lang/rust/blob/e012a191d768adeda1ee36a99ef8b92d51920154/library/alloc/src/sync.rs#L1637
         std::sync::atomic::fence(Ordering::Acquire);
 
-        println!("dropping the config/context!");
         unsafe {
             // This is the last instance so free the context.
             let context = Box::from_raw(context);
@@ -286,8 +285,8 @@ impl Builder {
     /// Associate a `certificate` and corresponding `private_key` with a config.
     /// Using this method, at most one config per auth type (ECDSA, RSA, RSA-PSS)
     /// can be loaded.
-    /// 
-    /// For more advanced cert use cases such as sharing cert across configs or
+    ///
+    /// For more advanced cert use cases such as sharing certs across configs or
     /// serving differents certs based on the client SNI, see [Builder::add_to_store].
     pub fn load_pem(&mut self, certificate: &[u8], private_key: &[u8]) -> Result<&mut Self, Error> {
         let certificate = CString::new(certificate).map_err(|_| Error::INVALID_INPUT)?;
@@ -874,6 +873,15 @@ impl Default for Builder {
 
 pub(crate) struct Context {
     refcount: AtomicUsize,
+    /// This is a container for reference counts.
+    ///
+    /// In the bindings, application owned certificate chains are reference counted.
+    /// The C library is not aware of the reference counts, so a naive implementation
+    /// would result in certs being prematurely cleaned because the "reference"
+    /// held by the C library wouldn't be accounted for.
+    ///
+    /// Storing the CertificateChain's in this Vec ensures that reference counts
+    /// behave as expected when stored in an s2n-tls config.
     application_owned_certs: Vec<CertificateChain<'static>>,
     pub(crate) client_hello_callback: Option<Box<dyn ClientHelloCallback>>,
     pub(crate) private_key_callback: Option<Box<dyn PrivateKeyCallback>>,
