@@ -9,6 +9,10 @@ use std::{
     sync::Arc,
 };
 
+/// Internal wrapper type used for a convenient drop implementation.
+/// 
+/// [CertificateChain] is internally reference counted. The reference counted `T`
+/// must have a drop implementation.
 struct CertificateChainHandle(pub NonNull<s2n_cert_chain_and_key>);
 
 impl Drop for CertificateChainHandle {
@@ -30,11 +34,18 @@ pub struct CertificateChain<'a> {
 }
 
 impl CertificateChain<'_> {
+    /// Create an internally reference counted cert chain.
+    /// 
+    /// This can be used with [crate::config::Builder::add_to_store] to share a 
+    /// single cert across multiple configs.
     pub fn load_pems(cert: &[u8], key: &[u8]) -> Result<CertificateChain<'static>, Error> {
         let mut chain = Self::allocate_owned()?;
         unsafe {
+            // SAFETY: manual audit of load_pem_bytes shows that `chain_pem` and
+            // `private_key_pem` are not modified.
+            // https://github.com/aws/s2n-tls/issues/4140
             s2n_cert_chain_and_key_load_pem_bytes(
-                chain.as_mut_ptr().as_ptr(),
+                chain.as_mut_ptr(),
                 cert.as_ptr() as *mut _,
                 cert.len() as u32,
                 key.as_ptr() as *mut _,
@@ -57,14 +68,16 @@ impl CertificateChain<'_> {
         }
     }
 
+    /// This is used to create a CertificateChain "reference" backed by memory
+    /// on some external struct, where the external struct has some lifetime `'a`.
     pub(crate) unsafe fn from_ptr_reference<'a>(
         ptr: NonNull<s2n_cert_chain_and_key>,
     ) -> CertificateChain<'a> {
         let handle = Arc::new(CertificateChainHandle(ptr));
 
-        // This is a reference. When this CertificateChain goes out of scope, the
-        // data must not be freed. We have to manually increment the reference
-        // count to allow for the "reference" held by the s2n_connection.
+        // When this CertificateChain goes out of scope, the data must not be
+        // freed. We manually increment the reference count to allow for the 
+        // "reference" held by the external struct.
         let clone_to_increment_refcount = Arc::clone(&handle);
         std::mem::forget(clone_to_increment_refcount);
         // `handle` + owning struct = 2
@@ -110,8 +123,8 @@ impl CertificateChain<'_> {
         self.len() == 0
     }
 
-    pub(crate) fn as_mut_ptr(&mut self) -> NonNull<s2n_cert_chain_and_key> {
-        self.ptr.0
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut s2n_cert_chain_and_key {
+        self.ptr.0.as_ptr()
     }
 
     pub(crate) fn as_ptr(&self) -> *const s2n_cert_chain_and_key {
@@ -188,43 +201,10 @@ unsafe impl Send for Certificate<'_> {}
 #[cfg(test)]
 mod tests {
     use crate::{
-        config,
-        security::DEFAULT_TLS13,
-        testing::{InsecureAcceptAllCertificatesHandler, SniTestCerts, TestPair},
+        config, error::ErrorType, security::DEFAULT_TLS13, testing::{InsecureAcceptAllCertificatesHandler, SniTestCerts, TestPair}
     };
 
     use super::*;
-
-    #[test]
-    fn reference_count_increment() -> Result<(), crate::error::Error> {
-        let alligator_cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
-
-        // cert on a single config
-        {
-            let mut server = config::Builder::new();
-            server.add_to_store(alligator_cert.clone())?;
-
-            // after being added, the reference count should have increased
-            assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
-        }
-
-        // after the config goes out of scope and is dropped, the ref count should
-        // decrement
-        assert_eq!(Arc::strong_count(&alligator_cert.ptr), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn cert_is_dropped() {
-        let weak_ref;
-        {
-            let cert = SniTestCerts::AlligatorEcdsa.get().into_certificate_chain();
-            weak_ref = Arc::downgrade(&cert.ptr);
-            assert_eq!(Arc::strong_count(&cert.ptr), 1);
-        }
-        assert_eq!(weak_ref.strong_count(), 0);
-        assert!(weak_ref.upgrade().is_none());
-    }
 
     /// Create a test pair using SNI certs
     /// * `certs`: takes references to already created cert chains. This is useful
@@ -277,6 +257,37 @@ mod tests {
         this == that
     }
 
+    #[test]
+    fn reference_count_increment() -> Result<(), crate::error::Error> {
+        let cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
+        assert_eq!(Arc::strong_count(&cert.ptr), 1);
+
+        {
+            let mut server = config::Builder::new();
+            server.add_to_store(cert.clone())?;
+
+            // after being added, the reference count should have increased
+            assert_eq!(Arc::strong_count(&cert.ptr), 2);
+        }
+
+        // after the config goes out of scope and is dropped, the ref count should
+        // decrement
+        assert_eq!(Arc::strong_count(&cert.ptr), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn cert_is_dropped() {
+        let weak_ref;
+        {
+            let cert = SniTestCerts::AlligatorEcdsa.get().into_certificate_chain();
+            weak_ref = Arc::downgrade(&cert.ptr);
+            assert_eq!(Arc::strong_count(&cert.ptr), 1);
+        }
+        assert_eq!(weak_ref.strong_count(), 0);
+        assert!(weak_ref.upgrade().is_none());
+    }
+
     // a cert can be successfully shared across multiple configs
     #[test]
     fn shared_certs() -> Result<(), crate::error::Error> {
@@ -303,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn default_effects() -> Result<(), crate::error::Error> {
+    fn default_selection() -> Result<(), crate::error::Error> {
         let alligator_cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
         let beaver_cert = SniTestCerts::BeaverRsa.get().into_certificate_chain();
 
@@ -342,6 +353,8 @@ mod tests {
             ));
 
             assert_eq!(Arc::strong_count(&alligator_cert.ptr), 2);
+            // beaver has an additional reference because it was used in multiple
+            // calls
             assert_eq!(Arc::strong_count(&beaver_cert.ptr), 3);
         }
 
@@ -366,4 +379,22 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn cert_ownership_error() -> Result<(), crate::error::Error> {
+        let application_owned_cert = SniTestCerts::AlligatorRsa.get().into_certificate_chain();
+        let cert_for_lib = SniTestCerts::BeaverRsa.get();
+
+        let mut config = config::Builder::new();
+        
+        // library owned certs can not be used with application owned certs
+        config.add_to_store(application_owned_cert)?;
+        let err = config.load_pem(cert_for_lib.cert(), cert_for_lib.key()).err().unwrap();
+        
+        assert_eq!(err.kind(), ErrorType::UsageError);
+        assert_eq!(err.name(), "S2N_ERR_CERT_OWNERSHIP");
+
+        Ok(())
+    }
+
 }
