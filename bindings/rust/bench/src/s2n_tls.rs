@@ -78,6 +78,7 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
         let mut builder = Builder::new();
         builder
             .set_security_policy(&Policy::from_version(security_policy)?)?
+            .with_system_certs(false)?
             .wipe_trust_store()?
             .set_client_auth_type(match handshake_type {
                 HandshakeType::MutualAuth => ClientAuthType::Required,

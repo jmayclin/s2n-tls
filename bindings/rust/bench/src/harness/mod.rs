@@ -4,7 +4,7 @@
 mod io;
 pub use io::{LocalDataBuffer, ViewIO, TestPairIO};
 
-use std::{error::Error, fmt::Debug, fs::read_to_string, rc::Rc};
+use std::{any::Any, error::Error, fmt::Debug, fs::read_to_string, rc::Rc};
 use strum::EnumIter;
 
 #[derive(Clone, Copy, EnumIter)]
@@ -183,6 +183,9 @@ pub struct TlsConnPair<C: TlsConnection, S: TlsConnection> {
     pub client: C,
     pub server: S,
     pub io: TestPairIO,
+    /// The client's session ticket storage. This will be None if the client is
+    /// not using session resumption
+    pub session_ticket_storage: Option<Box<dyn Any>>,
 }
 
 impl<C, S> Default for TlsConnPair<C, S>
@@ -256,7 +259,7 @@ where
         };
         let client = C::new_from_config(Mode::Client, client_config, &io).unwrap();
         let server = S::new_from_config(Mode::Server, server_config, &io).unwrap();
-        Self { client, server, io }
+        Self { client, server, io, session_ticket_storage: None }
     }
 
     /// Take back ownership of individual connections in the TlsConnPair
