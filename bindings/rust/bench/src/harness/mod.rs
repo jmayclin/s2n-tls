@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod io;
-pub use io::{LocalDataBuffer, ViewIO};
+pub use io::{LocalDataBuffer, ViewIO, TestPairIO};
 
-use io::TestPairIO;
 use std::{error::Error, fmt::Debug, fs::read_to_string, rc::Rc};
 use strum::EnumIter;
 
@@ -157,7 +156,7 @@ pub trait TlsConnection: Sized {
     fn name() -> String;
 
     /// Make connection from existing config and buffer
-    fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>>;
+    fn new_from_config(mode: Mode, config: &Self::Config, io: &TestPairIO) -> Result<Self, Box<dyn Error>>;
 
     /// Run one handshake step: receive msgs from other connection, process, and send new msgs
     fn handshake(&mut self) -> Result<(), Box<dyn Error>>;
@@ -255,8 +254,8 @@ where
             server_tx_stream: Rc::pin(Default::default()),
             client_tx_stream: Rc::pin(Default::default()),
         };
-        let client = C::new_from_config(client_config, io.client_view()).unwrap();
-        let server = S::new_from_config(server_config, io.server_view()).unwrap();
+        let client = C::new_from_config(Mode::Client, client_config, &io).unwrap();
+        let server = S::new_from_config(Mode::Server, server_config, &io).unwrap();
         Self { client, server, io }
     }
 

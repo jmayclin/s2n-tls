@@ -3,8 +3,7 @@
 
 use crate::{
     harness::{
-        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer, Mode,
-        TlsConnection, ViewIO,
+        self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer, Mode, TlsConnection, ViewIO
     },
     PemType::*,
 };
@@ -57,9 +56,8 @@ const KEY_VALUE: [u8; 16] = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
 
 /// s2n-tls has mode-independent configs, so this struct wraps the config with the mode
 pub struct S2NConfig {
-    mode: Mode,
-    config: s2n_tls::config::Config,
-    ticket_storage: SessionTicketStorage,
+    pub config: s2n_tls::config::Config,
+    pub ticket_storage: SessionTicketStorage,
 }
 
 impl crate::harness::TlsBenchConfig for S2NConfig {
@@ -144,7 +142,6 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
         }
 
         Ok(S2NConfig {
-            mode,
             config: builder.build()?,
             ticket_storage: session_ticket_storage,
         })
@@ -205,15 +202,20 @@ impl TlsConnection for S2NConnection {
         "s2n-tls".to_string()
     }
 
-    fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>> {
-        let mode = match config.mode {
+    fn new_from_config(mode: harness::Mode, config: &Self::Config, io: &harness::TestPairIO) -> Result<Self, Box<dyn Error>> {
+        let s2n_mode = match mode {
             Mode::Client => s2n_tls::enums::Mode::Client,
             Mode::Server => s2n_tls::enums::Mode::Server,
         };
 
+        let io = match mode {
+            Mode::Client => io.client_view(),
+            Mode::Server => io.server_view(),
+        };
+
         let io = Box::pin(io);
 
-        let mut connection = Connection::new(mode);
+        let mut connection = Connection::new(s2n_mode);
         connection
             .set_blinding(Blinding::SelfService)?
             .set_config(config.config.clone())?

@@ -3,8 +3,7 @@
 
 use crate::{
     harness::{
-        read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig,
-        TlsConnection, ViewIO,
+        self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TestPairIO, TlsBenchConfig, TlsConnection, ViewIO
     },
     PemType::{self, *},
     SigType,
@@ -170,7 +169,7 @@ impl TlsConnection for RustlsConnection {
         "rustls".to_string()
     }
 
-    fn new_from_config(config: &Self::Config, io: ViewIO) -> Result<Self, Box<dyn Error>> {
+    fn new_from_config(mode: harness::Mode, config: &Self::Config, io: &TestPairIO) -> Result<Self, Box<dyn Error>> {
         let connection = match config {
             RustlsConfig::Client(config) => Connection::Client(ClientConnection::new(
                 config.clone(),
@@ -179,6 +178,11 @@ impl TlsConnection for RustlsConnection {
             RustlsConfig::Server(config) => {
                 Connection::Server(ServerConnection::new(config.clone())?)
             }
+        };
+
+        let io = match mode {
+            Mode::Client => io.client_view(),
+            Mode::Server => io.server_view(),
         };
 
         Ok(Self { io, connection })
