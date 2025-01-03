@@ -3,7 +3,8 @@
 
 use crate::{
     harness::{
-        self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer, Mode, TlsConnection, ViewIO
+        self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer,
+        Mode, TlsConnection,
     },
     PemType::*,
 };
@@ -58,6 +59,12 @@ const KEY_VALUE: [u8; 16] = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
 pub struct S2NConfig {
     pub config: s2n_tls::config::Config,
     pub ticket_storage: SessionTicketStorage,
+}
+
+impl From<s2n_tls::config::Config> for S2NConfig {
+    fn from(value: s2n_tls::config::Config) -> Self {
+        S2NConfig { config: value, ticket_storage: Default::default() }
+    }
 }
 
 impl crate::harness::TlsBenchConfig for S2NConfig {
@@ -203,7 +210,11 @@ impl TlsConnection for S2NConnection {
         "s2n-tls".to_string()
     }
 
-    fn new_from_config(mode: harness::Mode, config: &Self::Config, io: &harness::TestPairIO) -> Result<Self, Box<dyn Error>> {
+    fn new_from_config(
+        mode: harness::Mode,
+        config: &Self::Config,
+        io: &harness::TestPairIO,
+    ) -> Result<Self, Box<dyn Error>> {
         let s2n_mode = match mode {
             Mode::Client => s2n_tls::enums::Mode::Client,
             Mode::Server => s2n_tls::enums::Mode::Server,

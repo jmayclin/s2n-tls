@@ -4,9 +4,10 @@
 use crate::{
     get_cert_path,
     harness::{
-        self, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig, TlsConnection, ViewIO
+        self, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig,
+        TlsConnection, ViewIO,
     },
-    PemType::*,
+    PemType::{self, *},
 };
 use openssl::ssl::{
     ErrorCode, Ssl, SslContext, SslFiletype, SslMethod, SslSession, SslSessionCacheMode, SslStream,
@@ -21,7 +22,7 @@ use std::{
 // Creates session ticket callback handler
 #[derive(Clone, Default)]
 pub struct SessionTicketStorage {
-    stored_ticket: Arc<Mutex<Option<SslSession>>>,
+    pub stored_ticket: Arc<Mutex<Option<SslSession>>>,
 }
 
 pub struct OpenSslConnection {
@@ -41,9 +42,18 @@ pub struct OpenSslConfig {
     pub session_ticket_storage: SessionTicketStorage,
 }
 
-impl TlsBenchConfig for OpenSslConfig {
+impl From<SslContext> for OpenSslConfig {
+    fn from(value: SslContext) -> Self {
+        OpenSslConfig {
+            config: value,
+            session_ticket_storage: Default::default(),
+        }
+    }
+}
+
+impl TlsBenchConfig for crate::openssl::OpenSslConfig {
     fn make_config(
-        mode: Mode,
+        mode: harness::Mode,
         crypto_config: CryptoConfig,
         handshake_type: HandshakeType,
     ) -> Result<Self, Box<dyn Error>> {
@@ -58,8 +68,8 @@ impl TlsBenchConfig for OpenSslConfig {
         };
 
         let ssl_method = match mode {
-            Mode::Client => SslMethod::tls_client(),
-            Mode::Server => SslMethod::tls_server(),
+            harness::Mode::Client => SslMethod::tls_client(),
+            harness::Mode::Server => SslMethod::tls_server(),
         };
 
         let session_ticket_storage = SessionTicketStorage::default();
@@ -70,18 +80,18 @@ impl TlsBenchConfig for OpenSslConfig {
         builder.set_groups_list(ec_key)?;
 
         match mode {
-            Mode::Client => {
-                builder.set_ca_file(get_cert_path(CACert, crypto_config.sig_type))?;
+            harness::Mode::Client => {
+                builder.set_ca_file(get_cert_path(PemType::CACert, crypto_config.sig_type))?;
                 builder.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
 
                 match handshake_type {
                     HandshakeType::MutualAuth => {
                         builder.set_certificate_chain_file(get_cert_path(
-                            ClientCertChain,
+                            PemType::ClientCertChain,
                             crypto_config.sig_type,
                         ))?;
                         builder.set_private_key_file(
-                            get_cert_path(ClientKey, crypto_config.sig_type),
+                            get_cert_path(PemType::ClientKey, crypto_config.sig_type),
                             SslFiletype::PEM,
                         )?;
                     }
@@ -102,18 +112,18 @@ impl TlsBenchConfig for OpenSslConfig {
                     HandshakeType::ServerAuth => {}
                 }
             }
-            Mode::Server => {
+            harness::Mode::Server => {
                 builder.set_certificate_chain_file(get_cert_path(
-                    ServerCertChain,
+                    PemType::ServerCertChain,
                     crypto_config.sig_type,
                 ))?;
                 builder.set_private_key_file(
-                    get_cert_path(ServerKey, crypto_config.sig_type),
+                    get_cert_path(PemType::ServerKey, crypto_config.sig_type),
                     SslFiletype::PEM,
                 )?;
 
                 if handshake_type == HandshakeType::MutualAuth {
-                    builder.set_ca_file(get_cert_path(CACert, crypto_config.sig_type))?;
+                    builder.set_ca_file(get_cert_path(PemType::CACert, crypto_config.sig_type))?;
                     builder.set_verify(SslVerifyMode::FAIL_IF_NO_PEER_CERT | SslVerifyMode::PEER);
                 }
                 if handshake_type == HandshakeType::Resumption {
@@ -146,7 +156,11 @@ impl TlsConnection for OpenSslConnection {
         )
     }
 
-    fn new_from_config(mode: harness::Mode, config: &Self::Config, io: &harness::TestPairIO) -> Result<Self, Box<dyn Error>> {
+    fn new_from_config(
+        mode: harness::Mode,
+        config: &Self::Config,
+        io: &harness::TestPairIO,
+    ) -> Result<Self, Box<dyn Error>> {
         // check if there is a session ticket available
         // a session ticket will only be available if the Config was created
         // with session resumption enabled
