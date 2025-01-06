@@ -407,9 +407,14 @@ if (S2N_INTERN_LIBCRYPTO)
           # copy the static version of libcrypto
           cp ${crypto_STATIC_LIBRARY} s2n_libcrypto.a &&
           # dump all of the symbols and prefix them with `s2n$`
-          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] /{print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
+          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] / && $3 != \"\" {print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
+          # dump symbols to stdout
+          cp libcrypto.symbols let_me_debug.symbols &&
+          cat libcrypto.symbols &&
+          echo "gathered symbols" &&
           # redefine the libcrypto libary symbols
           ${CMAKE_OBJCOPY} --redefine-syms libcrypto.symbols s2n_libcrypto.a &&
+          echo "redefined symbols" &&
           rm -rf s2n_libcrypto &&
           mkdir s2n_libcrypto &&
           cd s2n_libcrypto &&
@@ -593,6 +598,53 @@ if (BUILD_TESTING)
         set_property(TEST ${test_case_name} PROPERTY ENVIRONMENT ${UNIT_TEST_ENVS})
 
     endforeach(test_case)
+
+    ############################################################################
+    #########################   build sslv2 tests    ###########################
+    ############################################################################
+
+    add_executable(test_sslv2_handshake tests/SSLv2/test_sslv2_handshake.c)
+    target_link_libraries(test_sslv2_handshake ${PROJECT_NAME})
+    
+    # strategy: pass in OpenSSL Root Path, which should affect find_package OpenSSL 
+    # but not the AWS find crypto. Then we'll require
+    # cmake . -B build 
+    # -DINTERN=ON
+    # -DCMAKE_PREFIX_PATH=path/to/awslc
+    # -DOPENSSL_ROOT_PATH=path/to/openssl1_0_2
+    set(OPENSSL_VERSION "1.0.2")
+    find_package(OpenSSL REQUIRED)
+
+    if(OPENSSL_FOUND)
+        message("OpenSSL found: ${OPENSSL_INCLUDE_DIR}")
+        message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+    else()
+        message(FATAL_ERROR "OpenSSL not found")
+    endif()
+    
+    # Link OpenSSL libraries to your target
+    target_link_libraries(test_sslv2_handshake OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(test_sslv2_handshake ${PROJECT_NAME})
+    target_link_libraries(test_sslv2_handshake testss2n)
+
+
+    get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
+    message(STATUS "Include directories for MyTarget: ${INCLUDE_DIRS}")
+    
+    get_target_property(LINK_LIBRARIES test_sslv2_handshake LINK_LIBRARIES)
+    message(STATUS "Link libraries for MyTarget: ${LINK_LIBRARIES}")
+    
+    get_target_property(COMPILE_DEFINITIONS test_sslv2_handshake COMPILE_DEFINITIONS)
+    message(STATUS "Compile definitions for MyTarget: ${COMPILE_DEFINITIONS}")
+    
+    get_target_property(COMPILE_OPTIONS test_sslv2_handshake COMPILE_OPTIONS)
+    message(STATUS "Compile options for MyTarget: ${COMPILE_OPTIONS}")
+    add_test(
+        NAME test_sslv2_handshake
+        COMMAND test_sslv2_handshake 
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/SSLv2
+    )
+
 
     ############################################################################
     ######################### build utility binaries ###########################

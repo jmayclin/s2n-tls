@@ -139,7 +139,9 @@ int main(int argc, char **argv)
     /* Negotiate the handshake. */
     EXPECT_SUCCESS(s2n_negotiate(conn, &blocked));
     EXPECT_NOT_NULL(s2n_connection_get_client_hello(conn));
+    printf("highest fully support tls version is %d\n", s2n_get_highest_fully_supported_tls_version());
     EXPECT_EQUAL(conn->actual_protocol_version, s2n_get_highest_fully_supported_tls_version());
+    EXPECT_EQUAL(s2n_get_highest_fully_supported_tls_version(), S2N_TLS13);
 
     char buffer[0xffff];
     for (int i = 1; i < 0xffff; i += 100) {
