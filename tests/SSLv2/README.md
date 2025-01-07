@@ -13,8 +13,8 @@ git clone https://github.com/openssl/openssl
 cd openssl
 git checkout OpenSSL_1_0_2-stable
 # /home/ubuntu/workspace/ossl-1-0-2-install
-./config --prefix=/home/ubuntu/workspace/ossl-1-0-2-install
-make -j
+./config enable-ssl2 --prefix=/home/ubuntu/workspace/ossl-1-0-2-install
+CFLAGS="$CFLAGS -Wno-array-bounds" make -j
 make install
 ```
 
@@ -81,4 +81,18 @@ gmake[2]: *** Deleting file 'libcrypto.symbols'
 gmake[1]: *** [CMakeFiles/Makefile2:697: CMakeFiles/s2n_libcrypto.dir/all] Error 2
 gmake: *** [Makefile:146: all] Error 2
 ubuntu@ip-172-31-49-198:~/workspace/s2n-tls$ 
+```
+
+
+I need to disable compiler wranings
+
+```
+In function 'memcpy',
+    inlined from 'ssl3_cbc_digest_record' at s3_cbc.c:626:9:
+/usr/include/aarch64-linux-gnu/bits/string_fortified.h:29:10: warning: '__builtin___memcpy_chk' forming offset 128 is out of the bounds [0, 128] of object 'hmac_pad' with type 'unsigned char[128]' [-Warray-bounds=]
+   29 |   return __builtin___memcpy_chk (__dest, __src, __len,
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   30 |                                  __glibc_objsize0 (__dest));
+      |                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~
+s3_cbc.c: In function 'ssl3_cbc_digest_record':
 ```

@@ -399,7 +399,7 @@ if (S2N_INTERN_LIBCRYPTO)
     message(STATUS "crypto_INCLUDE_DIR: ${crypto_INCLUDE_DIR}")
 
     # Don't call link_target_libraries here, just make sure the libcrypto include dir is in the path
-    include_directories("${crypto_INCLUDE_DIR}")
+    target_include_directories(${PROJECT_NAME} PRIVATE "${crypto_INCLUDE_DIR}")
 
     add_custom_command(
         OUTPUT libcrypto.symbols
