@@ -18,6 +18,14 @@ CFLAGS="$CFLAGS -Wno-array-bounds" make -j
 make install
 ```
 
+```
+git clone --branch <tag_name> --depth 1 https://github.com/openssl/openssl.git
+cd openssl
+./config enable-weak-ssl-ciphers enable-ssl2 --prefix=/home/ubuntu/workspace/ossl-1-0-1-install
+make
+make install
+```
+
 ## Build
 ```
 rm -rf build
@@ -50,7 +58,7 @@ cmake . \
     -D CMAKE_BUILD_TYPE=RelWithDebInfo \
     -D CMAKE_PREFIX_PATH=/home/ubuntu/workspace/aws-lc-install \
     -D S2N_INTERN_LIBCRYPTO=ON \
-    -D OPENSSL_ROOT_DIR=/home/ubuntu/workspace/ossl-1-0-2-install
+    -D OPENSSL_ROOT_DIR=/home/ubuntu/workspace/ossl-1-0-1-install
 cmake --build ./build -j $(nproc)
 CTEST_PARALLEL_LEVEL=$(nproc) make -C build test ARGS="--output-on-failure"
 ```
@@ -95,4 +103,15 @@ In function 'memcpy',
    30 |                                  __glibc_objsize0 (__dest));
       |                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~
 s3_cbc.c: In function 'ssl3_cbc_digest_record':
+```
+
+
+I fail to build 0.9.7
+
+```
+gcc: error: unrecognized command-line option ‘-m486’
+gcc -I. -I.. -I../include -DOPENSSL_THREADS -D_REENTRANT -DDSO_DLFCN -DHAVE_DLFCN_H -DOPENSSL_NO_KRB5 -DL_ENDIAN -DTERMIO -O3 -fomit-frame-pointer -m486 -Wall -DSHA1_ASM -DMD5_ASM -DRMD160_ASM   -c -o uid.o uid.c
+gcc: error: unrecognized command-line option ‘-m486’
+make[1]: *** [<builtin>: cryptlib.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
 ```

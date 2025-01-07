@@ -279,7 +279,7 @@ int main()
 
 
         // Create SSL contexts for client and server
-        SSL_CTX *client_ctx = SSL_CTX_new(SSLv3_client_method());
+        SSL_CTX *client_ctx = SSL_CTX_new(SSLv23_client_method());
         if (!client_ctx) {
             handle_openssl_error();
             return 1;
@@ -294,6 +294,7 @@ int main()
             handle_openssl_error();
             return 1;
         }
+        SSL_clear_options(client_ssl, SSL_OP_NO_SSLv2);
 
         // Create memory BIOs for in-memory communication
         BIO *server_to_client = BIO_new(BIO_s_mem());
