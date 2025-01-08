@@ -13,7 +13,7 @@ git clone https://github.com/openssl/openssl
 cd openssl
 git checkout OpenSSL_1_0_2-stable
 # /home/ubuntu/workspace/ossl-1-0-2-install
-./config enable-ssl2 --prefix=/home/ubuntu/workspace/ossl-1-0-2-install
+./config enable-weak-ssl-ciphers enable-ssl2 --prefix=/home/ubuntu/workspace/ossl-1-0-2-install
 CFLAGS="$CFLAGS -Wno-array-bounds" make -j
 make install
 ```
@@ -58,7 +58,7 @@ cmake . \
     -D CMAKE_BUILD_TYPE=RelWithDebInfo \
     -D CMAKE_PREFIX_PATH=/home/ubuntu/workspace/aws-lc-install \
     -D S2N_INTERN_LIBCRYPTO=ON \
-    -D OPENSSL_ROOT_DIR=/home/ubuntu/workspace/ossl-1-0-1-install
+    -D OPENSSL_ROOT_DIR=/home/ubuntu/workspace/ossl-1-0-2-install
 cmake --build ./build -j $(nproc)
 CTEST_PARALLEL_LEVEL=$(nproc) make -C build test ARGS="--output-on-failure"
 ```

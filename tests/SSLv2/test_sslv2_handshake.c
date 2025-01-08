@@ -17,7 +17,7 @@
 // };
 
 #define SERVER_CHAIN "/home/ubuntu/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-chain.pem"
-#define SERVER_KEY "/home/ubuntu/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-key.pem"
+#define SERVER_KEY   "/home/ubuntu/workspace/s2n-tls/tests/pems/permutations/rsae_pkcs_2048_sha256/server-key.pem"
 
 struct s2n_client_hello_version_detector {
     int invoked;
@@ -27,14 +27,15 @@ int client_hello_send_alerts(struct s2n_connection *conn, void *ctx)
 {
     struct s2n_client_hello_version_detector *detector = ctx;
     detector->invoked += 1;
-    struct s2n_client_hello* ch = s2n_connection_get_client_hello(conn);
+    struct s2n_client_hello *ch = s2n_connection_get_client_hello(conn);
     //s2n_client_hello_get_raw_message_length
     int version = s2n_connection_get_client_hello_version(conn);
     int sslv3 = S2N_SSLv3;
     int sslv2 = S2N_SSLv2;
     int tls10 = S2N_TLS12;
     printf("client hello version was %d\n", version);
-    
+    EXPECT_EQUAL(version, S2N_SSLv2);
+
     return 0;
 }
 
@@ -74,7 +75,8 @@ static S2N_RESULT s2n_validate_negotiate_result(bool success, bool peer_is_done,
  * Function pointer for a user provided send callback.
  */
 //typedef int s2n_recv_fn(void *io_context, uint8_t *buf, uint32_t len);
-int s2n_bio_read(void *io_context, uint8_t *buf, uint32_t len) {
+int s2n_bio_read(void *io_context, uint8_t *buf, uint32_t len)
+{
     int bytes_read = BIO_read(io_context, buf, len);
     printf("s2n bio read: %d\n", bytes_read);
     if (bytes_read == -1) {
@@ -87,7 +89,8 @@ int s2n_bio_read(void *io_context, uint8_t *buf, uint32_t len) {
  * Function pointer for a user provided send callback.
  */
 //typedef int s2n_send_fn(void *io_context, const uint8_t *buf, uint32_t len);
-int s2n_bio_write(void *io_context, const uint8_t *buf, uint32_t len) {
+int s2n_bio_write(void *io_context, const uint8_t *buf, uint32_t len)
+{
     printf("s2n bio write: %d\n", len);
     return BIO_write(io_context, buf, len);
 }
@@ -117,8 +120,8 @@ int main()
         }
 
         // Generate self-signed certificates and keys for the server
-        if (SSL_CTX_use_certificate_file(server_ctx, SERVER_CHAIN, SSL_FILETYPE_PEM) <= 0 
-            || SSL_CTX_use_PrivateKey_file(server_ctx, SERVER_KEY, SSL_FILETYPE_PEM) <= 0) {
+        if (SSL_CTX_use_certificate_file(server_ctx, SERVER_CHAIN, SSL_FILETYPE_PEM) <= 0
+                || SSL_CTX_use_PrivateKey_file(server_ctx, SERVER_KEY, SSL_FILETYPE_PEM) <= 0) {
             handle_openssl_error();
             return 1;
         }
@@ -255,16 +258,16 @@ int main()
         EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
                 SERVER_CHAIN, SERVER_KEY));
 
-        struct s2n_client_hello_version_detector d = { 0 };
+        struct s2n_client_hello_version_detector client_hello_detector = { 0 };
 
         DEFER_CLEANUP(struct s2n_config *config = s2n_config_new(),
                 s2n_config_ptr_free);
         //EXPECT_SUCCESS(s2n_config_set_unsafe_for_testing(config));
-        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "AWS-CRT-SDK-SSLv3.0-2023"));
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(config, "PQ-TLS-1-2-2023-12-13"));
         EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(config, chain_and_key));
         EXPECT_SUCCESS(s2n_config_wipe_trust_store(config));
 
-        EXPECT_SUCCESS(s2n_config_set_client_hello_cb(config, client_hello_send_alerts, &d));
+        EXPECT_SUCCESS(s2n_config_set_client_hello_cb(config, client_hello_send_alerts, &client_hello_detector));
 
         DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
                 s2n_connection_ptr_free);
@@ -277,7 +280,6 @@ int main()
 
         //EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
 
-
         // Create SSL contexts for client and server
         SSL_CTX *client_ctx = SSL_CTX_new(SSLv23_client_method());
         if (!client_ctx) {
@@ -285,6 +287,11 @@ int main()
             return 1;
         }
         SSL_CTX_clear_options(client_ctx, SSL_OP_NO_SSLv2);
+        int cipher_res = SSL_CTX_set_cipher_list(client_ctx, "SSLv2:RSA");
+        if (cipher_res < -1) {
+            handle_openssl_error();
+            FAIL_MSG("failed to set ciphers");
+        }
         //SSL_CTX_set_min_proto_version(client_ctx, )
 
         // Create SSL objects
@@ -324,29 +331,35 @@ int main()
 
         do {
             int ret = SSL_do_handshake(client_ssl);
-                if (ret == 1) {
-                    client_done = true;
-                    printf("Client: Handshake complete.\n");
-                } else {
-                    int err = SSL_get_error(client_ssl, ret);
-                    printf("error from ossl client was %d\n", err);
-                    if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
-                        printf("we done have a problem (ossl)\n");
-                        handle_openssl_error();
-                        return 1;
-                    }
+            if (ret == 1) {
+                client_done = true;
+                printf("Client: Handshake complete.\n");
+            } else {
+                int err = SSL_get_error(client_ssl, ret);
+                printf("error from ossl client was %d\n", err);
+                if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
+                    printf("we done have a problem (ossl)\n");
+                    handle_openssl_error();
+                    return 1;
                 }
+            }
             server_done = (s2n_negotiate(server, &blocked) >= S2N_SUCCESS);
             /* If we failed for any error other than 'blocked', propagate the error. */
-            if (s2n_error_get_type(s2n_errno) != S2N_ERR_T_BLOCKED) {
-                printf("server done: %d, client done: %d\n", server_done, client_done);
-                printf("Error issue: '%s'\n", s2n_strerror(s2n_errno, "EN"));
-                printf("Error location: '%s'\n", s2n_strerror_debug(s2n_errno, "EN"));
-                printf("s2n server encountered error :(\n");
-                return 1;
+            if (!server_done) {
+                if (s2n_error_get_type(s2n_errno) != S2N_ERR_T_BLOCKED) {
+                    printf("debug info: server done: %d, client done: %d\n", server_done, client_done);
+                    printf("Error issue: '%s'\n", s2n_strerror(s2n_errno, "EN"));
+                    printf("Error location: '%s'\n", s2n_strerror_debug(s2n_errno, "EN"));
+                    printf("s2n server encountered error :(\n");
+                    return 1;
+                }
             }
+
         } while (!client_done || !server_done);
 
+        printf("s2n server connection state %s\n",s2n_connection_get_handshake_type_name(server));
+        EXPECT_EQUAL(client_hello_detector.invoked, 1);
+        EXPECT_EQUAL(s2n_connection_get_actual_protocol_version(server), S2N_TLS12);
 
         // // Perform handshake loop
         // int server_handshake_done = 0, client_handshake_done = 0;
