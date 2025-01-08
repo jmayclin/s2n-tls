@@ -72,13 +72,12 @@ static S2N_RESULT s2n_validate_negotiate_result(bool success, bool peer_is_done,
 }
 
 /**
- * Function pointer for a user provided send callback.
+ * s2n-tls io recv callback that operates on an OpenSSL BIO.
  */
-//typedef int s2n_recv_fn(void *io_context, uint8_t *buf, uint32_t len);
 int s2n_bio_read(void *io_context, uint8_t *buf, uint32_t len)
 {
     int bytes_read = BIO_read(io_context, buf, len);
-    printf("s2n bio read: %d\n", bytes_read);
+    // printf("s2n bio read: %d\n", bytes_read);
     if (bytes_read == -1) {
         errno = EWOULDBLOCK;
     }
@@ -86,19 +85,14 @@ int s2n_bio_read(void *io_context, uint8_t *buf, uint32_t len)
 }
 
 /**
- * Function pointer for a user provided send callback.
+ * s2n-tls io send callback that operates on an OpenSSL BIO.
  */
 //typedef int s2n_send_fn(void *io_context, const uint8_t *buf, uint32_t len);
 int s2n_bio_write(void *io_context, const uint8_t *buf, uint32_t len)
 {
-    printf("s2n bio write: %d\n", len);
+    //printf("s2n bio write: %d\n", len);
     return BIO_write(io_context, buf, len);
 }
-
-//     POSIX_GUARD(s2n_connection_set_recv_cb(conn, &buffer_read));
-//     POSIX_GUARD(s2n_connection_set_recv_ctx(conn, input));
-//     POSIX_GUARD(s2n_connection_set_send_cb(conn, &buffer_write));
-//     POSIX_GUARD(s2n_connection_set_send_ctx(conn, output));
 
 int main()
 {

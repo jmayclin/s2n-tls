@@ -58,6 +58,8 @@ cmake . \
     -D CMAKE_BUILD_TYPE=RelWithDebInfo \
     -D CMAKE_PREFIX_PATH=/home/ubuntu/workspace/aws-lc-install \
     -D S2N_INTERN_LIBCRYPTO=ON \
+    -D BUILD_SHARED_LIBS=OFF \
+    -D CMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -D OPENSSL_ROOT_DIR=/home/ubuntu/workspace/ossl-1-0-2-install
 cmake --build ./build -j $(nproc)
 CTEST_PARALLEL_LEVEL=$(nproc) make -C build test ARGS="--output-on-failure"

@@ -399,7 +399,9 @@ if (S2N_INTERN_LIBCRYPTO)
     message(STATUS "crypto_INCLUDE_DIR: ${crypto_INCLUDE_DIR}")
 
     # Don't call link_target_libraries here, just make sure the libcrypto include dir is in the path
-    target_include_directories(${PROJECT_NAME} PRIVATE "${crypto_INCLUDE_DIR}")
+    # target_include_directories(${PROJECT_NAME} AFTER PUBLIC "${crypto_INCLUDE_DIR}")
+    #target_include_directories(${PROJECT_NAME} PUBLIC "${crypto_INCLUDE_DIR}")
+    include_directories("${crypto_INCLUDE_DIR}")
 
     add_custom_command(
         OUTPUT libcrypto.symbols
@@ -573,6 +575,7 @@ if (BUILD_TESTING)
         add_executable(${test_case_name} ${test_case})
         target_link_libraries(${test_case_name} PRIVATE testss2n)
         if (S2N_INTERN_LIBCRYPTO)
+            # target_include_directories(${test_case_name} BEFORE PRIVATE "${crypto_INCLUDE_DIR}")
             # if libcrypto was interned, rewrite libcrypto symbols so use of internal functions will link correctly
             add_custom_command(
                 TARGET ${test_case_name} PRE_LINK
@@ -604,7 +607,6 @@ if (BUILD_TESTING)
     ############################################################################
 
     add_executable(test_sslv2_handshake tests/SSLv2/test_sslv2_handshake.c)
-    target_link_libraries(test_sslv2_handshake ${PROJECT_NAME})
     
     # strategy: pass in OpenSSL Root Path, which should affect find_package OpenSSL 
     # but not the AWS find crypto. Then we'll require
@@ -621,24 +623,60 @@ if (BUILD_TESTING)
     else()
         message(FATAL_ERROR "OpenSSL not found")
     endif()
+
     
-    # Link OpenSSL libraries to your target
+    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
+    # message(STATUS "Include directories for target 'ossl crypto': ${ossl_INCLUDE_DIR}")
+    # set_target_properties(OpenSSL::Crypto OpenSSL::SSL PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "")
+    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
+    # message(STATUS "Include directories for target 'ossl crypto' is now: ${ossl_INCLUDE_DIR}")
+    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
+    # message(STATUS "Include directories for target 'ossl ssl' is now: ${ossl_INCLUDE_DIR}")
+    # message(STATUS "Include directories for target 'ossl crypto': ${ossl_INCLUDE_DIR}")
+    
+    # There are two libcryptos (and two headers) in the build tree. We need the sslv2
+    # test to use the <openssl_1_0_2>/openssl/ssl.h header. However the <awslc>/openssl/ssh.h
+    # header is universally preferred because it was added through the global include_directories
+    # command. Therefore we first have to "clear" that global setting, allowing 
+    # openssl_1_0_2 header to be found before the aws lc header.
+    set_target_properties(test_sslv2_handshake PROPERTIES INCLUDE_DIRECTORIES "")
+
+    target_include_directories(test_sslv2_handshake PUBLIC "${OPENSSL_INCLUDE_DIR}")
     target_link_libraries(test_sslv2_handshake OpenSSL::SSL OpenSSL::Crypto)
     target_link_libraries(test_sslv2_handshake ${PROJECT_NAME})
     target_link_libraries(test_sslv2_handshake testss2n)
 
+    
 
-    get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
-    message(STATUS "Include directories for MyTarget: ${INCLUDE_DIRS}")
+    # get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
+
+    # if(INCLUDE_DIRS)
+    #     message(STATUS "Include directories for target 'test_sslv2_handshake': ${INCLUDE_DIRS}")
+    # else()
+    #     message(STATUS "No include directories found for target 'test_sslv2_handshake'")
+    # endif()
+
+    # get_target_property(I_INCLUDE_DIRS test_sslv2_handshake INTERFACE_INCLUDE_DIRECTORIES)
+
+    # if(I_INCLUDE_DIRS)
+    #     message(STATUS "Include directories for target 'test_sslv2_handshake': ${I_INCLUDE_DIRS}")
+    # else()
+    #     message(STATUS "No interface include directories found for target 'test_sslv2_handshake'")
+    # endif()
+
+
+
+    # get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
+    # message(STATUS "Include directories for MyTarget: ${INCLUDE_DIRS}")
     
-    get_target_property(LINK_LIBRARIES test_sslv2_handshake LINK_LIBRARIES)
-    message(STATUS "Link libraries for MyTarget: ${LINK_LIBRARIES}")
+    # get_target_property(LINK_LIBRARIES test_sslv2_handshake LINK_LIBRARIES)
+    # message(STATUS "Link libraries for MyTarget: ${LINK_LIBRARIES}")
     
-    get_target_property(COMPILE_DEFINITIONS test_sslv2_handshake COMPILE_DEFINITIONS)
-    message(STATUS "Compile definitions for MyTarget: ${COMPILE_DEFINITIONS}")
+    # get_target_property(COMPILE_DEFINITIONS test_sslv2_handshake COMPILE_DEFINITIONS)
+    # message(STATUS "Compile definitions for MyTarget: ${COMPILE_DEFINITIONS}")
     
-    get_target_property(COMPILE_OPTIONS test_sslv2_handshake COMPILE_OPTIONS)
-    message(STATUS "Compile options for MyTarget: ${COMPILE_OPTIONS}")
+    # get_target_property(COMPILE_OPTIONS test_sslv2_handshake COMPILE_OPTIONS)
+    # message(STATUS "Compile options for MyTarget: ${COMPILE_OPTIONS}")
     add_test(
         NAME test_sslv2_handshake
         COMMAND test_sslv2_handshake 
