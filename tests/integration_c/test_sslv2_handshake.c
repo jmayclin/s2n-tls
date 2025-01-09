@@ -54,14 +54,14 @@ S2N_RESULT s2n_negotiate_s2n_and_ossl(SSL *client, struct s2n_connection *server
         if (ret == 1) {
             client_done = true;
         } else {
-            // if error not caused by blocked io, fail
+            /* if error not caused by blocked io, fail */
             int err = SSL_get_error(client, ret);
             RESULT_ENSURE(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE, S2N_ERR_IO);
         }
 
         server_done = (s2n_negotiate(server, &blocked) >= S2N_SUCCESS);
         if (!server_done) {
-            /* If we failed for any error other than 'blocked', propagate the error. */
+            /* if error not caused by blocked io, fail */
             RESULT_ENSURE_EQ(s2n_error_get_type(s2n_errno), S2N_ERR_T_BLOCKED);
         }
 
@@ -70,11 +70,6 @@ S2N_RESULT s2n_negotiate_s2n_and_ossl(SSL *client, struct s2n_connection *server
     return S2N_RESULT_OK;
 }
 
-/**
- * s2n-tls does not support SSLv2, but it does support SSLv2 formatted ClientHellos.
- * s2n-tls will never send a SSLv2 formatted client hello, so it is necessary to
- * test with an external implementation 
- */
 int main()
 {
     // Assert that we are pulling in the correct openssl header.
@@ -86,7 +81,7 @@ int main()
 
     /* s2n-tls client w/ openssl server */
     {
-        // s2n-tls server config
+        /* s2n-tls server config */
         DEFER_CLEANUP(struct s2n_cert_chain_and_key *chain_and_key = NULL,
                 s2n_cert_chain_and_key_ptr_free);
         EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&chain_and_key,
@@ -101,50 +96,48 @@ int main()
         EXPECT_SUCCESS(s2n_config_wipe_trust_store(config));
         EXPECT_SUCCESS(s2n_config_set_client_hello_cb(config, sslv2_assertion_cb, &client_hello_detector));
 
-        // OpenSSL client config
+        /* OpenSSL client config */
         SSL_CTX *client_ctx = SSL_CTX_new(SSLv23_client_method());
         EXPECT_NOT_NULL(client_ctx);
-        // SSLv2 is disabled by default, so we must explicitly clear the setting.
-        // https://github.com/openssl/openssl/blob/master/CHANGES.md#changes-between-102f-and-102g-1-mar-2016
+        /* SSLv2 is disabled by default, so we must explicitly clear the setting.
+         * https://github.com/openssl/openssl/blob/master/CHANGES.md#changes-between-102f-and-102g-1-mar-2016
+         */
         EXPECT_OSSL_SUCCESS(SSL_CTX_clear_options(client_ctx, SSL_OP_NO_SSLv2));
-        // Explicitly enable SSLv2 cipher suites to force OpenSSL to send an SSLv2
-        // ClientHello. Also enable modern cipher suites to allow us to actually
-        // negotiate TLS 1.2.
+        /* Explicitly enable SSLv2 cipher suites to force OpenSSL to send an SSLv2
+         * ClientHello. Also enable modern cipher suites to allow us to actually
+         * negotiate TLS 1.2.
+         */
         EXPECT_OSSL_SUCCESS(SSL_CTX_set_cipher_list(client_ctx, "SSLv2:RSA"));
 
-        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER),
+        DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                 s2n_connection_ptr_free);
-        EXPECT_SUCCESS(s2n_connection_set_blinding(server, S2N_SELF_SERVICE_BLINDING));
-        EXPECT_SUCCESS(s2n_connection_set_config(server, config));
+        EXPECT_SUCCESS(s2n_connection_set_blinding(server_conn, S2N_SELF_SERVICE_BLINDING));
+        EXPECT_SUCCESS(s2n_connection_set_config(server_conn, config));
 
-        // Create SSL objects
-        SSL *client_ssl = SSL_new(client_ctx);
-        EXPECT_NOT_NULL(client_ssl);
+        SSL *client_conn = SSL_new(client_ctx);
+        EXPECT_NOT_NULL(client_conn);
 
-        // Create memory BIOs for in-memory communication
+        /* setup io for the connections */
         BIO *server_to_client = BIO_new(BIO_s_mem());
         BIO *client_to_server = BIO_new(BIO_s_mem());
         EXPECT_NOT_NULL(server_to_client);
         EXPECT_NOT_NULL(client_to_server);
 
-        /* setup io for the s2n-tls server */
-        EXPECT_SUCCESS(s2n_connection_set_recv_cb(server, s2n_bio_read));
-        EXPECT_SUCCESS(s2n_connection_set_recv_ctx(server, client_to_server));
+        EXPECT_SUCCESS(s2n_connection_set_recv_cb(server_conn, s2n_bio_read));
+        EXPECT_SUCCESS(s2n_connection_set_recv_ctx(server_conn, client_to_server));
+        EXPECT_SUCCESS(s2n_connection_set_send_cb(server_conn, s2n_bio_write));
+        EXPECT_SUCCESS(s2n_connection_set_send_ctx(server_conn, server_to_client));
 
-        EXPECT_SUCCESS(s2n_connection_set_send_cb(server, s2n_bio_write));
-        EXPECT_SUCCESS(s2n_connection_set_send_ctx(server, server_to_client));
+        SSL_set_bio(client_conn, server_to_client, client_to_server);
+        SSL_set_connect_state(client_conn);
 
-        /* setup io for the openssl client */
-        SSL_set_bio(client_ssl, server_to_client, client_to_server);
-        SSL_set_connect_state(client_ssl);
+        EXPECT_OK(s2n_negotiate_s2n_and_ossl(client_conn, server_conn));
 
-        EXPECT_OK(s2n_negotiate_s2n_and_ossl(client_ssl, server));
-
-        EXPECT_EQUAL(s2n_connection_get_actual_protocol_version(server), S2N_TLS12);
+        EXPECT_EQUAL(s2n_connection_get_actual_protocol_version(server_conn), S2N_TLS12);
         EXPECT_EQUAL(client_hello_detector.invoked, 1);
 
         // Cleanup
-        SSL_free(client_ssl);
+        SSL_free(client_conn);
         SSL_CTX_free(client_ctx);
     }
 

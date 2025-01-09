@@ -603,86 +603,36 @@ if (BUILD_TESTING)
     endforeach(test_case)
 
     ############################################################################
-    #########################   build sslv2 tests    ###########################
+    #################  sslv2 formatted client hello tests    ###################
     ############################################################################
 
-    add_executable(test_sslv2_handshake tests/SSLv2/test_sslv2_handshake.c)
+    add_executable(s2n_sslv2_client_hello_handshake tests/integration_c/test_sslv2_handshake.c)
     
-    # strategy: pass in OpenSSL Root Path, which should affect find_package OpenSSL 
-    # but not the AWS find crypto. Then we'll require
-    # cmake . -B build 
-    # -DINTERN=ON
-    # -DCMAKE_PREFIX_PATH=path/to/awslc
-    # -DOPENSSL_ROOT_PATH=path/to/openssl1_0_2
-    set(OPENSSL_VERSION "1.0.2")
     find_package(OpenSSL REQUIRED)
-
-    if(OPENSSL_FOUND)
-        message("OpenSSL found: ${OPENSSL_INCLUDE_DIR}")
-        message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
-    else()
-        message(FATAL_ERROR "OpenSSL not found")
+    if(OpenSSL_VERSION VERSION_GREATER "1.0.2")
+        message(FATAL_ERROR "OpenSSL version must not exceed 1.0.2. Found version: ${OpenSSL_VERSION}")
     endif()
-
-    
-    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
-    # message(STATUS "Include directories for target 'ossl crypto': ${ossl_INCLUDE_DIR}")
-    # set_target_properties(OpenSSL::Crypto OpenSSL::SSL PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "")
-    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
-    # message(STATUS "Include directories for target 'ossl crypto' is now: ${ossl_INCLUDE_DIR}")
-    # get_target_property(ossl_INCLUDE_DIR OpenSSL::Crypto INTERFACE_INCLUDE_DIRECTORIES)
-    # message(STATUS "Include directories for target 'ossl ssl' is now: ${ossl_INCLUDE_DIR}")
-    # message(STATUS "Include directories for target 'ossl crypto': ${ossl_INCLUDE_DIR}")
     
     # There are two libcryptos (and two headers) in the build tree. We need the sslv2
     # test to use the <openssl_1_0_2>/openssl/ssl.h header. However the <awslc>/openssl/ssh.h
     # header is universally preferred because it was added through the global include_directories
     # command. Therefore we first have to "clear" that global setting, allowing 
     # openssl_1_0_2 header to be found before the aws lc header.
-    set_target_properties(test_sslv2_handshake PROPERTIES INCLUDE_DIRECTORIES "")
+    set_target_properties(s2n_sslv2_client_hello_handshake PROPERTIES INCLUDE_DIRECTORIES "")
 
-    target_include_directories(test_sslv2_handshake PUBLIC "${OPENSSL_INCLUDE_DIR}")
-    target_link_libraries(test_sslv2_handshake OpenSSL::SSL OpenSSL::Crypto)
-    target_link_libraries(test_sslv2_handshake ${PROJECT_NAME})
-    target_link_libraries(test_sslv2_handshake testss2n)
-
-    
-
-    # get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
-
-    # if(INCLUDE_DIRS)
-    #     message(STATUS "Include directories for target 'test_sslv2_handshake': ${INCLUDE_DIRS}")
-    # else()
-    #     message(STATUS "No include directories found for target 'test_sslv2_handshake'")
-    # endif()
-
-    # get_target_property(I_INCLUDE_DIRS test_sslv2_handshake INTERFACE_INCLUDE_DIRECTORIES)
-
-    # if(I_INCLUDE_DIRS)
-    #     message(STATUS "Include directories for target 'test_sslv2_handshake': ${I_INCLUDE_DIRS}")
-    # else()
-    #     message(STATUS "No interface include directories found for target 'test_sslv2_handshake'")
-    # endif()
-
-
-
-    # get_target_property(INCLUDE_DIRS test_sslv2_handshake INCLUDE_DIRECTORIES)
-    # message(STATUS "Include directories for MyTarget: ${INCLUDE_DIRS}")
-    
-    # get_target_property(LINK_LIBRARIES test_sslv2_handshake LINK_LIBRARIES)
-    # message(STATUS "Link libraries for MyTarget: ${LINK_LIBRARIES}")
-    
-    # get_target_property(COMPILE_DEFINITIONS test_sslv2_handshake COMPILE_DEFINITIONS)
-    # message(STATUS "Compile definitions for MyTarget: ${COMPILE_DEFINITIONS}")
-    
-    # get_target_property(COMPILE_OPTIONS test_sslv2_handshake COMPILE_OPTIONS)
-    # message(STATUS "Compile options for MyTarget: ${COMPILE_OPTIONS}")
-    add_test(
-        NAME test_sslv2_handshake
-        COMMAND test_sslv2_handshake 
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/SSLv2
+    target_link_libraries(s2n_sslv2_client_hello_handshake 
+        OpenSSL::SSL 
+        OpenSSL::Crypto
+        ${PROJECT_NAME}
+        testss2n
     )
 
+
+    add_test(
+        NAME s2n_sslv2_client_hello_handshake
+        COMMAND s2n_sslv2_client_hello_handshake 
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration_c
+    )
 
     ############################################################################
     ######################### build utility binaries ###########################
