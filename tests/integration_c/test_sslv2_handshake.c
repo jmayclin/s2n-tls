@@ -1,3 +1,18 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License").
+ * You may not use this file except in compliance with the License.
+ * A copy of the License is located at
+ *
+ *  http://aws.amazon.com/apache2.0
+ *
+ * or in the "license" file accompanying this file. This file is distributed
+ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing
+ * permissions and limitations under the License.
+ */
+
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <stdio.h>
@@ -99,6 +114,7 @@ int main()
         /* OpenSSL client config */
         SSL_CTX *client_ctx = SSL_CTX_new(SSLv23_client_method());
         EXPECT_NOT_NULL(client_ctx);
+        SSL_CTX_set_verify(client_ctx, SSL_VERIFY_PEER, NULL);
         /* SSLv2 is disabled by default, so we must explicitly clear the setting.
          * https://github.com/openssl/openssl/blob/master/CHANGES.md#changes-between-102f-and-102g-1-mar-2016
          */
