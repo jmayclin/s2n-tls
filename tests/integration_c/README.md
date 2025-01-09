@@ -10,9 +10,8 @@ SSLv2 ClientHellos are not supported my most TLS implementation. The last versio
 git clone https://github.com/openssl/openssl
 cd openssl
 git checkout OpenSSL_1_0_2-stable
-# /home/ubuntu/workspace/ossl-1-0-2-install
 ./config enable-weak-ssl-ciphers enable-ssl2 --prefix=/home/ubuntu/workspace/ossl-1-0-2-install
-CFLAGS="$CFLAGS -Wno-array-bounds" make -j
+make
 make install
 ```
 
@@ -45,7 +44,8 @@ This integration tests requires two separate libcrypto's to be included in the s
 ```
 
 
-## Build with other OpenSSL Path
+## Building the test
+Because of the multiple libcryptos, this test can only be used with an _interned_ libcrypto. In the example build script below, observe that the libcrypto that s2n-tls links with is specified using `CMAKE_PREFIX_PATH`, and then the separate libcrypto used as a client is specified with `OPENSS_ROOT_DIR`.
 ```
 rm -rf build
 cmake . \

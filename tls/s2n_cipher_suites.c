@@ -1197,6 +1197,7 @@ static int s2n_wire_ciphers_contain(const uint8_t *match, const uint8_t *wire, u
 {
     for (size_t i = 0; i < count; i++) {
         const uint8_t *theirs = wire + (i * cipher_suite_len) + (cipher_suite_len - S2N_TLS_CIPHER_SUITE_LEN);
+
         if (s2n_constant_time_equals(match, theirs, S2N_TLS_CIPHER_SUITE_LEN)) {
             return 1;
         }

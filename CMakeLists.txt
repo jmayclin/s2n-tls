@@ -399,8 +399,6 @@ if (S2N_INTERN_LIBCRYPTO)
     message(STATUS "crypto_INCLUDE_DIR: ${crypto_INCLUDE_DIR}")
 
     # Don't call link_target_libraries here, just make sure the libcrypto include dir is in the path
-    # target_include_directories(${PROJECT_NAME} AFTER PUBLIC "${crypto_INCLUDE_DIR}")
-    #target_include_directories(${PROJECT_NAME} PUBLIC "${crypto_INCLUDE_DIR}")
     include_directories("${crypto_INCLUDE_DIR}")
 
     add_custom_command(
@@ -575,7 +573,6 @@ if (BUILD_TESTING)
         add_executable(${test_case_name} ${test_case})
         target_link_libraries(${test_case_name} PRIVATE testss2n)
         if (S2N_INTERN_LIBCRYPTO)
-            # target_include_directories(${test_case_name} BEFORE PRIVATE "${crypto_INCLUDE_DIR}")
             # if libcrypto was interned, rewrite libcrypto symbols so use of internal functions will link correctly
             add_custom_command(
                 TARGET ${test_case_name} PRE_LINK
@@ -603,7 +600,7 @@ if (BUILD_TESTING)
     endforeach(test_case)
 
     ############################################################################
-    #################  sslv2 formatted client hello tests    ###################
+    #################   sslv2 formatted client hello test    ###################
     ############################################################################
 
     add_executable(s2n_sslv2_client_hello_handshake tests/integration_c/test_sslv2_handshake.c)
@@ -626,7 +623,6 @@ if (BUILD_TESTING)
         ${PROJECT_NAME}
         testss2n
     )
-
 
     add_test(
         NAME s2n_sslv2_client_hello_handshake

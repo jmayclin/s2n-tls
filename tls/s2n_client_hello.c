@@ -446,7 +446,6 @@ int s2n_parse_client_hello(struct s2n_connection *conn)
     }
 
     if (conn->client_hello_version == S2N_SSLv2) {
-        printf("IT WAS SSLV2 YAYAYAYAY!\n");
         POSIX_GUARD(s2n_sslv2_client_hello_recv(conn));
         return S2N_SUCCESS;
     }

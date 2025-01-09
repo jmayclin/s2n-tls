@@ -1775,8 +1775,6 @@ S2N_API extern int s2n_connection_use_corked_io(struct s2n_connection *conn);
 
 /**
  * Function pointer for a user provided send callback.
- * 
- * TODO: How does this handle empty things?
  */
 typedef int s2n_recv_fn(void *io_context, uint8_t *buf, uint32_t len);
 
