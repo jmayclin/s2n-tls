@@ -407,14 +407,9 @@ if (S2N_INTERN_LIBCRYPTO)
           # copy the static version of libcrypto
           cp ${crypto_STATIC_LIBRARY} s2n_libcrypto.a &&
           # dump all of the symbols and prefix them with `s2n$`
-          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] / && $3 != \"\" {print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
-          # dump symbols to stdout
-          cp libcrypto.symbols let_me_debug.symbols &&
-          cat libcrypto.symbols &&
-          echo "gathered symbols" &&
+          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] /{print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
           # redefine the libcrypto libary symbols
           ${CMAKE_OBJCOPY} --redefine-syms libcrypto.symbols s2n_libcrypto.a &&
-          echo "redefined symbols" &&
           rm -rf s2n_libcrypto &&
           mkdir s2n_libcrypto &&
           cd s2n_libcrypto &&
