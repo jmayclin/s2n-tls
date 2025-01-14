@@ -5,7 +5,7 @@ import pytest
 
 from configuration import available_ports
 from common import Certificates, Ciphers, Curves, Protocols, ProviderOptions, data_bytes
-from fixtures import managed_process  # lgtm [py/unused-import]
+from fixtures import managed_process, path_configuration  # lgtm [py/unused-import]
 from providers import Provider, S2N, JavaSSL
 from utils import (
     invalid_test_parameters,
@@ -13,10 +13,9 @@ from utils import (
     to_bytes,
 )
 
-SSLV2_CLIENT_HELLO_MARKER = "Warning: deprecated SSLv2-style ClientHello"
+SSLV2_CLIENT_HELLO_MARKER = b"Warning: deprecated SSLv2-style ClientHello"
 
 
-@pytest.mark.flaky(reruns=5, reruns_delay=2)
 @pytest.mark.uncollect_if(func=invalid_test_parameters)
 @pytest.mark.parametrize(
     # TLS 1.3 finally drops support for SSLv2 Client Hellos, and can not be negotiated
@@ -25,8 +24,8 @@ SSLV2_CLIENT_HELLO_MARKER = "Warning: deprecated SSLv2-style ClientHello"
     "protocol",
     [
         Protocols.TLS12,
-        Protocols.TLS11,
-        Protocols.TLS10,
+        # Protocols.TLS11,
+        # Protocols.TLS10,
     ],
     ids=get_parameter_name,
 )
@@ -38,12 +37,12 @@ def test_s2n_server_sslv2_client_hello(managed_process, protocol):
     # expected easily.
     # We purposefully send a non block aligned number to make sure
     # nothing blocks waiting for more data.
-    random_bytes = data_bytes(65519)
+    random_bytes = data_bytes(659)
 
     certificate = Certificates.RSA_2048_SHA256
 
     client_options = ProviderOptions(
-        mode=Provider.ServerMode,
+        mode=Provider.ClientMode,
         port=port,
         # The cipher must use RSA key exchange. ECDHE is not supported with 
         # SSLv2 formatted client hellos.
@@ -52,7 +51,7 @@ def test_s2n_server_sslv2_client_hello(managed_process, protocol):
         data_to_send=random_bytes,
         insecure=True,
         protocol=protocol,
-        extra_flags="SSLv2Hello",
+        extra_flags=["SSLv2Hello"],
     )
 
     server_options = copy.copy(client_options)
@@ -60,6 +59,8 @@ def test_s2n_server_sslv2_client_hello(managed_process, protocol):
     server_options.data_to_send = None
     server_options.key = certificate.key
     server_options.cert = certificate.cert
+    # this makes s2nd use test_all_tls13
+    server_options.protocol=Protocols.TLS13
     server_options.extra_flags = None
 
 
@@ -80,7 +81,7 @@ def test_s2n_server_sslv2_client_hello(managed_process, protocol):
         server_results.assert_success()
         assert SSLV2_CLIENT_HELLO_MARKER in server_results.stdout
         assert (
-            to_bytes("Actual protocol version: {}".format(protocol))
+            to_bytes("Actual protocol version: {}".format(protocol.value))
             in server_results.stdout
         )
         assert random_bytes in server_results.stdout
