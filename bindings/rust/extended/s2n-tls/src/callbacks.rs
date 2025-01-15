@@ -135,10 +135,12 @@ pub struct OfferedPskList<'callback> {
     pub(crate) list: &'callback mut OfferedPskListWrapper,
 }
 
-impl<'callback> OfferedPskList<'callback> {
-    pub fn next<'item>(&'item mut self) -> Option<&'item OfferedPsk> {
+impl<'callback> Iterator for OfferedPskList<'callback> {
+    type Item = &'callback OfferedPsk;
+
+    fn next(&mut self) -> Option<Self::Item> {
         if !self.list.has_next() {
-            return None;
+            return None
         } else {
             let psk_ptr = self.psk.as_mut() as *mut OfferedPsk as *mut s2n_offered_psk;
             unsafe {
@@ -146,12 +148,15 @@ impl<'callback> OfferedPskList<'callback> {
                     .into_result()
                     .unwrap();
             }
-            Some(&self.psk)
+            // SAFETY: we are deliberately escaping the lifetime analysis. 
+            unsafe {Some(&*(psk_ptr as *mut OfferedPsk))}
         }
     }
+}
 
-    pub fn choose_current_psk(self) -> Result<(), crate::error::Error> {
-        self.list.choose_psk(&self.psk)
+impl<'callback> OfferedPskList<'callback> {
+    pub fn choose_offered_psk(self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
+        self.list.choose_psk(psk)
     }
 }
 

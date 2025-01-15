@@ -8,14 +8,20 @@ const PSK_SECRET_BAD_LENGTH: &str = "PSK secret of inappropriate size";
 const PSK_SECRET_TOO_SMALL: &str = "PSK secret must be at least 128 bits";
 const PSK_IDENTITY_BAD_LENGTH: &str = "PSK identity of inappropriate size";
 
-/// ExternalPsk represents an out-of-band pre-shared key. If two peers already have some
-/// secret communication mechanism, then they can use ExternalPsks to authenticate rather
-/// than certificates.
-/// Invariants: an ExternalPsk contains no null pointers, and it's identity and material
-/// are both valid values.
+/// ExternalPsk represents an out-of-band pre-shared key. 
+/// 
+/// If two peers already have some mechanism to securely exchange secrets, then 
+/// they can use ExternalPsks to authenticate rather than certificates.
 pub struct ExternalPsk(s2n_psk);
 
 impl ExternalPsk {
+    /// Create a new External PSK.
+    /// 
+    /// Corresponds to [s2n_external_psk_new], [s2n_psk_set_secret], and [s2n_psk_set_identity].
+    /// 
+    /// * `identity`: The identity of the PSK. This will be sent in plaintext over the wire.
+    /// * `secret`: The secret for some PSK, which is not sent over the wire. 
+    ///             `secret` must be at least 16 bytes long.
     pub fn new(identity: &[u8], secret: &[u8]) -> Result<Box<Self>, Error> {
         crate::init::init();
         let psk = unsafe {
@@ -26,9 +32,10 @@ impl ExternalPsk {
                 .try_into()
                 .map_err(|_| Error::application(PSK_SECRET_BAD_LENGTH.into()))?;
 
-            // https://www.rfc-editor.org/rfc/rfc9257.html#section-6
-            // Each PSK ... MUST be at least 128 bits long
-            // this check would ideally be in the C code, but would be a backwards incompatible change
+            // This check would ideally be in the C code, but would be a backwards
+            // incompatible change.
+            //= https://www.rfc-editor.org/rfc/rfc9257.html#section-6
+            //# Each PSK ... MUST be at least 128 bits long
             if secret_length < (128 / 8) {
                 return Err(Error::application(PSK_SECRET_TOO_SMALL.into()));
             }
@@ -67,5 +74,10 @@ mod tests {
         let psk =
             ExternalPsk::new("bob".as_bytes(), "hehe i am a very secret value".as_bytes()).unwrap();
         drop(psk);
+    }
+
+    #[test]
+    fn psk_handshake() {
+        
     }
 }

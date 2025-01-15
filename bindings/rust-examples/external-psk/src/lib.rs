@@ -16,23 +16,11 @@ use s2n_tls::{
     security,
 };
 use s2n_tls_tokio::{TlsAcceptor, TlsConnector};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use turmoil::net::TcpStream;
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 const PORT: u16 = 1738;
 
 const KEY_SIZE: usize = 1024;
-
-// this is a turmoil specific thing, which is needed for s2n-tls to still make "time"
-// progress since the simulation is "fast-forwarded". Customers running in the real
-// world won't need to set this callback unless they have some reason to override
-// the default clock.
-struct TurmoilClock;
-impl MonotonicClock for TurmoilClock {
-    fn get_time(&self) -> std::time::Duration {
-        turmoil::sim_elapsed().unwrap()
-    }
-}
 
 #[derive(Clone)]
 pub struct PskStore {
@@ -69,7 +57,7 @@ impl ConnectionInitializer for PskStore {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, Error> {
-        for (identity, psk) in self.keys.iter() {
+        for (identity, _psk) in self.keys.iter() {
             let psk = self.get(*identity).unwrap();
             connection.append_psk(&psk)?;
         }
@@ -85,8 +73,8 @@ impl PskSelectionCallback for PskStore {
             let identity = u64::from_ne_bytes(identity[0..8].try_into().expect("unexpected"));
             if let Some(matched_psk) = self.get(identity) {
                 conn.append_psk(&matched_psk).unwrap();
-                psk_list.choose_current_psk().unwrap();
                 tracing::info!("chose a psk");
+                psk_list.choose_offered_psk(offered_psk).unwrap();
                 return;
             }
         }
@@ -119,23 +107,22 @@ impl ConnectionInitializer for ClientPsk {
 // a server using simpler PSK setup, only supporting 2 different PSKs. Since there
 // is a small number of PSKs, we directly load each of them onto the connection
 // using the `ConnectionInitializer` trait implemented on `PskStore`.
-pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
     config
-        .set_monotonic_clock(TurmoilClock)?
         .set_security_policy(&security::DEFAULT_TLS13)?
         .set_psk_mode(PskMode::External)?
         .set_connection_initializer(psk_store)?;
 
     let server = TlsAcceptor::new(config.build()?);
     let listener =
-        turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
+        tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
 
     loop {
         let server_clone = server.clone();
         let (stream, _peer_addr) = listener.accept().await?;
         tokio::spawn(async move {
-            tracing::info!("spawning new task to handle client");
+            tracing::trace!("spawning new task to handle client");
             let mut tls = server_clone.accept(stream).await.unwrap();
 
             let mut identity = vec![0; tls.as_ref().negotiated_psk_identity_length().unwrap()];
@@ -156,17 +143,16 @@ pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn std::error:
 // a server using a more complex PSK setup, supporting thousands of different
 // psks. Because of the large number, we only load them onto the connection at
 // the prompting of a PskSelectionCallback on the PskStore.
-pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
     config
-        .set_monotonic_clock(TurmoilClock)?
         .set_security_policy(&security::DEFAULT_TLS13)?
         .set_psk_mode(PskMode::External)?
         .set_psk_selection_callback(psk_store)?;
 
     let server = TlsAcceptor::new(config.build()?);
     let listener =
-        turmoil::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
+        tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
 
     loop {
         let server_clone = server.clone();
@@ -198,7 +184,6 @@ pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::E
 
 pub async fn client(client_psk: ClientPsk) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::builder();
-    config.set_monotonic_clock(TurmoilClock)?;
     config.set_security_policy(&security::DEFAULT_TLS13)?;
     config.set_connection_initializer(client_psk)?;
 
@@ -206,8 +191,9 @@ pub async fn client(client_psk: ClientPsk) -> Result<(), Box<dyn std::error::Err
     let client = TlsConnector::new(config.build()?);
 
     // Connect to the server.
-    let stream = TcpStream::connect(("server", PORT)).await?;
+    let stream = TcpStream::connect(("localhost", PORT)).await?;
     let mut tls = client.connect("localhost", stream).await?;
+    println!("{:#?}", tls);
 
     let mut data_from_server = vec![0; b"hello client".len()];
     tls.read_exact(&mut data_from_server).await?;
@@ -242,7 +228,7 @@ mod simulation {
     // This is not useful the majority of the time (in ci), but it's valuable
     // enough and tedious enough to write that we leave the functionality here,
     // but turned off.
-    const LOGGING_ENABLED: bool = false;
+    const LOGGING_ENABLED: bool = true;
 
     static LOGGER_INIT: Once = Once::new();
 
@@ -252,25 +238,19 @@ mod simulation {
                 return;
             }
             tracing_subscriber::fmt::fmt()
-                .with_max_level(Level::DEBUG)
+                .with_max_level(Level::TRACE)
                 .with_line_number(true)
                 .init();
+            tracing::info!("logging is enabled");
         });
     }
 
-    // This simulation shows how PSK's might be used when there is only a small
-    // number of keys. Keys can be directly added to the connection with
-    // `conn.append_psk(...)`.
-    #[test]
-    fn few_keys_example() -> turmoil::Result {
+    /// This simulation shows how PSK's might be used when there is only a small
+    /// number of keys. Keys can be directly added to the connection with
+    /// `conn.append_psk(...)`.
+    #[tokio::test]
+    async fn few_keys_example() -> Result<(), Box<dyn std::error::Error>> {
         setup_logging();
-
-        // s2n-tls-tokio blinding forces ~ 20 seconds of blinding delay, which
-        // is too long for the default sim. We extend the lifetime to get the real
-        // error instead of a "Sim didn't complete within 10 seconds" error.
-        let mut sim = turmoil::Builder::new()
-            .simulation_duration(Duration::from_secs(60))
-            .build();
 
         let psk_store = PskStore::new(FEW_KEY_SCENARIO);
 
@@ -285,21 +265,27 @@ mod simulation {
             .unwrap()
             .into();
 
-        sim.host("server", move || {
-            // this clone isn't generally necessary for servers, but Turmoil might
-            // restart the server, and so we need to be able to call this closure
-            // multiple times
-            let psk_clone = psk_store.clone();
-            small_server(psk_clone)
+        let server = tokio::spawn(async {
+            small_server(psk_store).await
         });
-        sim.client("client_1", client(client_1_psk));
-        sim.client("client_2", client(client_2_psk));
-        sim.client("client_3", async {
-            let res = client(client_3_psk).await;
-            assert!(res.is_err());
-            Ok(())
+
+        // sim.host("server", move || {
+        //     // this clone isn't generally necessary for servers, but Turmoil might
+        //     // restart the server, and so we need to be able to call this closure
+        //     // multiple times
+        //     let psk_clone = psk_store.clone();
+        //     small_server(psk_clone)
+        // });
+        tokio::spawn(async {
+            assert!(client(client_1_psk).await.is_ok());
         });
-        sim.run()
+        tokio::spawn(async {
+            assert!(client(client_2_psk).await.is_ok());
+        });
+        tokio::spawn(async {
+            assert!(client(client_3_psk).await.is_err());
+        });
+        Ok(())
     }
 
     // This simulation shows how PSK's might be used when there is a large
@@ -307,13 +293,9 @@ mod simulation {
     // would result 10_000 * 1_024 = 10Mb of additional material on each 
     // connection 🤯. To avoid this, we implement the `PskSelectionCallback` for
     // our keystore.
-    #[test]
-    fn multi_client_example_with_callback() -> turmoil::Result {
+    #[tokio::test]
+    async fn multi_client_example_with_callback() -> Result<(), Box<dyn std::error::Error>> {
         setup_logging();
-
-        let mut sim = turmoil::Builder::new()
-            .simulation_duration(Duration::from_secs(60))
-            .build();
 
         let psk_store = PskStore::new(MANY_KEY_SCENARIO);
 
@@ -322,26 +304,18 @@ mod simulation {
         let client_1_psk = psk_store.get(0).unwrap().into();
         let client_2_psk = psk_store.get(1).unwrap().into();
 
-        // this client will fail to connect, because the PSK that it is offering
-        // is not known to the server
-        let client_3_psk = ExternalPsk::new(b"not a known psk", b"123456928374928734123123")
-            .unwrap()
-            .into();
+        let server = tokio::spawn(async {
+            big_server(psk_store).await
+        });
 
-        sim.host("server", move || {
-            // this clone isn't generally necessary for servers, but Turmoil might
-            // restart the server, and so we need to be able to call this closure
-            // multiple times
-            let psk_clone = psk_store.clone();
-            big_server(psk_clone)
+        let client_1 = tokio::spawn(async {
+            assert!(client(client_1_psk).await.is_ok());
         });
-        sim.client("client_1", client(client_1_psk));
-        sim.client("client_2", client(client_2_psk));
-        sim.client("client_3", async {
-            let res = client(client_3_psk).await;
-            assert!(res.is_err());
-            Ok(())
+        let client_2 = tokio::spawn(async {
+            assert!(client(client_2_psk).await.is_ok());
         });
-        sim.run()
+        // both of the clients should have successully joined
+        assert!(tokio::try_join!(client_1, client_2).is_ok());
+        Ok(())
     }
 }
