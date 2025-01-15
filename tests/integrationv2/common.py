@@ -51,7 +51,12 @@ class AvailablePorts(object):
     """
 
     def __init__(self, low=8000, high=30000):
-        worker_count = int(os.getenv('PYTEST_XDIST_WORKER_COUNT'))
+        worker_count = 1
+        # If pytest is being run in parallel, worker processes will have
+        # the WORKER_COUNT variable set.
+        parallel_workers = os.getenv('PYTEST_XDIST_WORKER_COUNT')
+        if parallel_workers is not None:
+            worker_count = int(parallel_workers)
         chunk_size = int((high - low) / worker_count)
 
         # If xdist is being used, parse the workerid from the envvar. This can
@@ -111,7 +116,20 @@ class Cert(object):
             self.algorithm = 'RSAPSS'
 
     def compatible_with_cipher(self, cipher):
-        return (self.algorithm == cipher.algorithm) or (cipher.algorithm == 'ANY')
+        if self.algorithm == cipher.algorithm:
+            return True
+        # TLS1.3 cipher suites do not specify auth method, so allow any auth method
+        if cipher.algorithm == 'ANY':
+            return True
+        if self.algorithm == 'RSAPSS':
+            # RSA-PSS certs can only be used by ciphers with RSA auth
+            if cipher.algorithm != 'RSA':
+                return False
+            # RSA-PSS certs do not support RSA key exchange, only RSA auth
+            # "DHE" here is intended to capture both "DHE" and "ECDHE"
+            if 'DHE' in cipher.name:
+                return True
+        return False
 
     def compatible_with_curve(self, curve):
         if self.algorithm != 'EC':
@@ -305,18 +323,6 @@ class Ciphers(object):
 
     KMS_TLS_1_0_2018_10 = Cipher(
         "KMS-TLS-1-0-2018-10", Protocols.TLS10, False, False, s2n=True)
-    KMS_PQ_TLS_1_0_2019_06 = Cipher(
-        "KMS-PQ-TLS-1-0-2019-06", Protocols.TLS10, False, False, s2n=True, pq=True)
-    KMS_PQ_TLS_1_0_2020_02 = Cipher(
-        "KMS-PQ-TLS-1-0-2020-02", Protocols.TLS10, False, False, s2n=True, pq=True)
-    KMS_PQ_TLS_1_0_2020_07 = Cipher(
-        "KMS-PQ-TLS-1-0-2020-07", Protocols.TLS10, False, False, s2n=True, pq=True)
-    PQ_SIKE_TEST_TLS_1_0_2019_11 = Cipher(
-        "PQ-SIKE-TEST-TLS-1-0-2019-11", Protocols.TLS10, False, False, s2n=True, pq=True)
-    PQ_SIKE_TEST_TLS_1_0_2020_02 = Cipher(
-        "PQ-SIKE-TEST-TLS-1-0-2020-02", Protocols.TLS10, False, False, s2n=True, pq=True)
-    PQ_TLS_1_0_2020_12 = Cipher(
-        "PQ-TLS-1-0-2020-12", Protocols.TLS10, False, False, s2n=True, pq=True)
     PQ_TLS_1_0_2023_01 = Cipher(
         "PQ-TLS-1-0-2023-01-24", Protocols.TLS10, False, False, s2n=True, pq=True)
     PQ_TLS_1_3_2023_06_01 = Cipher(
@@ -442,7 +448,7 @@ class Signatures(object):
 
     RSA_PSS_PSS_SHA256 = Signature(
         'rsa_pss_pss_sha256',
-        min_protocol=Protocols.TLS13,
+        min_protocol=Protocols.TLS12,
         sig_type='RSA-PSS-PSS',
         sig_digest='SHA256')
 

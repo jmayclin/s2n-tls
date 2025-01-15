@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.0)
+cmake_minimum_required (VERSION 3.9)
 project (s2n C)
 
 if(POLICY CMP0077)
@@ -101,11 +101,6 @@ else()
     set(OS_LIBS Threads::Threads dl rt)
 endif()
 
-# Compiling the unit tests rely on S2N_TEST_IN_FIPS_MODE to be set correctly
-if(S2N_FIPS)
-    add_definitions(-DS2N_TEST_IN_FIPS_MODE)
-endif()
-
 file(GLOB S2N_HEADERS
     ${API_HEADERS}
     ${API_UNSTABLE_HEADERS}
@@ -194,9 +189,13 @@ endif()
 
 target_compile_options(${PROJECT_NAME} PUBLIC -fPIC)
 
-add_definitions(-D_POSIX_C_SOURCE=200809L)
-if(CMAKE_BUILD_TYPE MATCHES Release)
-    add_definitions(-D_FORTIFY_SOURCE=2)
+set(S2N_PRELUDE "${CMAKE_CURRENT_LIST_DIR}/utils/s2n_prelude.h")
+target_compile_options(${PROJECT_NAME} PRIVATE -include "${S2N_PRELUDE}")
+
+# Match on Release, RelWithDebInfo and MinSizeRel
+# See: https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html#variable:CMAKE_BUILD_TYPE
+if(CMAKE_BUILD_TYPE MATCHES Rel)
+    add_definitions(-DS2N_BUILD_RELEASE)
 endif()
 
 if(NO_STACK_PROTECTOR)
@@ -204,8 +203,9 @@ if(NO_STACK_PROTECTOR)
 endif()
 
 if(S2N_FUZZ_TEST)
-    target_compile_options(${PROJECT_NAME} PUBLIC -fsanitize=fuzzer-no-link,leak)
-    target_link_libraries(${PROJECT_NAME} PUBLIC -fsanitize=fuzzer-no-link,leak)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC S2N_FUZZ_TESTING=1)
+    target_compile_options(${PROJECT_NAME} PUBLIC -fsanitize=fuzzer-no-link,leak,address,undefined)
+    target_link_libraries(${PROJECT_NAME} PUBLIC -fsanitize=fuzzer-no-link,leak,address,undefined)
 endif()
 
 if(TSAN)
@@ -241,7 +241,7 @@ if (COVERAGE)
     # on LLVM compilers. GCC would fail with "unrecognized compile options"
     # on -fprofile-instr-generate -fcoverage-mapping flags.
     if (NOT ${CMAKE_C_COMPILER_ID} MATCHES Clang)
-        message(FATAL_ERROR "This project requires clang for coverage support")
+        message(FATAL_ERROR "This project requires clang for coverage support. You are currently using " ${CMAKE_C_COMPILER_ID})
     endif()
     target_compile_options(${PROJECT_NAME} PUBLIC -fprofile-instr-generate -fcoverage-mapping)
     target_link_options(${PROJECT_NAME} PUBLIC -fprofile-instr-generate -fcoverage-mapping)
@@ -330,7 +330,7 @@ function(feature_probe PROBE_NAME)
         SOURCES "${CMAKE_CURRENT_LIST_DIR}/tests/features/${PROBE_NAME}.c"
         LINK_LIBRARIES ${LINK_LIB} ${OS_LIBS}
         CMAKE_FLAGS ${ADDITIONAL_FLAGS}
-        COMPILE_DEFINITIONS -c ${GLOBAL_FLAGS} ${PROBE_FLAGS}
+        COMPILE_DEFINITIONS -I "${CMAKE_CURRENT_LIST_DIR}" -include "${CMAKE_CURRENT_LIST_DIR}/utils/s2n_prelude.h" -c ${GLOBAL_FLAGS} ${PROBE_FLAGS}
         ${ARGN}
         OUTPUT_VARIABLE TRY_COMPILE_OUTPUT
     )
@@ -402,7 +402,7 @@ if (S2N_INTERN_LIBCRYPTO)
           # copy the static version of libcrypto
           cp ${crypto_STATIC_LIBRARY} s2n_libcrypto.a &&
           # dump all of the symbols and prefix them with `s2n$`
-          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] /{print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
+          bash -c "${CMAKE_NM} s2n_libcrypto.a | awk '/ [A-Z] /{if ($3) print $3\" s2n$\"$3}' | sort | uniq > libcrypto.symbols" &&
           # redefine the libcrypto libary symbols
           ${CMAKE_OBJCOPY} --redefine-syms libcrypto.symbols s2n_libcrypto.a &&
           rm -rf s2n_libcrypto &&
@@ -474,6 +474,8 @@ if (BUILD_TESTING)
     add_library(testss2n STATIC ${TESTLIB_SRC} ${EXAMPLES_SRC})
     target_include_directories(testss2n PUBLIC tests)
     target_compile_options(testss2n PRIVATE -std=gnu99)
+    # make sure all linked tests include the prelude
+    target_compile_options(testss2n PUBLIC -include "${S2N_PRELUDE}")
     target_link_libraries(testss2n PUBLIC ${PROJECT_NAME})
     if (SECCOMP)
         message(STATUS "Linking tests with seccomp")
@@ -504,6 +506,7 @@ if (BUILD_TESTING)
         --error-limit=no \
         --num-callers=40 \
         --undef-value-errors=no \
+        --track-fds=yes \
         --log-fd=2 \
         --suppressions=valgrind.suppressions")
 
@@ -632,7 +635,7 @@ if (BUILD_TESTING)
                         pytest
                         -x -n=${N} --reruns=2 --durations=10 --cache-clear -rpfsq
                         -o log_cli=true --log-cli-level=DEBUG --provider-version=$ENV{S2N_LIBCRYPTO}
-                        --provider-criterion=off --fips-mode=0 ${test_file_path}
+                        ${test_file_path}
                         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/integrationv2
                 )
             else()
@@ -670,25 +673,14 @@ if (BUILD_TESTING)
         target_include_directories(fuzztest PUBLIC tests)
         target_link_libraries(fuzztest PUBLIC ${PROJECT_NAME})
 
-        # Set default values for fuzzing if not defined
-        if(NOT DEFINED FUZZ_TIMEOUT_SEC)
+        # Set default values for fuzzing
+        if(DEFINED ENV{FUZZ_TIMEOUT_SEC})
+            set(FUZZ_TIMEOUT_SEC $ENV{FUZZ_TIMEOUT_SEC})    
+        else()
             set(FUZZ_TIMEOUT_SEC 60)
         endif()
 
-        if(DEFINED ENV{CORPUS_UPLOAD_LOC})
-            set(CORPUS_UPLOAD_LOC $ENV{CORPUS_UPLOAD_LOC})
-        else()
-            set(CORPUS_UPLOAD_LOC "none")
-        endif()
-
-        if(DEFINED ENV{ARTIFACT_UPLOAD_LOC})
-            set(ARTIFACT_UPLOAD_LOC $ENV{ARTIFACT_UPLOAD_LOC})
-        else()
-            set(ARTIFACT_UPLOAD_LOC "none")
-        endif()
-
         # Build LD_PRELOAD shared libraries
-        set(LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/LD_PRELOAD)
         file(GLOB LIBRARY_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/LD_PRELOAD/*.c")
         foreach(SRC ${LIBRARY_SRCS})
             get_filename_component(LIB_NAME ${SRC} NAME_WE)
@@ -696,14 +688,6 @@ if (BUILD_TESTING)
             target_include_directories(${LIB_NAME} PRIVATE 
                 ${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/api
-            )
-            # Set the output directory and remove the default "lib" prefix
-            set_target_properties(${LIB_NAME} PROPERTIES
-                PREFIX ""
-                LIBRARY_OUTPUT_DIRECTORY ${LIBRARY_OUTPUT_DIRECTORY}
-            )
-            target_compile_options(${LIB_NAME} PRIVATE
-                -fPIC
             )
         endforeach()
 
@@ -724,18 +708,14 @@ if (BUILD_TESTING)
                 fuzztest
             )
 
-            # Set the output directory for the fuzzing binaries
-            set(FUZZ_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz")
-            set_target_properties(${TEST_NAME} PROPERTIES
-                RUNTIME_OUTPUT_DIRECTORY ${FUZZ_BIN_DIR}
-            )
-
             add_test(NAME ${TEST_NAME}
-                    COMMAND ${CMAKE_COMMAND} -E env
-                        DYLD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/lib:${CMAKE_CURRENT_BINARY_DIR}/tests/testlib:${CMAKE_CURRENT_SOURCE_DIR}/libcrypto-root/lib:$ENV{DYLD_LIBRARY_PATH}
-                        LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}/lib:${CMAKE_CURRENT_BINARY_DIR}/tests/testlib:${CMAKE_CURRENT_SOURCE_DIR}/libcrypto-root/lib:$ENV{LD_LIBRARY_PATH}
-                        bash ${SCRIPT_PATH} ${TEST_NAME} ${FUZZ_TIMEOUT_SEC} ${CORPUS_UPLOAD_LOC} ${ARTIFACT_UPLOAD_LOC}
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz)
+                COMMAND ${CMAKE_COMMAND} -E env
+                    bash ${SCRIPT_PATH} 
+                    ${TEST_NAME} 
+                    ${FUZZ_TIMEOUT_SEC} 
+                    ${CMAKE_CURRENT_SOURCE_DIR}
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz
+            )
             set_property(TEST ${TEST_NAME} PROPERTY LABELS "fuzz")
         endforeach()
     endif()

@@ -251,6 +251,7 @@ int main(int argc, char **argv)
                 struct s2n_connection *client_conn = NULL;
 
                 EXPECT_NOT_NULL(client_conn = s2n_connection_new(S2N_CLIENT));
+                EXPECT_SUCCESS(s2n_connection_set_cipher_preferences(client_conn, "20240503"));
 
                 const struct s2n_ecc_preferences *ecc_pref = NULL;
                 EXPECT_SUCCESS(s2n_connection_get_ecc_preferences(client_conn, &ecc_pref));
@@ -885,15 +886,23 @@ int main(int argc, char **argv)
                     S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, kem_group->iana_id, uint16);
                     S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, expected_hybrid_share_size, uint16);
 
-                    if (len_prefixed) {
-                        S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, kem_group->curve->share_size, uint16);
+                    uint16_t expected_first_share_size = kem_group->curve->share_size;
+                    uint16_t expected_second_share_size = kem_group->kem->ciphertext_length;
+
+                    if (kem_group->send_kem_first) {
+                        expected_first_share_size = kem_group->kem->ciphertext_length;
+                        expected_second_share_size = kem_group->curve->share_size;
                     }
-                    EXPECT_SUCCESS(s2n_stuffer_skip_read(&stuffer, kem_group->curve->share_size));
 
                     if (len_prefixed) {
-                        S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, kem_group->kem->ciphertext_length, uint16);
+                        S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, expected_first_share_size, uint16);
                     }
-                    S2N_STUFFER_LENGTH_WRITTEN_EXPECT_EQUAL(&stuffer, kem_group->kem->ciphertext_length);
+                    EXPECT_SUCCESS(s2n_stuffer_skip_read(&stuffer, expected_first_share_size));
+
+                    if (len_prefixed) {
+                        S2N_STUFFER_READ_EXPECT_EQUAL(&stuffer, expected_second_share_size, uint16);
+                    }
+                    S2N_STUFFER_LENGTH_WRITTEN_EXPECT_EQUAL(&stuffer, expected_second_share_size);
 
                     EXPECT_NULL(conn->kex_params.server_ecc_evp_params.negotiated_curve);
                     EXPECT_EQUAL(server_params->kem_group, kem_group);

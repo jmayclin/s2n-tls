@@ -1,6 +1,8 @@
 ---
 name: Linters
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
@@ -15,14 +17,14 @@ jobs:
     env:
       CPPCHECK_INSTALL_DIR: test-deps/cppcheck
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup
         run: source ./codebuild/bin/s2n_setup_env.sh
 
       - name: Cache
         id: cache
-        uses: actions/cache@v2.1.4
+        uses: actions/cache@v4
         continue-on-error: true
         with:
           path: ${{ env.CPPCHECK_INSTALL_DIR }}
@@ -38,7 +40,7 @@ jobs:
   headers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup
         run: source ./codebuild/bin/s2n_setup_env.sh
@@ -49,7 +51,7 @@ jobs:
   simple-mistakes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup
         run: source ./codebuild/bin/s2n_setup_env.sh
@@ -60,7 +62,7 @@ jobs:
   comments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup
         run: source ./codebuild/bin/s2n_setup_env.sh
@@ -76,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Run autopep8
         id: autopep8
         uses: peter-evans/autopep8@v2
@@ -90,7 +92,7 @@ jobs:
   clang-format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: clang-format check
         uses: harrisonkaiser/clang-format-action@verbose
         with:
@@ -100,8 +102,8 @@ jobs:
     # The nix develop changes contain broken nixpkg dependenecies; the allow/impure flags workaround this.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: nixbuild/nix-quick-install-action@v21
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v29
         with:
           nix_conf: experimental-features = nix-command flakes
       - name: nix flake check
@@ -109,8 +111,8 @@ jobs:
   nixfmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: nixbuild/nix-quick-install-action@v21
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v29
         with:
           nix_conf: experimental-features = nix-command flakes
       - name: nix fmt
@@ -128,3 +130,45 @@ jobs:
           exit 1
       - name: Success
         run: echo "All nix files passed format check"
+        
+  validate_start_codebuild_script:
+    name: validate start_codebuild.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: pause
+        run: "sleep 120"
+      - name: retrieve statuses
+        id: get_statuses
+        uses: octokit/request-action@v2.x
+        with:
+          route: GET /repos/{repo}/commits/{ref}/statuses?per_page=100
+          repo: ${{ github.repository }}
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: check start_codebuild.sh against statuses
+        id: github_builds
+        run: |
+            from_github=$(
+                jq '.[] | .description' <<< '${{ steps.get_statuses.outputs.data }}' \
+                    | grep "for project" \
+                    | sed -r "s/^.*?for project (.*?)\"$/\1/" \
+                    | sort -u
+            )
+            if [ -z "$from_github" ]; then
+                echo "No codebuild job statuses!"
+                echo "You may need to kick off the codebuild jobs with" \
+                    "./codebuild/bin/start_codebuild.sh and then retry."
+                exit 1
+            fi
+            echo builds from github statuses:
+            printf "$from_github\n\n"
+            from_file=$(
+                source codebuild/bin/start_codebuild.sh > /dev/null \
+                || printf "%s\n" "${BUILDS[@]}" | cut -d" " -f1 | sort -u
+            )
+            echo builds from start_codebuild.sh:
+            printf "$from_file\n\n"
+            echo "diff output:"
+            diff <(echo "$from_github") <(echo "$from_file")
