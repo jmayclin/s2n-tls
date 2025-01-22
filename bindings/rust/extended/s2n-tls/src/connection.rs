@@ -441,14 +441,14 @@ impl Connection {
         Ok(self)
     }
 
-    /// Connections prefering low latency will be encrypted using small record sizes that
+    /// Connections preferring low latency will be encrypted using small record sizes that
     /// can be decrypted sooner by the recipient.
     pub fn prefer_low_latency(&mut self) -> Result<&mut Self, Error> {
         unsafe { s2n_connection_prefer_low_latency(self.connection.as_ptr()).into_result() }?;
         Ok(self)
     }
 
-    /// Connections prefering throughput will use large record sizes that minimize overhead.
+    /// Connections preferring throughput will use large record sizes that minimize overhead.
     pub fn prefer_throughput(&mut self) -> Result<&mut Self, Error> {
         unsafe { s2n_connection_prefer_throughput(self.connection.as_ptr()).into_result() }?;
         Ok(self)
@@ -634,7 +634,7 @@ impl Connection {
     /// 0 bytes returned indicates EOF due to connection closure.
     ///
     /// Safety: this function is always safe to call, and additionally:
-    /// 1. It will never deinitialize any bytes in `buf`.
+    /// 1. It will never uninitialize any bytes in `buf`.
     /// 2. If it returns `Ok(n)`, then the first `n` bytes of `buf`
     ///    will have been initialized by this function.
     pub fn poll_recv_uninitialized(
@@ -1221,8 +1221,7 @@ impl Connection {
     }
 
     pub fn append_psk(&mut self, psk: &ExternalPsk) -> Result<(), Error> {
-        let psk = psk as *const ExternalPsk as *const s2n_psk;
-        unsafe { s2n_connection_append_psk(self.as_ptr(), psk as *const s2n_psk).into_result()? };
+        unsafe { s2n_connection_append_psk(self.as_ptr(), psk.as_s2n_ptr()).into_result()? };
         Ok(())
     }
 

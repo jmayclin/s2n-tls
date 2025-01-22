@@ -6,17 +6,21 @@ use std::{
 };
 
 use aws_lc_rs::rand::SecureRandom;
+use s2n_tls::psk::OfferedPskCursor;
 use s2n_tls::{
-    callbacks::{ConnectionFuture, MonotonicClock, PskSelectionCallback},
+    callbacks::ConnectionFuture,
     config::{Config, ConnectionInitializer},
     connection::Connection,
     enums::PskMode,
     error::Error,
-    psk::ExternalPsk,
+    psk::{ExternalPsk, PskSelectionCallback},
     security,
 };
 use s2n_tls_tokio::{TlsAcceptor, TlsConnector};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
 const PORT: u16 = 1738;
 
@@ -36,7 +40,6 @@ impl PskStore {
             let identity = i;
             let mut material = vec![0; KEY_SIZE];
             rng.fill(&mut material).unwrap();
-            //let psk = ExternalPsk::new(&identity.to_ne_bytes(), &material).unwrap();
             keys.insert(identity, material);
         }
         PskStore {
@@ -44,10 +47,14 @@ impl PskStore {
         }
     }
 
-    pub fn get(&self, identity: u64) -> Option<Box<ExternalPsk>> {
-        self.keys
-            .get(&identity)
-            .map(|key| ExternalPsk::new(&identity.to_ne_bytes(), key).unwrap())
+    pub fn get(&self, identity: u64) -> Option<ExternalPsk> {
+        self.keys.get(&identity).map(|key| {
+            let mut builder = ExternalPsk::builder().unwrap();
+            builder.with_identity(&identity.to_ne_bytes()).unwrap();
+            builder.with_secret(key).unwrap();
+            builder.with_hmac(s2n_tls::enums::PskHmac::SHA384).unwrap();
+            builder.build().unwrap()
+        })
     }
 }
 
@@ -66,15 +73,15 @@ impl ConnectionInitializer for PskStore {
 }
 
 impl PskSelectionCallback for PskStore {
-    fn choose_psk(&self, conn: &mut Connection, mut psk_list: s2n_tls::callbacks::OfferedPskList) {
+    fn choose_psk(&self, conn: &mut Connection, mut psk_list: OfferedPskCursor) {
         tracing::debug!("doing psk selection");
-        while let Some(offered_psk) = psk_list.next() {
+        while let Some(offered_psk) = psk_list.advance() {
             let identity = offered_psk.identity().unwrap();
             let identity = u64::from_ne_bytes(identity[0..8].try_into().expect("unexpected"));
             if let Some(matched_psk) = self.get(identity) {
                 conn.append_psk(&matched_psk).unwrap();
                 tracing::info!("chose a psk");
-                psk_list.choose_offered_psk(offered_psk).unwrap();
+                psk_list.choose_current_psk().unwrap();
                 return;
             }
         }
@@ -84,11 +91,11 @@ impl PskSelectionCallback for PskStore {
 
 // new type pattern to implement the ConnectionInitializer on an external type
 pub struct ClientPsk {
-    psk: Box<ExternalPsk>,
+    psk: ExternalPsk,
 }
 
-impl From<Box<ExternalPsk>> for ClientPsk {
-    fn from(value: Box<ExternalPsk>) -> Self {
+impl From<ExternalPsk> for ClientPsk {
+    fn from(value: ExternalPsk) -> Self {
         ClientPsk { psk: value }
     }
 }
@@ -104,10 +111,12 @@ impl ConnectionInitializer for ClientPsk {
     }
 }
 
-// a server using simpler PSK setup, only supporting 2 different PSKs. Since there
+// A server using simpler PSK setup, only supporting 2 different PSKs. Since there
 // is a small number of PSKs, we directly load each of them onto the connection
 // using the `ConnectionInitializer` trait implemented on `PskStore`.
-pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
+pub async fn small_server(
+    psk_store: PskStore,
+) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
     config
         .set_security_policy(&security::DEFAULT_TLS13)?
@@ -140,10 +149,12 @@ pub async fn small_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync
     }
 }
 
-// a server using a more complex PSK setup, supporting thousands of different
+// A server using a more complex PSK setup, supporting thousands of different
 // psks. Because of the large number, we only load them onto the connection at
 // the prompting of a PskSelectionCallback on the PskStore.
-pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
+pub async fn big_server(
+    psk_store: PskStore,
+) -> Result<(), Box<dyn Send + Sync + std::error::Error>> {
     let mut config = s2n_tls::config::Config::builder();
     config
         .set_security_policy(&security::DEFAULT_TLS13)?
@@ -175,12 +186,6 @@ pub async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn Send + Sync +
         });
     }
 }
-// This server manages a large number of PSKs. Instead of appending them all onto
-// the connection, we do the PSK selection ourselves using the more advanced PSK
-// methods.
-// async fn big_server(psk_store: PskStore) -> Result<(), Box<dyn std::error::Error>> {
-
-// }
 
 pub async fn client(client_psk: ClientPsk) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::builder();
@@ -212,11 +217,9 @@ pub async fn client(client_psk: ClientPsk) -> Result<(), Box<dyn std::error::Err
 
 #[cfg(test)]
 mod simulation {
-    use std::{
-        sync::{Once},
-        time::Duration,
-    };
+    use std::sync::Once;
 
+    use tokio::task::LocalSet;
     use tracing::Level;
 
     use super::*;
@@ -261,52 +264,52 @@ mod simulation {
 
         // this client will fail to connect, because the PSK that it is offering
         // is not known to the server
-        let client_3_psk = ExternalPsk::new(b"not a known psk", b"123456928374928734123123")
-            .unwrap()
-            .into();
+        let client_3_psk = {
+            let mut builder = ExternalPsk::builder()?;
+            builder.with_identity(b"not a known psk")?;
+            builder.with_secret(b"123456928374928734123123")?;
+            builder.with_hmac(s2n_tls::enums::PskHmac::SHA384)?;
+            builder.build()
+        }
+        .unwrap()
+        .into();
 
-        let server = tokio::spawn(async {
-            small_server(psk_store).await
-        });
+        let server = tokio::spawn(async { small_server(psk_store).await });
+        let clients = LocalSet::new();
+        clients
+            .run_until(async move {
+                tokio::task::spawn_local(async {
+                    assert!(client(client_1_psk).await.is_ok());
+                });
+                tokio::task::spawn_local(async {
+                    assert!(client(client_2_psk).await.is_ok());
+                });
+                tokio::task::spawn_local(async {
+                    assert!(client(client_3_psk).await.is_err());
+                });
+            })
+            .await;
+        server.abort();
 
-        // sim.host("server", move || {
-        //     // this clone isn't generally necessary for servers, but Turmoil might
-        //     // restart the server, and so we need to be able to call this closure
-        //     // multiple times
-        //     let psk_clone = psk_store.clone();
-        //     small_server(psk_clone)
-        // });
-        tokio::spawn(async {
-            assert!(client(client_1_psk).await.is_ok());
-        });
-        tokio::spawn(async {
-            assert!(client(client_2_psk).await.is_ok());
-        });
-        tokio::spawn(async {
-            assert!(client(client_3_psk).await.is_err());
-        });
         Ok(())
     }
 
-    // This simulation shows how PSK's might be used when there is a large
-    // number of keys. Each key is ~ 1 Kb, appending each key to the connection
-    // would result 10_000 * 1_024 = 10Mb of additional material on each 
-    // connection 🤯. To avoid this, we implement the `PskSelectionCallback` for
-    // our keystore.
+    /// This simulation shows how PSK's might be used when there is a large
+    /// number of keys. Adding PSKs to server connections increases the size of 
+    /// them. For this reason, it is recommended to use the PSK selection callback 
+    /// if working with large numbers of External PSKs.
     #[tokio::test]
     async fn multi_client_example_with_callback() -> Result<(), Box<dyn std::error::Error>> {
         setup_logging();
 
         let psk_store = PskStore::new(MANY_KEY_SCENARIO);
 
-        // this is us doing out "out of band" sharing. We are ensuring that the
+        // This is essentially "out of band" sharing. We are ensuring that the
         // clients & servers will have shared keys.
         let client_1_psk = psk_store.get(0).unwrap().into();
         let client_2_psk = psk_store.get(1).unwrap().into();
 
-        let server = tokio::spawn(async {
-            big_server(psk_store).await
-        });
+        let server = tokio::spawn(async { big_server(psk_store).await });
 
         let client_1 = tokio::spawn(async {
             assert!(client(client_1_psk).await.is_ok());
@@ -314,8 +317,9 @@ mod simulation {
         let client_2 = tokio::spawn(async {
             assert!(client(client_2_psk).await.is_ok());
         });
-        // both of the clients should have successully joined
+        // both of the clients should have successfully joined
         assert!(tokio::try_join!(client_1, client_2).is_ok());
+        server.abort();
         Ok(())
     }
 }

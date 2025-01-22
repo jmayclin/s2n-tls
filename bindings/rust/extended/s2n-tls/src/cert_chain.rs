@@ -119,7 +119,7 @@ impl Builder {
 
     /// Return an immutable, internally-reference counted CertificateChain.
     pub fn build(self) -> Result<CertificateChain<'static>, Error> {
-        // This method is currently infalliable, but returning a result allows
+        // This method is currently infallible, but returning a result allows
         // us to add validation in the future.
         Ok(self.cert)
     }
@@ -176,7 +176,7 @@ impl CertificateChain<'_> {
 
     /// Return the length of this certificate chain.
     ///
-    /// Note that the underyling API currently traverses a linked list, so this is a relatively
+    /// Note that the underlying API currently traverses a linked list, so this is a relatively
     /// expensive API to call.
     pub fn len(&self) -> usize {
         let mut length: u32 = 0;
@@ -191,7 +191,7 @@ impl CertificateChain<'_> {
 
     /// Check if the certificate chain has any certificates.
     ///
-    /// Note that the underyling API currently traverses a linked list, so this is a relatively
+    /// Note that the underlying API currently traverses a linked list, so this is a relatively
     /// expensive API to call.
     pub fn is_empty(&self) -> bool {
         self.len() == 0

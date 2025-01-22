@@ -4,11 +4,7 @@
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::*,
-    cert_chain::CertificateChain,
-    enums::*,
-    error::{Error, ErrorType, Fallible},
-    security,
+    callbacks::*, cert_chain::CertificateChain, enums::*, error::{Error, ErrorType, Fallible}, psk::{OfferedPsk, OfferedPskCursor, OfferedPskListRef}, security
 };
 use core::{convert::TryInto, ptr::NonNull};
 use s2n_tls_sys::*;
@@ -283,7 +279,7 @@ impl Builder {
     /// can be loaded.
     ///
     /// For more advanced cert use cases such as sharing certs across configs or
-    /// serving differents certs based on the client SNI, see [Builder::load_chain].
+    /// serving different certs based on the client SNI, see [Builder::load_chain].
     pub fn load_pem(&mut self, certificate: &[u8], private_key: &[u8]) -> Result<&mut Self, Error> {
         let certificate = CString::new(certificate).map_err(|_| Error::INVALID_INPUT)?;
         let private_key = CString::new(private_key).map_err(|_| Error::INVALID_INPUT)?;
@@ -300,7 +296,7 @@ impl Builder {
 
     /// Corresponds to [s2n_config_add_cert_chain_and_key_to_store].
     pub fn load_chain(&mut self, chain: CertificateChain<'static>) -> Result<&mut Self, Error> {
-        // Out of an abudance of caution, we hold a reference to the CertificateChain
+        // Out of an abundance of caution, we hold a reference to the CertificateChain
         // regardless of whether add_to_store fails or succeeds. We have limited
         // visibility into the failure modes, so this behavior ensures that _if_
         // the C library held the reference despite the failure, it would continue
@@ -644,20 +640,18 @@ impl Builder {
             psk_list_ptr: *mut s2n_offered_psk_list,
         ) -> libc::c_int {
             let psk_list_wrapper =
-                &mut *(psk_list_ptr as *mut OfferedPskListWrapper) as &mut OfferedPskListWrapper;
-            // need proper error handling for this
-            let offered_psk = s2n_offered_psk_new().into_result().unwrap();
-            let offered_psk: Box<OfferedPsk> =
-                Box::from_raw(offered_psk.as_ptr() as *mut OfferedPsk);
+                &mut *(psk_list_ptr as *mut OfferedPskListRef) as &mut OfferedPskListRef;
+            // TODO: need proper error handling for this
+            let offered_psk = OfferedPsk::allocate().unwrap();
 
-            let psk_list = OfferedPskList {
+            let psk_list = OfferedPskCursor {
                 psk: offered_psk,
                 list: psk_list_wrapper,
             };
 
             with_context(conn_ptr, |conn, context| {
                 let callback = context.psk_selection_callback.as_ref();
-                callback.map(|c| c.choose_psk(conn, psk_list))
+                callback.map(|c| c.select_psk(conn, psk_list))
             });
             CallbackResult::Success.into()
         }
