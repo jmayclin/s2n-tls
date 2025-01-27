@@ -183,9 +183,7 @@ impl Connection {
     /// that a graceful two-way shutdown of the connection will not be possible.
     pub fn remaining_blinding_delay(&self) -> Result<Duration, Error> {
         let nanos = unsafe { s2n_connection_get_delay(self.connection.as_ptr()).into_result() }?;
-        let remaining = Duration::from_nanos(nanos);
-        tracing::info!("remaining blinding: {:?}", remaining);
-        Ok(remaining)
+        Ok(Duration::from_nanos(nanos))
     }
 
     /// Sets whether or not a Client Certificate should be required to complete the TLS Connection.
