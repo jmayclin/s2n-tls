@@ -25,9 +25,7 @@
 use crate::{config::Context, connection::Connection, error::Fallible};
 use core::{mem::ManuallyDrop, ptr::NonNull, time::Duration};
 use s2n_tls_sys::{
-    s2n_connection, s2n_offered_psk, s2n_offered_psk_free, s2n_offered_psk_get_identity,
-    s2n_offered_psk_list, s2n_offered_psk_list_choose_psk, s2n_offered_psk_list_has_next,
-    s2n_offered_psk_list_next,
+    s2n_connection,
 };
 use std::{ptr::addr_of_mut, slice};
 
@@ -42,6 +40,9 @@ pub use session_ticket::*;
 
 mod pkey;
 pub use pkey::*;
+
+mod external_psk;
+pub use external_psk::*;
 
 /// Convert the connection pointer provided to a callback into a Connection
 /// and Context useable with the Rust bindings.
@@ -104,8 +105,4 @@ pub(crate) unsafe fn verify_host(
         Ok(host_name_str) => handler.verify_host_name(host_name_str) as u8,
         Err(_) => 0, // If the host name can't be parsed, fail closed.
     }
-}
-
-pub trait PskSelectionCallback: 'static + Send + Sync {
-    fn select_psk(&self, connection: &mut Connection, psk_cursor: crate::psk::OfferedPskCursor);
 }

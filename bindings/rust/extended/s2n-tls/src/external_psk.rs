@@ -2,15 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    cell::UnsafeCell,
-    ops::Deref,
-    ptr::{addr_of_mut, NonNull},
+    cell::UnsafeCell, marker::PhantomData, ops::Deref, ptr::{addr_of_mut, NonNull}
 };
 
 use crate::{
     connection::Connection,
     enums::PskHmac,
-    error::{Error, ErrorType, Fallible},
+    error::{Error, ErrorType, Fallible}, foreign_types::{define_owned_type, define_ref_type, S2NRef},
 };
 use s2n_tls_sys::*;
 
@@ -122,30 +120,21 @@ impl Builder {
     }
 }
 
-/// ExternalPsk represents an out-of-band pre-shared key.
-///
-/// If two peers already have some mechanism to securely exchange secrets, then
-/// they can use ExternalPSKs to authenticate rather than certificates.
-#[derive(Debug)]
-pub struct ExternalPsk {
-    ptr: NonNull<s2n_psk>,
-}
 
-unsafe impl Send for ExternalPsk {}
-unsafe impl Sync for ExternalPsk {}
+
+crate::foreign_types::define_owned_type!(
+    /// ExternalPsk represents an out-of-band pre-shared key.
+    ///
+    /// If two peers already have some mechanism to securely exchange secrets, then
+    /// they can use ExternalPSKs to authenticate rather than certificates.
+    ExternalPsk, 
+    s2n_psk
+);
 
 impl ExternalPsk {
     fn allocate() -> Result<Self, crate::error::Error> {
         let psk = unsafe { s2n_external_psk_new().into_result() }?;
         Ok(Self { ptr: psk })
-    }
-
-    pub(crate) fn as_s2n_ptr_mut(&mut self) -> *mut s2n_psk {
-        self.ptr.as_ptr()
-    }
-
-    pub(crate) fn as_s2n_ptr(&self) -> *const s2n_psk {
-        self.ptr.as_ptr() as *const s2n_psk
     }
 
     pub fn builder() -> Result<Builder, crate::error::Error> {
@@ -160,127 +149,6 @@ impl Drop for ExternalPsk {
         // ignore failures. There isn't anything to be done to handle them, but
         // allowing the program to continue is preferable to crashing.
         let _ = unsafe { s2n_psk_free(std::ptr::addr_of_mut!(external_psk)).into_result() };
-    }
-}
-
-pub(crate) struct OfferedPskListRef(s2n_offered_psk_list);
-
-impl OfferedPskListRef {
-    fn from_s2n_ptr_mut(ptr: &mut s2n_offered_psk_list) -> &mut Self {
-        unsafe { &mut *(ptr as *mut s2n_offered_psk_list as *mut Self) }
-    }
-
-    fn as_s2n_ptr_mut(&mut self) -> *mut s2n_offered_psk_list {
-        self.as_s2n_ptr() as *mut s2n_offered_psk_list
-    }
-
-    fn as_s2n_ptr(&self) -> *const s2n_offered_psk_list {
-        self as *const OfferedPskListRef as *const s2n_offered_psk_list
-    }
-
-    fn has_next(&self) -> bool {
-        unsafe { s2n_offered_psk_list_has_next(self.as_s2n_ptr()) }
-    }
-
-    fn next(&mut self, psk: &mut OfferedPsk) -> Result<(), crate::error::Error> {
-        let psk_ptr = psk.as_s2n_ptr() as *mut s2n_offered_psk;
-        unsafe { s2n_offered_psk_list_next(self.as_s2n_ptr_mut(), psk_ptr).into_result() }?;
-        Ok(())
-    }
-
-    pub(crate) fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
-        let mut_psk = psk.as_s2n_ptr() as *mut s2n_offered_psk;
-        unsafe { s2n_offered_psk_list_choose_psk(self.as_s2n_ptr_mut(), mut_psk).into_result()? };
-        Ok(())
-    }
-
-    pub(crate) fn reread(&mut self) -> Result<(), crate::error::Error> {
-        unsafe { s2n_offered_psk_list_reread(self.as_s2n_ptr_mut()).into_result() }?;
-        Ok(())
-    }
-}
-
-pub struct OfferedPskCursor<'callback> {
-    pub(crate) psk: OfferedPsk,
-    pub(crate) list: &'callback mut OfferedPskListRef,
-}
-
-impl<'callback> OfferedPskCursor<'callback> {
-    /// Advance the cursor, returning the currently selected PSK.
-    pub fn advance<'item>(&'item mut self) -> Option<&'item OfferedPsk> {
-        if !self.list.has_next() {
-            return None;
-        } else {
-            // TODO: fix the panic
-            self.list.next(&mut self.psk).unwrap();
-            Some(&self.psk)
-        }
-    }
-
-    /// Choose the currently selected PSK to negotiate with.
-    pub fn choose_current_psk(self) -> Result<(), crate::error::Error> {
-        self.list.choose_psk(&self.psk)
-    }
-
-    pub fn rewind(&mut self) -> Result<(), crate::error::Error> {
-        self.list.reread()?;
-        Ok(())
-    }
-}
-
-pub struct OfferedPsk {
-    ptr: NonNull<s2n_offered_psk>,
-}
-
-impl Deref for OfferedPsk {
-    type Target = OfferedPskRef;
-
-    fn deref(&self) -> &Self::Target {
-        OfferedPskRef::from_s2n_ptr_mut(self.ptr.as_ptr())
-    }
-}
-
-impl Drop for OfferedPsk {
-    fn drop(&mut self) {
-        let mut s2n_ptr = self.ptr.as_ptr();
-        // ignore failures. There isn't anything to be done to handle them, but
-        // allowing the program to continue is preferable to crashing.
-        let _ = unsafe { s2n_offered_psk_free(std::ptr::addr_of_mut!(s2n_ptr)).into_result() };
-    }
-}
-
-impl OfferedPsk {
-    pub(crate) fn allocate() -> Result<Self, crate::error::Error> {
-        let ptr = unsafe { s2n_offered_psk_new().into_result() }?;
-        Ok(Self { ptr })
-    }
-}
-
-pub struct OfferedPskRef {
-    _opaque: (),
-}
-
-impl OfferedPskRef {
-    fn from_s2n_ptr_mut<'a>(ptr: *mut s2n_offered_psk) -> &'a mut Self {
-        unsafe { &mut *(ptr as *mut Self) }
-    }
-
-    fn as_s2n_ptr(&self) -> *const s2n_offered_psk {
-        self as *const Self as *const s2n_offered_psk
-    }
-
-    pub fn identity(&self) -> Result<&[u8], crate::error::Error> {
-        let mut identity_buffer: *mut u8 = std::ptr::null::<u8>() as *mut u8;
-        let mut size = 0;
-        unsafe {
-            s2n_offered_psk_get_identity(
-                self.as_s2n_ptr(),
-                addr_of_mut!(identity_buffer),
-                &mut size,
-            )
-            .into_result()?
-        };
-        Ok(unsafe { std::slice::from_raw_parts(identity_buffer, size as usize) })
     }
 }
 

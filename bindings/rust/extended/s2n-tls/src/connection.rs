@@ -11,7 +11,7 @@ use crate::{
     config::Config,
     enums::*,
     error::{Error, Fallible, Pollable},
-    psk::ExternalPsk,
+    external_psk::ExternalPsk,
     security,
 };
 

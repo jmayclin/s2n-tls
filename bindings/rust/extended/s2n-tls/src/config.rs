@@ -4,7 +4,12 @@
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::*, cert_chain::CertificateChain, enums::*, error::{Error, ErrorType, Fallible}, psk::{OfferedPsk, OfferedPskCursor, OfferedPskListRef}, security
+    callbacks::*,
+    cert_chain::CertificateChain,
+    enums::*,
+    error::{Error, ErrorType, Fallible},
+    foreign_types::S2NRef,
+    security,
 };
 use core::{convert::TryInto, ptr::NonNull};
 use s2n_tls_sys::*;
@@ -639,19 +644,20 @@ impl Builder {
             _context: *mut ::libc::c_void,
             psk_list_ptr: *mut s2n_offered_psk_list,
         ) -> libc::c_int {
-            let psk_list_wrapper =
-                &mut *(psk_list_ptr as *mut OfferedPskListRef) as &mut OfferedPskListRef;
-            // TODO: need proper error handling for this
-            let offered_psk = OfferedPsk::allocate().unwrap();
+            let psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
+            let uninitialized_psk = match OfferedPsk::allocate() {
+                Ok(psk) => psk,
+                Err(_) => return CallbackResult::Failure.into(),
+            };
 
-            let psk_list = OfferedPskCursor {
-                psk: offered_psk,
-                list: psk_list_wrapper,
+            let psk_cursor = OfferedPskCursor {
+                psk: uninitialized_psk,
+                list: psk_list,
             };
 
             with_context(conn_ptr, |conn, context| {
                 let callback = context.psk_selection_callback.as_ref();
-                callback.map(|c| c.select_psk(conn, psk_list))
+                callback.map(|c| c.select_psk(conn, psk_cursor))
             });
             CallbackResult::Success.into()
         }
@@ -867,7 +873,7 @@ impl Builder {
         unsafe { s2n_config_set_psk_mode(self.as_mut_ptr(), mode.into()).into_result()? };
         Ok(self)
     }
-    
+
     /// Sets a configurable blinding delay instead of the default
     pub fn set_max_blinding_delay(&mut self, seconds: u32) -> Result<&mut Self, Error> {
         unsafe { s2n_config_set_max_blinding_delay(self.as_mut_ptr(), seconds).into_result() }?;
