@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{ops::Deref, ptr::addr_of_mut};
 
 use s2n_tls_sys::*;
@@ -5,7 +8,6 @@ use s2n_tls_sys::*;
 use crate::{connection::Connection, error::Fallible, foreign_types::S2NRef};
 
 crate::foreign_types::define_owned_type!(
-    /// owned PSK type
     pub OfferedPsk,
     s2n_offered_psk
 );
@@ -58,8 +60,8 @@ impl OfferedPskRef {
 }
 
 crate::foreign_types::define_ref_type!(
-    /// A private type that aliases [s2n_offered_psk_list]. This is used by the
-    /// [OfferedPskCursor].
+    /// An internal type that aliases [s2n_offered_psk_list]. This is used in the
+    /// [OfferedPskCursor] implementation.
     pub(crate) OfferedPskListRef,
     s2n_offered_psk_list
 );
