@@ -1321,14 +1321,16 @@ impl Connection {
     }
 
     /// Append an external psk to a connection.
-    /// 
-    /// This may be called repeatedly to support multiple PSKs. If working with 
+    ///
+    /// This may be called repeatedly to support multiple PSKs. If working with
     /// large numbers of PSKs, consider using a [`PskSelectionCallback`].
-    /// 
+    ///
     /// Corresponds to [`s2n_connection_append_psk`].
     pub fn append_psk(&mut self, psk: &ExternalPsk) -> Result<(), Error> {
         // SAFETY: *mut cast - s2n-tls does not treat the pointer as mutable.
-        unsafe { s2n_connection_append_psk(self.as_ptr(), psk.as_s2n_ptr() as *mut _).into_result()? };
+        unsafe {
+            s2n_connection_append_psk(self.as_ptr(), psk.as_s2n_ptr() as *mut _).into_result()?
+        };
         Ok(())
     }
 
@@ -1344,7 +1346,7 @@ impl Connection {
 
     /// Retrieve the negotiated psk identity. Use [`Connection::negotiated_psk_identity_length`]
     /// to retrieve the length of the psk identity.
-    /// 
+    ///
     /// Corresponds to [`s2n_connection_get_negotiated_psk_identity`].
     pub fn negotiated_psk_identity(&self, destination: &mut [u8]) -> Result<(), Error> {
         unsafe {

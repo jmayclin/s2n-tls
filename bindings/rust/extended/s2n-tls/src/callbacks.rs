@@ -33,7 +33,7 @@ mod client_hello;
 pub use client_hello::*;
 
 mod external_psk;
-pub use external_psk::{OfferedPskCursor, OfferedPskRef, OfferedPskListRef, PskSelectionCallback};
+pub use external_psk::{OfferedPskCursor, OfferedPskListRef, OfferedPskRef, PskSelectionCallback};
 
 mod session_ticket;
 pub use session_ticket::*;

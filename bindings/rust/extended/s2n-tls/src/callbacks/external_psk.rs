@@ -144,10 +144,15 @@ pub trait PskSelectionCallback: 'static + Send + Sync {
 mod tests {
     use std::{
         collections::{HashMap, VecDeque},
-        sync::{atomic::{self, AtomicBool}, Arc},
+        sync::{
+            atomic::{self, AtomicBool},
+            Arc,
+        },
     };
 
-    use crate::{config::Config, external_psk::ExternalPsk, security::DEFAULT_TLS13, testing::TestPair};
+    use crate::{
+        config::Config, external_psk::ExternalPsk, security::DEFAULT_TLS13, testing::TestPair,
+    };
 
     use super::PskSelectionCallback;
 
@@ -168,7 +173,7 @@ mod tests {
                 let identity = vec![i];
                 let mut psk = ExternalPsk::builder()?;
                 psk.with_identity(&identity)?
-                    .with_secret(&vec![i + 1; 16])?
+                    .with_secret(&[i + 1; 16])?
                     .with_hmac(crate::enums::PskHmac::SHA384)?;
                 store.insert(identity, psk.build()?);
             }
@@ -186,7 +191,7 @@ mod tests {
             mut psk_cursor: super::OfferedPskCursor,
         ) {
             self.invoked.store(true, atomic::Ordering::SeqCst);
-            
+
             let mut identities = VecDeque::new();
             while let Some(psk) = psk_cursor.advance().unwrap() {
                 identities.push_back(psk.identity().unwrap().to_owned());
@@ -222,7 +227,7 @@ mod tests {
         let config = config.build()?;
         let mut test_pair = TestPair::from_config(&config);
         for psk in client_psks.store.values() {
-            test_pair.client.append_psk(&psk)?;
+            test_pair.client.append_psk(psk)?;
         }
         assert!(test_pair.handshake().is_ok());
         assert!(client_psks.invoked.load(atomic::Ordering::SeqCst));

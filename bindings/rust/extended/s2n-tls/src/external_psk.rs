@@ -33,7 +33,7 @@ impl Builder {
     }
 
     /// Set the public PSK identity.
-    /// 
+    ///
     /// Corresponds to [`s2n_psk_set_identity`].
     pub fn with_identity(&mut self, identity: &[u8]) -> Result<&mut Self, crate::error::Error> {
         let identity_length = identity.len().try_into().map_err(|_| {
@@ -56,9 +56,9 @@ impl Builder {
     }
 
     /// Set the PSK secret.
-    /// 
+    ///
     /// Secrets must be at least 16 bytes.
-    /// 
+    ///
     /// Corresponds to [`s2n_psk_set_secret`].
     pub fn with_secret(&mut self, secret: &[u8]) -> Result<&mut Self, crate::error::Error> {
         let secret_length = secret.len().try_into().map_err(|_| {
@@ -98,7 +98,7 @@ impl Builder {
     }
 
     /// Set the HMAC function associated with the PSK.
-    /// 
+    ///
     /// Corresponds to [`s2n_psk_set_hmac`].
     pub fn with_hmac(&mut self, hmac: PskHmac) -> Result<&mut Self, crate::error::Error> {
         unsafe { s2n_psk_set_hmac(self.psk.as_s2n_ptr_mut(), hmac.into()).into_result() }?;
@@ -233,7 +233,10 @@ mod tests {
 
         for peer in [test_pair.client, test_pair.server] {
             let mut identity_buffer = [0; TEST_PSK_IDENTITY.len()];
-            assert_eq!(peer.negotiated_psk_identity_length()?, TEST_PSK_IDENTITY.len());
+            assert_eq!(
+                peer.negotiated_psk_identity_length()?,
+                TEST_PSK_IDENTITY.len()
+            );
             peer.negotiated_psk_identity(&mut identity_buffer)?;
             assert_eq!(identity_buffer, TEST_PSK_IDENTITY);
         }
