@@ -203,10 +203,6 @@ impl S2NConnection {
     pub fn connection(&self) -> &Connection {
         &self.connection
     }
-
-    pub fn mut_connection(&mut self) -> &mut Connection {
-        &mut self.connection
-    }
 }
 
 impl TlsConnection for S2NConnection {

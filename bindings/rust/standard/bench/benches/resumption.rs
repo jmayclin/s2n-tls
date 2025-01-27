@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use bench::{
-    harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, RustlsConnection, S2NConnection, SigType, TlsConnPair, TlsConnection
+    harness::TlsBenchConfig, CipherSuite, CryptoConfig, HandshakeType, KXGroup, S2NConnection,
+    SigType, TlsConnPair, TlsConnection,
 };
 use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, Criterion,
@@ -71,7 +72,6 @@ pub fn bench_resumption(c: &mut Criterion) {
     for sig_type in [SigType::Rsa2048, SigType::Ecdsa256] {
         let mut bench_group = c.benchmark_group(format!("resumption-pair-{:?}", sig_type));
         bench_handshake_pair::<S2NConnection>(&mut bench_group, sig_type);
-        bench_handshake_pair::<RustlsConnection>(&mut bench_group, sig_type);
     }
 
     // only look at resumption savings for the server, specifically the work
