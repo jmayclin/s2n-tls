@@ -6,14 +6,14 @@ use std::{
 };
 
 use aws_lc_rs::rand::SecureRandom;
-use s2n_tls::psk::OfferedPskCursor;
+use s2n_tls::callbacks::{OfferedPskCursor, PskSelectionCallback};
 use s2n_tls::{
     callbacks::ConnectionFuture,
     config::{Config, ConnectionInitializer},
     connection::Connection,
     enums::PskMode,
     error::Error,
-    psk::{ExternalPsk, PskSelectionCallback},
+    external_psk::ExternalPsk,
     security,
 };
 use s2n_tls_tokio::{TlsAcceptor, TlsConnector};
@@ -73,9 +73,20 @@ impl ConnectionInitializer for PskStore {
 }
 
 impl PskSelectionCallback for PskStore {
-    fn choose_psk(&self, conn: &mut Connection, mut psk_list: OfferedPskCursor) {
+    fn select_psk(&self, conn: &mut Connection, mut psk_list: OfferedPskCursor) {
         tracing::debug!("doing psk selection");
-        while let Some(offered_psk) = psk_list.advance() {
+        loop {
+            let offered_psk = match psk_list.advance() {
+                Ok(Some(psk)) => psk,
+                Ok(None) => {
+                    tracing::warn!("unable to find matching PSK");
+                    break;
+                }
+                Err(_) => {
+                    tracing::error!("unable to iterate over list");
+                    return;
+                }
+            };
             let identity = offered_psk.identity().unwrap();
             let identity = u64::from_ne_bytes(identity[0..8].try_into().expect("unexpected"));
             if let Some(matched_psk) = self.get(identity) {
@@ -85,7 +96,6 @@ impl PskSelectionCallback for PskStore {
                 return;
             }
         }
-        tracing::warn!("no suitable psk found");
     }
 }
 
@@ -216,7 +226,7 @@ pub async fn client(client_psk: ClientPsk) -> Result<(), Box<dyn std::error::Err
 }
 
 #[cfg(test)]
-mod simulation {
+mod scenarios {
     use std::sync::Once;
 
     use tokio::task::LocalSet;
@@ -248,7 +258,7 @@ mod simulation {
         });
     }
 
-    /// This simulation shows how PSK's might be used when there is only a small
+    /// This scenario shows how PSK's might be used when there is only a small
     /// number of keys. Keys can be directly added to the connection with
     /// `conn.append_psk(...)`.
     #[tokio::test]
@@ -294,9 +304,9 @@ mod simulation {
         Ok(())
     }
 
-    /// This simulation shows how PSK's might be used when there is a large
-    /// number of keys. Adding PSKs to server connections increases the size of 
-    /// them. For this reason, it is recommended to use the PSK selection callback 
+    /// This scenario shows how PSK's might be used when there is a large
+    /// number of keys. Adding PSKs to server connections increases the size of
+    /// them. For this reason, it is recommended to use the PSK selection callback
     /// if working with large numbers of External PSKs.
     #[tokio::test]
     async fn multi_client_example_with_callback() -> Result<(), Box<dyn std::error::Error>> {
