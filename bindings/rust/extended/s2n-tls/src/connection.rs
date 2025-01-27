@@ -1327,7 +1327,8 @@ impl Connection {
     /// 
     /// Corresponds to [`s2n_connection_append_psk`].
     pub fn append_psk(&mut self, psk: &ExternalPsk) -> Result<(), Error> {
-        unsafe { s2n_connection_append_psk(self.as_ptr(), psk.as_s2n_ptr()).into_result()? };
+        // SAFETY: *mut cast - s2n-tls does not treat the pointer as mutable.
+        unsafe { s2n_connection_append_psk(self.as_ptr(), psk.as_s2n_ptr() as *mut _).into_result()? };
         Ok(())
     }
 

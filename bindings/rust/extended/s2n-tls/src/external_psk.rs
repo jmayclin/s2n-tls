@@ -7,6 +7,11 @@ use crate::{
 };
 use s2n_tls_sys::*;
 
+/// TODO: document builder items
+/// TODO: I still need the visibility
+///       because list ref needs to be pub crate
+/// rename the simulation thing
+
 #[derive(Debug)]
 pub struct Builder {
     psk: ExternalPsk,
@@ -27,6 +32,9 @@ impl Builder {
         })
     }
 
+    /// Set the public PSK identity.
+    /// 
+    /// Corresponds to [`s2n_psk_set_identity`].
     pub fn with_identity(&mut self, identity: &[u8]) -> Result<&mut Self, crate::error::Error> {
         let identity_length = identity.len().try_into().map_err(|_| {
             Error::bindings(
@@ -47,6 +55,11 @@ impl Builder {
         Ok(self)
     }
 
+    /// Set the PSK secret.
+    /// 
+    /// Secrets must be at least 16 bytes.
+    /// 
+    /// Corresponds to [`s2n_psk_set_secret`].
     pub fn with_secret(&mut self, secret: &[u8]) -> Result<&mut Self, crate::error::Error> {
         let secret_length = secret.len().try_into().map_err(|_| {
             Error::bindings(
@@ -84,8 +97,11 @@ impl Builder {
         Ok(self)
     }
 
+    /// Set the HMAC function associated with the PSK.
+    /// 
+    /// Corresponds to [`s2n_psk_set_hmac`].
     pub fn with_hmac(&mut self, hmac: PskHmac) -> Result<&mut Self, crate::error::Error> {
-        unsafe { s2n_psk_set_hmac(self.psk.as_s2n_ptr_mut(), hmac.try_into()?).into_result() }?;
+        unsafe { s2n_psk_set_hmac(self.psk.as_s2n_ptr_mut(), hmac.into()).into_result() }?;
         self.has_hmac = true;
         Ok(self)
     }
@@ -157,15 +173,15 @@ mod tests {
     fn build_errors() -> Result<(), crate::error::Error> {
         const PERMUTATIONS: u8 = 0b111;
 
-        for bitfield in 0..PERMUTATIONS {
+        for permutation in 0..PERMUTATIONS {
             let mut psk = Builder::new()?;
-            if bitfield & 0b001 != 0 {
+            if permutation & 0b001 != 0 {
                 psk.with_identity(b"Alice")?;
             }
-            if bitfield & 0b010 != 0 {
+            if permutation & 0b010 != 0 {
                 psk.with_secret(b"Rabbits don't actually jump. They instead push the world down")?;
             }
-            if bitfield & 0b100 != 0 {
+            if permutation & 0b100 != 0 {
                 psk.with_hmac(PskHmac::SHA384)?;
             }
             assert!(psk.build().is_err());
@@ -190,9 +206,11 @@ mod tests {
         Ok(())
     }
 
+    const TEST_PSK_IDENTITY: &[u8] = b"alice";
+
     fn test_psk() -> ExternalPsk {
         let mut builder = ExternalPsk::builder().unwrap();
-        builder.with_identity(b"alice").unwrap();
+        builder.with_identity(TEST_PSK_IDENTITY).unwrap();
         builder
             .with_secret(b"contrary to popular belief, the moon is yogurt, not cheese")
             .unwrap();
@@ -201,6 +219,8 @@ mod tests {
     }
 
     #[test]
+    /// A PSK handshake using the basic "append_psk" workflow should complete
+    /// successfully, and the correct negotiated psk identity should be returned.
     fn psk_handshake() -> Result<(), crate::error::Error> {
         let psk = test_psk();
         let mut config = Config::builder();
@@ -210,6 +230,13 @@ mod tests {
         test_pair.client.append_psk(&psk)?;
         test_pair.server.append_psk(&psk)?;
         assert!(test_pair.handshake().is_ok());
+
+        for peer in [test_pair.client, test_pair.server] {
+            let mut identity_buffer = [0; TEST_PSK_IDENTITY.len()];
+            assert_eq!(peer.negotiated_psk_identity_length()?, TEST_PSK_IDENTITY.len());
+            peer.negotiated_psk_identity(&mut identity_buffer)?;
+            assert_eq!(identity_buffer, TEST_PSK_IDENTITY);
+        }
         Ok(())
     }
 }

@@ -32,14 +32,14 @@ pub use async_cb::*;
 mod client_hello;
 pub use client_hello::*;
 
+mod external_psk;
+pub use external_psk::{OfferedPskCursor, OfferedPskRef, OfferedPskListRef, PskSelectionCallback};
+
 mod session_ticket;
 pub use session_ticket::*;
 
 mod pkey;
 pub use pkey::*;
-
-mod external_psk;
-pub use external_psk::*;
 
 /// Convert the connection pointer provided to a callback into a Connection
 /// and Context useable with the Rust bindings.
