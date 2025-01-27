@@ -247,7 +247,7 @@ impl TryFrom<PskHmac> for s2n_psk_hmac::Type {
         match input {
             PskHmac::SHA256 => Ok(s2n_psk_hmac::SHA256),
             PskHmac::SHA384 => Ok(s2n_psk_hmac::SHA384),
-            _ => return Err(Error::INVALID_INPUT),
+            _ => Err(Error::INVALID_INPUT),
         }
     }
 }

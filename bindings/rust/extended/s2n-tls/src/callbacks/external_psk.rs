@@ -1,9 +1,8 @@
 use std::{ops::Deref, ptr::addr_of_mut};
 
-use s2n_tls_sys::{*};
+use s2n_tls_sys::*;
 
 use crate::{connection::Connection, error::Fallible, foreign_types::S2NRef};
-
 
 crate::foreign_types::define_owned_type!(
     /// owned PSK type
@@ -57,13 +56,12 @@ impl OfferedPskRef {
     }
 }
 
-
 pub trait PskSelectionCallback: 'static + Send + Sync {
     fn select_psk(&self, connection: &mut Connection, psk_cursor: OfferedPskCursor);
 }
 
 crate::foreign_types::define_ref_type!(
-    /// A private type that aliases [s2n_offered_psk_list]. This is used by the 
+    /// A private type that aliases [s2n_offered_psk_list]. This is used by the
     /// [OfferedPskCursor].
     OfferedPskListRef,
     s2n_offered_psk_list
@@ -98,11 +96,11 @@ pub struct OfferedPskCursor<'callback> {
     pub(crate) list: &'callback mut OfferedPskListRef,
 }
 
-impl<'callback> OfferedPskCursor<'callback> {
+impl OfferedPskCursor<'_> {
     /// Advance the cursor, returning the currently selected PSK.
-    pub fn advance<'item>(&'item mut self) -> Option<&'item OfferedPsk> {
+    pub fn advance(&mut self) -> Option<&OfferedPsk> {
         if !self.list.has_next() {
-            return None;
+            None
         } else {
             // TODO: fix the panic
             self.list.next(&mut self.psk).unwrap();

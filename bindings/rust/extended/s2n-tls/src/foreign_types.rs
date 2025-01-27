@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, marker::PhantomData, ptr::NonNull};
+use std::{cell::UnsafeCell, marker::PhantomData};
 
 /// Define a type that represents ownership of the underlying s2n-tls type.
 ///
@@ -46,7 +46,6 @@ macro_rules! define_owned_type {
     };
 }
 
-
 // This opaque definition is borrowed from the foreign-types crate
 // https://github.com/sfackler/foreign-types/blob/393f6ab5a5dc66b8a8e2d6d880b1ff80b6a7edc2/foreign-types-shared/src/lib.rs#L14
 // This type acts as if it owns a *mutable pointer to a zero sized type, where
@@ -56,9 +55,9 @@ pub(crate) struct Opaque(PhantomData<UnsafeCell<*mut ()>>);
 
 /// Define a type that represents a reference to the underlying s2n-tls type. This
 /// type should not have an associated drop implementation.
-/// 
-/// "ref type" can be used to ergonomically return a reference from a function. 
-/// The lifetime of the ref will automatically be tied to the lifetime of the 
+///
+/// "ref type" can be used to ergonomically return a reference from a function.
+/// The lifetime of the ref will automatically be tied to the lifetime of the
 /// surrounding function.
 /// ```
 /// TODO: add example here

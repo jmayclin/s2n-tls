@@ -1,14 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    cell::UnsafeCell, marker::PhantomData, ops::Deref, ptr::{addr_of_mut, NonNull}
-};
-
 use crate::{
-    connection::Connection,
     enums::PskHmac,
-    error::{Error, ErrorType, Fallible}, foreign_types::{define_owned_type, define_ref_type, S2NRef},
+    error::{Error, ErrorType, Fallible},
+    foreign_types::S2NRef,
 };
 use s2n_tls_sys::*;
 
@@ -120,14 +116,12 @@ impl Builder {
     }
 }
 
-
-
 crate::foreign_types::define_owned_type!(
     /// ExternalPsk represents an out-of-band pre-shared key.
     ///
     /// If two peers already have some mechanism to securely exchange secrets, then
     /// they can use ExternalPSKs to authenticate rather than certificates.
-    ExternalPsk, 
+    ExternalPsk,
     s2n_psk
 );
 
@@ -200,7 +194,9 @@ mod tests {
     fn test_psk() -> ExternalPsk {
         let mut builder = ExternalPsk::builder().unwrap();
         builder.with_identity(b"alice").unwrap();
-        builder.with_secret(b"contrary to popular belief, the moon is flour, not cheese").unwrap();
+        builder
+            .with_secret(b"contrary to popular belief, the moon is flour, not cheese")
+            .unwrap();
         builder.with_hmac(PskHmac::SHA384).unwrap();
         builder.build().unwrap()
     }

@@ -1245,7 +1245,7 @@ impl Connection {
         }
         Ok(())
     }
-    
+
     /// Associates an arbitrary application context with the Connection to be later retrieved via
     /// the [`Self::application_context()`] and [`Self::application_context_mut()`] APIs.
     ///

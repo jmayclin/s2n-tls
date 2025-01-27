@@ -22,12 +22,9 @@
 //!   [Connection::waker()](`crate::connection::Connection::waker()`)
 //!   can be used to register the task for wakeup. See [`ClientHelloCallback`] as an example.
 
-use crate::{config::Context, connection::Connection, error::Fallible};
+use crate::{config::Context, connection::Connection};
 use core::{mem::ManuallyDrop, ptr::NonNull, time::Duration};
-use s2n_tls_sys::{
-    s2n_connection,
-};
-use std::{ptr::addr_of_mut, slice};
+use s2n_tls_sys::s2n_connection;
 
 mod async_cb;
 pub use async_cb::*;
