@@ -12,6 +12,7 @@ use crate::{
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
+use external_psk::OfferedPskListRef;
 use s2n_tls_sys::*;
 use std::{
     ffi::{c_void, CString},

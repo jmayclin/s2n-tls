@@ -6,7 +6,7 @@ use crate::{connection::Connection, error::Fallible, foreign_types::S2NRef};
 
 crate::foreign_types::define_owned_type!(
     /// owned PSK type
-    OfferedPsk,
+    pub OfferedPsk,
     s2n_offered_psk
 );
 
@@ -36,7 +36,7 @@ impl Drop for OfferedPsk {
 
 crate::foreign_types::define_ref_type!(
     /// a reference to an offered psk.
-    OfferedPskRef,
+    pub OfferedPskRef,
     s2n_offered_psk
 );
 
@@ -60,7 +60,7 @@ impl OfferedPskRef {
 crate::foreign_types::define_ref_type!(
     /// A private type that aliases [s2n_offered_psk_list]. This is used by the
     /// [OfferedPskCursor].
-    OfferedPskListRef,
+    pub(crate) OfferedPskListRef,
     s2n_offered_psk_list
 );
 
@@ -206,6 +206,7 @@ mod tests {
                 let expected = identities.pop_front();
                 assert_eq!(expected.unwrap(), psk.identity().unwrap());
             }
+            assert!(identities.is_empty());
 
             psk_cursor.rewind().unwrap();
             let chosen = psk_cursor.advance().unwrap().unwrap();

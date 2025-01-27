@@ -14,10 +14,10 @@ use std::{cell::UnsafeCell, marker::PhantomData};
 /// ```
 /// Drop must be manually implemented on this type.
 macro_rules! define_owned_type {
-    ($(#[$meta:meta])* $struct_name:ident, $inner_type:ty) => {
+    ($(#[$meta:meta])* $vis:vis $struct_name:ident, $inner_type:ty) => {
         $(#[$meta])*
         #[derive(Debug)]
-        pub struct $struct_name {
+        $vis struct $struct_name {
             ptr: std::ptr::NonNull<$inner_type>,
         }
 
@@ -60,10 +60,10 @@ pub(crate) struct Opaque(PhantomData<UnsafeCell<*mut ()>>);
 /// The lifetime of the ref will automatically be tied to the lifetime of the
 /// surrounding function.
 macro_rules! define_ref_type {
-    ($(#[$meta:meta])* $struct_name:ident, $inner_type:ty) => {
+    ($(#[$meta:meta])* $vis:vis $struct_name:ident, $inner_type:ty) => {
         $(#[$meta])*
         #[derive(Debug)]
-        pub struct $struct_name(crate::foreign_types::Opaque);
+        $vis struct $struct_name(crate::foreign_types::Opaque);
 
         impl crate::foreign_types::S2NRef for $struct_name {
             type ForeignType = $inner_type;

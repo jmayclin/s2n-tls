@@ -32,8 +32,8 @@ pub use async_cb::*;
 mod client_hello;
 pub use client_hello::*;
 
-mod external_psk;
-pub use external_psk::{OfferedPskCursor, OfferedPskListRef, OfferedPskRef, PskSelectionCallback};
+pub(crate) mod external_psk;
+pub use external_psk::{OfferedPskCursor, OfferedPskRef, PskSelectionCallback};
 
 mod session_ticket;
 pub use session_ticket::*;

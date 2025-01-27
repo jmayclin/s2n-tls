@@ -10,7 +10,6 @@ use s2n_tls_sys::*;
 /// TODO: document builder items
 /// TODO: I still need the visibility
 ///       because list ref needs to be pub crate
-/// rename the simulation thing
 
 #[derive(Debug)]
 pub struct Builder {
@@ -136,7 +135,7 @@ crate::foreign_types::define_owned_type!(
     ///
     /// If two peers already have some mechanism to securely exchange secrets, then
     /// they can use ExternalPSKs to authenticate rather than certificates.
-    ExternalPsk,
+    pub ExternalPsk,
     s2n_psk
 );
 
