@@ -645,16 +645,10 @@ impl Builder {
             psk_list_ptr: *mut s2n_offered_psk_list,
         ) -> libc::c_int {
             let psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
-            let uninitialized_psk = match OfferedPsk::allocate() {
-                Ok(psk) => psk,
+            let psk_cursor = match OfferedPskCursor::new(psk_list) {
+                Ok(cursor) => cursor,
                 Err(_) => return CallbackResult::Failure.into(),
             };
-
-            let psk_cursor = OfferedPskCursor {
-                psk: uninitialized_psk,
-                list: psk_list,
-            };
-
             with_context(conn_ptr, |conn, context| {
                 let callback = context.psk_selection_callback.as_ref();
                 callback.map(|c| c.select_psk(conn, psk_cursor))
@@ -869,6 +863,7 @@ impl Builder {
         Ok(self)
     }
 
+    /// Corresponds to [`s2n_config_set_psk_mode`].
     pub fn set_psk_mode(&mut self, mode: PskMode) -> Result<&mut Self, Error> {
         unsafe { s2n_config_set_psk_mode(self.as_mut_ptr(), mode.into()).into_result()? };
         Ok(self)

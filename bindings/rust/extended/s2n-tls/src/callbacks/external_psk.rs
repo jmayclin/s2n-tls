@@ -56,10 +56,6 @@ impl OfferedPskRef {
     }
 }
 
-pub trait PskSelectionCallback: 'static + Send + Sync {
-    fn select_psk(&self, connection: &mut Connection, psk_cursor: OfferedPskCursor);
-}
-
 crate::foreign_types::define_ref_type!(
     /// A private type that aliases [s2n_offered_psk_list]. This is used by the
     /// [OfferedPskCursor].
@@ -78,33 +74,40 @@ impl OfferedPskListRef {
         Ok(())
     }
 
-    pub(crate) fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
+    fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
         let mut_psk = psk.as_s2n_ptr() as *mut s2n_offered_psk;
         unsafe { s2n_offered_psk_list_choose_psk(self.as_s2n_ptr_mut(), mut_psk).into_result()? };
         Ok(())
     }
 
-    pub(crate) fn reread(&mut self) -> Result<(), crate::error::Error> {
+    fn reread(&mut self) -> Result<(), crate::error::Error> {
         unsafe { s2n_offered_psk_list_reread(self.as_s2n_ptr_mut()).into_result() }?;
         Ok(())
     }
 }
 
 /// A struct used to select a PSK from a list of offered PSKs.
+// Implementing this as a "cursor" allows us to use a single allocation for many
+// PSKs. Implementing this as a list/iterator would require an allocation for 
+// each offered PSK.
 pub struct OfferedPskCursor<'callback> {
-    pub(crate) psk: OfferedPsk,
-    pub(crate) list: &'callback mut OfferedPskListRef,
+    psk: OfferedPsk,
+    list: &'callback mut OfferedPskListRef,
 }
 
-impl OfferedPskCursor<'_> {
+impl<'callback> OfferedPskCursor<'callback> {
+    pub(crate) fn new(list: &'callback mut OfferedPskListRef) -> Result<Self, crate::error::Error> {
+        let psk = OfferedPsk::allocate()?;
+        Ok(Self { psk, list })
+    }
+
     /// Advance the cursor, returning the currently selected PSK.
-    pub fn advance(&mut self) -> Option<&OfferedPsk> {
+    pub fn advance(&mut self) -> Result<Option<&OfferedPsk>, crate::error::Error> {
         if !self.list.has_next() {
-            None
+            Ok(None)
         } else {
-            // TODO: fix the panic
-            self.list.next(&mut self.psk).unwrap();
-            Some(&self.psk)
+            self.list.next(&mut self.psk)?;
+            Ok(Some(&self.psk))
         }
     }
 
@@ -118,4 +121,19 @@ impl OfferedPskCursor<'_> {
         self.list.reread()?;
         Ok(())
     }
+}
+
+/// A trait used by the server to select an external PSK given a client's offered
+/// list of external PSK identities.
+/// 
+/// If working with small numbers of PSKs, consider just directly using [Connection::append_psk].
+/// 
+/// Used in conjunction with [crate::config::Builder::set_psk_selection_callback].
+pub trait PskSelectionCallback: 'static + Send + Sync {
+    /// Select a psk using the [OfferedPskCursor].
+    /// 
+    /// Before calling [OfferedPskCursor::choose_current_psk], implementors must
+    /// first append the corresponding [crate::external_psk::ExternalPsk] to the 
+    /// connection using [Connection::append_psk].
+    fn select_psk(&self, connection: &mut Connection, psk_cursor: OfferedPskCursor);
 }

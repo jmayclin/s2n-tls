@@ -4,7 +4,6 @@
 use crate::{
     enums::PskHmac,
     error::{Error, ErrorType, Fallible},
-    foreign_types::S2NRef,
 };
 use s2n_tls_sys::*;
 
@@ -57,7 +56,7 @@ impl Builder {
             )
         })?;
 
-        // This check would ideally be in the C code, but would be a backwards
+        // These checks would ideally be in the C code, but would be a backwards
         // incompatible change.
         //= https://www.rfc-editor.org/rfc/rfc9257.html#section-6
         //# Each PSK ... MUST be at least 128 bits long
@@ -138,7 +137,7 @@ impl ExternalPsk {
 
 impl Drop for ExternalPsk {
     fn drop(&mut self) {
-        let mut external_psk: *mut s2n_psk = self.ptr.as_ptr();
+        let mut external_psk = self.as_s2n_ptr_mut();
 
         // ignore failures. There isn't anything to be done to handle them, but
         // allowing the program to continue is preferable to crashing.
@@ -148,7 +147,7 @@ impl Drop for ExternalPsk {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::ErrorSource, testing::TestPair};
+    use crate::{config::Config, error::ErrorSource, security::DEFAULT_TLS13, testing::TestPair};
 
     use super::*;
 
@@ -195,7 +194,7 @@ mod tests {
         let mut builder = ExternalPsk::builder().unwrap();
         builder.with_identity(b"alice").unwrap();
         builder
-            .with_secret(b"contrary to popular belief, the moon is flour, not cheese")
+            .with_secret(b"contrary to popular belief, the moon is yogurt, not cheese")
             .unwrap();
         builder.with_hmac(PskHmac::SHA384).unwrap();
         builder.build().unwrap()
@@ -204,8 +203,8 @@ mod tests {
     #[test]
     fn psk_handshake() -> Result<(), crate::error::Error> {
         let psk = test_psk();
-        let mut config = crate::config::Config::builder();
-        config.set_security_policy(&crate::security::DEFAULT_TLS13)?;
+        let mut config = Config::builder();
+        config.set_security_policy(&DEFAULT_TLS13)?;
         let config = config.build()?;
         let mut test_pair = TestPair::from_config(&config);
         test_pair.client.append_psk(&psk)?;

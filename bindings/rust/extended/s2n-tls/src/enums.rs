@@ -235,19 +235,18 @@ impl From<PskMode> for s2n_psk_mode::Type {
     }
 }
 
+#[non_exhaustive]
+#[derive(Debug)]
 pub enum PskHmac {
     SHA256,
     SHA384,
 }
 
-impl TryFrom<PskHmac> for s2n_psk_hmac::Type {
-    type Error = Error;
-
-    fn try_from(input: PskHmac) -> Result<Self, Self::Error> {
+impl From<PskHmac> for s2n_psk_hmac::Type {
+    fn from(input: PskHmac) -> Self {
         match input {
-            PskHmac::SHA256 => Ok(s2n_psk_hmac::SHA256),
-            PskHmac::SHA384 => Ok(s2n_psk_hmac::SHA384),
-            _ => Err(Error::INVALID_INPUT),
+            PskHmac::SHA256 => s2n_psk_hmac::SHA256,
+            PskHmac::SHA384 => s2n_psk_hmac::SHA384,
         }
     }
 }

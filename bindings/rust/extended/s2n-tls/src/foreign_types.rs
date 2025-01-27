@@ -56,12 +56,9 @@ pub(crate) struct Opaque(PhantomData<UnsafeCell<*mut ()>>);
 /// Define a type that represents a reference to the underlying s2n-tls type. This
 /// type should not have an associated drop implementation.
 ///
-/// "ref type" can be used to ergonomically return a reference from a function.
+/// Ref Types can be used to ergonomically return a reference from a function.
 /// The lifetime of the ref will automatically be tied to the lifetime of the
 /// surrounding function.
-/// ```
-/// TODO: add example here
-/// ```
 macro_rules! define_ref_type {
     ($(#[$meta:meta])* $struct_name:ident, $inner_type:ty) => {
         $(#[$meta])*
