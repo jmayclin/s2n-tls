@@ -2,51 +2,36 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    marker::PhantomData,
     ops::Deref,
-    ptr::{self},
+    ptr::{self, NonNull},
 };
 
 use s2n_tls_sys::*;
 
-use crate::{connection::Connection, error::Fallible, foreign_types::S2NRef};
+use crate::{
+    connection::Connection,
+    error::Fallible,
+    foreign_types::{Opaque, S2NRef},
+};
 
-crate::foreign_types::define_owned_type!(
-    pub OfferedPsk,
-    s2n_offered_psk
-);
+// crate::foreign_types::define_owned_type!(
+//     pub OfferedPsk,
+//     s2n_offered_psk
+// );
 
-impl OfferedPsk {
+pub struct OfferedPsk<'wire_input> {
+    ptr: NonNull<s2n_offered_psk>,
+    psk_stuffer: PhantomData<&'wire_input [u8]>,
+}
+
+impl<'wire_input> OfferedPsk<'wire_input> {
     fn allocate() -> Result<Self, crate::error::Error> {
         let ptr = unsafe { s2n_offered_psk_new().into_result() }?;
         Ok(Self::from_s2n_ptr(ptr))
     }
-}
 
-impl Deref for OfferedPsk {
-    type Target = OfferedPskRef;
-
-    fn deref(&self) -> &Self::Target {
-        OfferedPskRef::from_s2n_ptr(self.as_s2n_ptr())
-    }
-}
-
-impl Drop for OfferedPsk {
-    fn drop(&mut self) {
-        let mut s2n_ptr = self.ptr.as_ptr();
-        // ignore failures. There isn't anything to be done to handle them, but
-        // allowing the program to continue is preferable to crashing.
-        let _ = unsafe { s2n_offered_psk_free(std::ptr::addr_of_mut!(s2n_ptr)).into_result() };
-    }
-}
-
-crate::foreign_types::define_ref_type!(
-    /// a reference to an offered psk.
-    pub OfferedPskRef,
-    s2n_offered_psk
-);
-
-impl OfferedPskRef {
-    pub fn identity(&self) -> Result<&[u8], crate::error::Error> {
+    fn identity(&self) -> Result<&'wire_input [u8], crate::error::Error> {
         let mut identity_buffer = ptr::null_mut::<u8>();
         let mut size = 0;
         unsafe {
@@ -70,12 +55,69 @@ impl OfferedPskRef {
     }
 }
 
-crate::foreign_types::define_ref_type!(
-    /// An internal type that aliases [s2n_offered_psk_list]. This is used in the
-    /// [OfferedPskCursor] implementation.
-    pub(crate) OfferedPskListRef,
-    s2n_offered_psk_list
-);
+// impl Deref for OfferedPsk {
+//     type Target = OfferedPskRef;
+
+//     fn deref(&self) -> &Self::Target {
+//         OfferedPskRef::from_s2n_ptr(self.as_s2n_ptr())
+//     }
+// }
+
+impl<'wire_input> Drop for OfferedPsk<'wire_input> {
+    fn drop(&mut self) {
+        let mut s2n_ptr = self.ptr.as_ptr();
+        // ignore failures. There isn't anything to be done to handle them, but
+        // allowing the program to continue is preferable to crashing.
+        let _ = unsafe { s2n_offered_psk_free(std::ptr::addr_of_mut!(s2n_ptr)).into_result() };
+    }
+}
+
+// crate::foreign_types::define_ref_type!(
+//     /// a reference to an offered psk.
+//     pub OfferedPskRef,
+//     s2n_offered_psk
+// );
+
+// impl OfferedPskRef {
+//     // this method _technically_ shouldn't be implemented on the ref
+//     // The "correct" method signature is something like
+//     // &'a OfferedPsk<'b> -> &'b[u8]
+//     // but that is _not_ a fun type signature
+//     pub fn identity(&self) -> Result<&[u8], crate::error::Error> {
+//         let mut identity_buffer = ptr::null_mut::<u8>();
+//         let mut size = 0;
+//         unsafe {
+//             s2n_offered_psk_get_identity(
+//                 // SAFETY: s2n-tls does not treat the pointer as mutable
+//                 self.as_s2n_ptr() as *mut _,
+//                 &mut identity_buffer,
+//                 &mut size,
+//             )
+//             .into_result()?
+//         };
+//         Ok(unsafe {
+//             // SAFETY: valid, aligned, non-null -> If the s2n-tls API didn't fail
+//             //         (which we check for) then data will be non-null, valid for
+//             //         reads, and aligned.
+//             // SAFETY: the memory is not mutated -> For the life of the PSK Selection
+//             //         callback, nothing else is mutating the wire buffer which
+//             //         is the backing memory of the identities.
+//             std::slice::from_raw_parts(identity_buffer, size as usize)
+//         })
+//     }
+// }
+
+pub(crate) struct OfferedPskListRef<'wire_input> {
+    ptr: Opaque,
+    buffer: PhantomData<&'wire_input [u8]>,
+}
+
+// crate::foreign_types::define_ref_type!(
+//     /// An internal type that aliases [s2n_offered_psk_list]. This is used in the
+//     /// [OfferedPskCursor] implementation.
+//     pub(crate) OfferedPskListRef,
+//     s2n_offered_psk_list
+// );
 
 impl OfferedPskListRef {
     fn has_next(&self) -> bool {
