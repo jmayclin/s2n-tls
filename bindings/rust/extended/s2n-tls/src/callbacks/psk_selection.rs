@@ -198,7 +198,7 @@ mod tests {
     }
 
     impl PskStore {
-        const SIZE: u8 = 50;
+        const SIZE: u8 = 200;
 
         fn new() -> Result<Self, S2NError> {
             let mut store = HashMap::new();
@@ -218,6 +218,11 @@ mod tests {
             self.invoked.store(true, atomic::Ordering::Relaxed);
 
             let identities: Vec<&[u8]> = psk_cursor.map(|psk| psk.unwrap()).collect();
+
+            // check that the identities were successfully read
+            for (i, identity) in identities.iter().enumerate() {
+                assert_eq!(&[i as u8], *identity);
+            }
 
             // after resetting the cursor, we should observe all of the same identities
             psk_cursor.rewind().unwrap();
@@ -245,8 +250,11 @@ mod tests {
 
         let config = config.build()?;
         let mut test_pair = TestPair::from_config(&config);
-        for psk in client_psks.store.values() {
-            test_pair.client.append_psk(psk)?;
+        // append in sorted order to make assertions easier
+        for id in 0..PskStore::SIZE {
+            test_pair
+                .client
+                .append_psk(client_psks.store.get(&vec![id]).unwrap())?;
         }
         assert!(test_pair.handshake().is_ok());
         assert!(client_psks.invoked.load(atomic::Ordering::Relaxed));

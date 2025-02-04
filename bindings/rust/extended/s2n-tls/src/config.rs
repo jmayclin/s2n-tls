@@ -4,7 +4,7 @@
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::{external_psk::OfferedPskCursor, *},
+    callbacks::{psk_selection::OfferedPskCursor, *},
     cert_chain::CertificateChain,
     enums::*,
     error::{Error, ErrorType, Fallible},
