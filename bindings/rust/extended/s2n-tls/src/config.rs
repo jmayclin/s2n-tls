@@ -4,7 +4,7 @@
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::*,
+    callbacks::{external_psk::OfferedPskCursor, *},
     cert_chain::CertificateChain,
     enums::*,
     error::{Error, ErrorType, Fallible},
@@ -684,8 +684,8 @@ impl Builder {
             _context: *mut ::libc::c_void,
             psk_list_ptr: *mut s2n_offered_psk_list,
         ) -> libc::c_int {
-            let psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
-            let mut psk_cursor = match OfferedPskCursor::new(psk_list) {
+            let mut psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
+            let mut psk_cursor = match OfferedPskCursor::new(&mut psk_list) {
                 Ok(cursor) => cursor,
                 Err(_) => return CallbackResult::Failure.into(),
             };

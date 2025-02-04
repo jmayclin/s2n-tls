@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    convert::identity,
     marker::PhantomData,
     ops::Deref,
     ptr::{self, NonNull},
@@ -28,21 +29,27 @@ pub struct OfferedPsk<'wire_input> {
 impl<'wire_input> OfferedPsk<'wire_input> {
     fn allocate() -> Result<Self, crate::error::Error> {
         let ptr = unsafe { s2n_offered_psk_new().into_result() }?;
-        Ok(Self::from_s2n_ptr(ptr))
+        Ok(Self {
+            ptr,
+            psk_stuffer: PhantomData,
+        })
     }
 
-    fn identity(&self) -> Result<&'wire_input [u8], crate::error::Error> {
+    pub fn identity(&self) -> Result<&'wire_input [u8], crate::error::Error> {
         let mut identity_buffer = ptr::null_mut::<u8>();
         let mut size = 0;
         unsafe {
             s2n_offered_psk_get_identity(
                 // SAFETY: s2n-tls does not treat the pointer as mutable
-                self.as_s2n_ptr() as *mut _,
+                self.ptr.as_ptr(),
                 &mut identity_buffer,
                 &mut size,
             )
             .into_result()?
         };
+        println!("size was {size}");
+        println!("buffer was {:?}", identity_buffer);
+
         Ok(unsafe {
             // SAFETY: valid, aligned, non-null -> If the s2n-tls API didn't fail
             //         (which we check for) then data will be non-null, valid for
@@ -108,31 +115,28 @@ impl<'wire_input> Drop for OfferedPsk<'wire_input> {
 // }
 
 pub(crate) struct OfferedPskListRef<'wire_input> {
-    ptr: Opaque,
+    _ptr: Opaque,
     buffer: PhantomData<&'wire_input [u8]>,
 }
 
-// crate::foreign_types::define_ref_type!(
-//     /// An internal type that aliases [s2n_offered_psk_list]. This is used in the
-//     /// [OfferedPskCursor] implementation.
-//     pub(crate) OfferedPskListRef,
-//     s2n_offered_psk_list
-// );
+impl<'callback> S2NRef for OfferedPskListRef<'callback> {
+    type ForeignType = s2n_offered_psk_list;
+}
 
-impl OfferedPskListRef {
+impl<'wire_input> OfferedPskListRef<'wire_input> {
     fn has_next(&self) -> bool {
         // SAFETY: *mut cast - s2n-tls does not treat the pointer as mutable.
         unsafe { s2n_offered_psk_list_has_next(self.as_s2n_ptr() as *mut _) }
     }
 
     fn next(&mut self, psk: &mut OfferedPsk) -> Result<(), crate::error::Error> {
-        let psk_ptr = psk.as_s2n_ptr() as *mut s2n_offered_psk;
+        let psk_ptr = psk.ptr.as_ptr();
         unsafe { s2n_offered_psk_list_next(self.as_s2n_ptr_mut(), psk_ptr).into_result() }?;
         Ok(())
     }
 
     fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
-        let mut_psk = psk.as_s2n_ptr() as *mut s2n_offered_psk;
+        let mut_psk = psk.ptr.as_ptr();
         unsafe { s2n_offered_psk_list_choose_psk(self.as_s2n_ptr_mut(), mut_psk).into_result()? };
         Ok(())
     }
@@ -148,12 +152,27 @@ impl OfferedPskListRef {
 // PSKs. Implementing this as a list/iterator would require an allocation for
 // each offered PSK.
 pub struct OfferedPskCursor<'callback> {
-    psk: OfferedPsk,
-    list: &'callback mut OfferedPskListRef,
+    psk: OfferedPsk<'callback>,
+    list: &'callback mut OfferedPskListRef<'callback>,
+}
+
+impl<'callback> Iterator for OfferedPskCursor<'callback> {
+    type Item = Result<&'callback [u8], crate::error::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.list.has_next() {
+            println!("getting the identity");
+            Some(self.psk.identity())
+        } else {
+            None
+        }
+    }
 }
 
 impl<'callback> OfferedPskCursor<'callback> {
-    pub(crate) fn new(list: &'callback mut OfferedPskListRef) -> Result<Self, crate::error::Error> {
+    pub(crate) fn new(
+        list: &'callback mut OfferedPskListRef<'callback>,
+    ) -> Result<Self, crate::error::Error> {
         let psk = OfferedPsk::allocate()?;
         Ok(Self { psk, list })
     }
@@ -208,6 +227,8 @@ mod tests {
         },
     };
 
+    use crate::error::Error as S2NError;
+
     use crate::{
         config::Config,
         error::{ErrorSource, ErrorType},
@@ -238,7 +259,7 @@ mod tests {
     impl PskStore {
         const SIZE: u8 = 5;
 
-        fn new() -> Result<Self, crate::error::Error> {
+        fn new() -> Result<Self, S2NError> {
             let mut store = HashMap::new();
             for i in 0..Self::SIZE {
                 let (identity, psk) = test_psk(i)?;
@@ -255,31 +276,25 @@ mod tests {
         fn select_psk(&self, connection: &mut Connection, psk_cursor: &mut OfferedPskCursor) {
             self.invoked.store(true, atomic::Ordering::Relaxed);
 
-            let mut identities = Vec::new();
-            while let Some(psk) = psk_cursor.advance().unwrap() {
-                identities.push(psk.identity().unwrap().to_owned());
-            }
+            let identities: Vec<&[u8]> = psk_cursor.map(|psk| psk.unwrap()).collect();
 
             // after resetting the cursor, we should observe all of the same identities
             psk_cursor.rewind().unwrap();
-            let mut identities_after_rewind = Vec::new();
-            while let Some(psk) = psk_cursor.advance().unwrap() {
-                identities_after_rewind.push(psk.identity().unwrap().to_owned());
-            }
+            let identities_again: Vec<&[u8]> = psk_cursor.map(|psk| psk.unwrap()).collect();
 
             assert_eq!(identities.len(), Self::SIZE as usize);
-            assert_eq!(identities, identities_after_rewind);
+            assert_eq!(identities, identities_again);
 
             psk_cursor.rewind().unwrap();
-            let chosen = psk_cursor.advance().unwrap().unwrap();
-            let chosen_external = self.store.get(chosen.identity().unwrap()).unwrap();
+            let chosen = psk_cursor.next().unwrap().unwrap();
+            let chosen_external = self.store.get(chosen).unwrap();
             connection.append_psk(chosen_external).unwrap();
             psk_cursor.choose_current_psk().unwrap();
         }
     }
 
     #[test]
-    fn psk_handshake_with_callback() -> Result<(), crate::error::Error> {
+    fn psk_handshake_with_callback() -> Result<(), S2NError> {
         let psk_store = PskStore::new()?;
         let client_psks = psk_store.clone();
 
