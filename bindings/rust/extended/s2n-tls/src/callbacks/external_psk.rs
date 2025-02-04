@@ -16,14 +16,12 @@ use crate::{
     foreign_types::{Opaque, S2NRef},
 };
 
-// crate::foreign_types::define_owned_type!(
-//     pub OfferedPsk,
-//     s2n_offered_psk
-// );
-
-pub struct OfferedPsk<'wire_input> {
+struct OfferedPsk<'wire_input> {
     ptr: NonNull<s2n_offered_psk>,
-    psk_stuffer: PhantomData<&'wire_input [u8]>,
+    // The `&[u8]` returned from `OfferedPsk::identity` is now owned by the OfferedPsk
+    // struct, but instead is a direct reference to the "wire-data" owned by the
+    // s2n-tls connection.
+    wire_input: PhantomData<&'wire_input [u8]>,
 }
 
 impl<'wire_input> OfferedPsk<'wire_input> {
@@ -31,7 +29,7 @@ impl<'wire_input> OfferedPsk<'wire_input> {
         let ptr = unsafe { s2n_offered_psk_new().into_result() }?;
         Ok(Self {
             ptr,
-            psk_stuffer: PhantomData,
+            wire_input: PhantomData,
         })
     }
 
@@ -39,16 +37,9 @@ impl<'wire_input> OfferedPsk<'wire_input> {
         let mut identity_buffer = ptr::null_mut::<u8>();
         let mut size = 0;
         unsafe {
-            s2n_offered_psk_get_identity(
-                // SAFETY: s2n-tls does not treat the pointer as mutable
-                self.ptr.as_ptr(),
-                &mut identity_buffer,
-                &mut size,
-            )
-            .into_result()?
+            s2n_offered_psk_get_identity(self.ptr.as_ptr(), &mut identity_buffer, &mut size)
+                .into_result()?
         };
-        println!("size was {size}");
-        println!("buffer was {:?}", identity_buffer);
 
         Ok(unsafe {
             // SAFETY: valid, aligned, non-null -> If the s2n-tls API didn't fail
@@ -62,14 +53,6 @@ impl<'wire_input> OfferedPsk<'wire_input> {
     }
 }
 
-// impl Deref for OfferedPsk {
-//     type Target = OfferedPskRef;
-
-//     fn deref(&self) -> &Self::Target {
-//         OfferedPskRef::from_s2n_ptr(self.as_s2n_ptr())
-//     }
-// }
-
 impl<'wire_input> Drop for OfferedPsk<'wire_input> {
     fn drop(&mut self) {
         let mut s2n_ptr = self.ptr.as_ptr();
@@ -79,43 +62,10 @@ impl<'wire_input> Drop for OfferedPsk<'wire_input> {
     }
 }
 
-// crate::foreign_types::define_ref_type!(
-//     /// a reference to an offered psk.
-//     pub OfferedPskRef,
-//     s2n_offered_psk
-// );
-
-// impl OfferedPskRef {
-//     // this method _technically_ shouldn't be implemented on the ref
-//     // The "correct" method signature is something like
-//     // &'a OfferedPsk<'b> -> &'b[u8]
-//     // but that is _not_ a fun type signature
-//     pub fn identity(&self) -> Result<&[u8], crate::error::Error> {
-//         let mut identity_buffer = ptr::null_mut::<u8>();
-//         let mut size = 0;
-//         unsafe {
-//             s2n_offered_psk_get_identity(
-//                 // SAFETY: s2n-tls does not treat the pointer as mutable
-//                 self.as_s2n_ptr() as *mut _,
-//                 &mut identity_buffer,
-//                 &mut size,
-//             )
-//             .into_result()?
-//         };
-//         Ok(unsafe {
-//             // SAFETY: valid, aligned, non-null -> If the s2n-tls API didn't fail
-//             //         (which we check for) then data will be non-null, valid for
-//             //         reads, and aligned.
-//             // SAFETY: the memory is not mutated -> For the life of the PSK Selection
-//             //         callback, nothing else is mutating the wire buffer which
-//             //         is the backing memory of the identities.
-//             std::slice::from_raw_parts(identity_buffer, size as usize)
-//         })
-//     }
-// }
-
-pub(crate) struct OfferedPskListRef<'wire_input> {
+struct OfferedPskListRef<'wire_input> {
     _ptr: Opaque,
+    // When `OfferedPskListRef::next` is called, the "wire-data" owned by the
+    // s2n-tls connection is parsed.
     buffer: PhantomData<&'wire_input [u8]>,
 }
 
@@ -161,7 +111,9 @@ impl<'callback> Iterator for OfferedPskCursor<'callback> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.list.has_next() {
-            println!("getting the identity");
+            if let Err(e) = self.list.next(&mut self.psk) {
+                return Some(Err(e));
+            }
             Some(self.psk.identity())
         } else {
             None
@@ -170,21 +122,10 @@ impl<'callback> Iterator for OfferedPskCursor<'callback> {
 }
 
 impl<'callback> OfferedPskCursor<'callback> {
-    pub(crate) fn new(
-        list: &'callback mut OfferedPskListRef<'callback>,
-    ) -> Result<Self, crate::error::Error> {
+    pub(crate) fn new(list: *mut s2n_offered_psk_list) -> Result<Self, crate::error::Error> {
+        let list = OfferedPskListRef::from_s2n_ptr_mut(list);
         let psk = OfferedPsk::allocate()?;
         Ok(Self { psk, list })
-    }
-
-    /// Advance the cursor, returning the currently selected PSK.
-    pub fn advance(&mut self) -> Result<Option<&OfferedPsk>, crate::error::Error> {
-        if !self.list.has_next() {
-            Ok(None)
-        } else {
-            self.list.next(&mut self.psk)?;
-            Ok(Some(&self.psk))
-        }
     }
 
     /// Choose the currently selected PSK to negotiate with.
@@ -257,7 +198,7 @@ mod tests {
     }
 
     impl PskStore {
-        const SIZE: u8 = 5;
+        const SIZE: u8 = 50;
 
         fn new() -> Result<Self, S2NError> {
             let mut store = HashMap::new();

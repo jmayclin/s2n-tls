@@ -12,7 +12,6 @@ use crate::{
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
-use external_psk::OfferedPskListRef;
 use s2n_tls_sys::*;
 use std::{
     ffi::{c_void, CString},
@@ -684,8 +683,7 @@ impl Builder {
             _context: *mut ::libc::c_void,
             psk_list_ptr: *mut s2n_offered_psk_list,
         ) -> libc::c_int {
-            let mut psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
-            let mut psk_cursor = match OfferedPskCursor::new(&mut psk_list) {
+            let mut psk_cursor = match OfferedPskCursor::new(psk_list_ptr) {
                 Ok(cursor) => cursor,
                 Err(_) => return CallbackResult::Failure.into(),
             };
