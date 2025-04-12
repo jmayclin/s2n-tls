@@ -45,6 +45,7 @@
 #include "tls/s2n_resume.h"
 #include "tls/s2n_security_policies.h"
 #include "tls/s2n_tls.h"
+#include "tls/s2n_tls13_handshake.h"
 #include "tls/s2n_tls_parameters.h"
 #include "utils/s2n_atomic.h"
 #include "utils/s2n_blob.h"
@@ -675,6 +676,28 @@ int s2n_connection_get_cipher_preferences(struct s2n_connection *conn, const str
     return 0;
 }
 
+int s2n_connection_get_certificate_match(struct s2n_connection *conn, s2n_cert_sni_match *match_status)
+{
+    POSIX_ENSURE(conn, S2N_ERR_INVALID_ARGUMENT);
+    POSIX_ENSURE(match_status, S2N_ERR_INVALID_ARGUMENT);
+    POSIX_ENSURE(conn->mode == S2N_SERVER, S2N_ERR_CLIENT_MODE);
+
+    /* Server must have gotten past certificate selection */
+    POSIX_ENSURE(conn->handshake_params.our_chain_and_key, S2N_ERR_NO_CERT_FOUND);
+
+    if (!s2n_server_received_server_name(conn)) {
+        *match_status = S2N_SNI_NONE;
+    } else if (conn->handshake_params.exact_sni_match_exists) {
+        *match_status = S2N_SNI_EXACT_MATCH;
+    } else if (conn->handshake_params.wc_sni_match_exists) {
+        *match_status = S2N_SNI_WILDCARD_MATCH;
+    } else {
+        *match_status = S2N_SNI_NO_MATCH;
+    }
+
+    return S2N_SUCCESS;
+}
+
 int s2n_connection_get_security_policy(struct s2n_connection *conn, const struct s2n_security_policy **security_policy)
 {
     POSIX_ENSURE_REF(conn);
@@ -980,6 +1003,25 @@ const char *s2n_connection_get_kem_group_name(struct s2n_connection *conn)
     }
 
     return conn->kex_params.server_kem_group_params.kem_group->name;
+}
+
+int s2n_connection_get_key_exchange_group(struct s2n_connection *conn, const char **group_name)
+{
+    POSIX_ENSURE_REF(conn);
+    POSIX_ENSURE_REF(group_name);
+
+    /* s2n_connection_get_curve returns only the ECDH curve portion of a named group, even if 
+       the negotiated group was a hybrid PQ key exchange also containing a KEM. Therefore,
+       we use the result of s2n_connection_get_kem_group_name if the connection supports PQ. */
+    if (s2n_tls13_pq_hybrid_supported(conn)) {
+        *group_name = s2n_connection_get_kem_group_name(conn);
+    } else {
+        *group_name = s2n_connection_get_curve(conn);
+    }
+
+    POSIX_ENSURE(*group_name != NULL && strcmp(*group_name, "NONE"), S2N_ERR_INVALID_STATE);
+
+    return S2N_SUCCESS;
 }
 
 static S2N_RESULT s2n_connection_get_client_supported_version(struct s2n_connection *conn,

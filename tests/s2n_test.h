@@ -15,18 +15,18 @@
 
 #pragma once
 #include <errno.h>
+#include <openssl/crypto.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
-#include <openssl/crypto.h>
-
 #include "error/s2n_errno.h"
-#include "utils/s2n_safety.h"
-#include "utils/s2n_result.h"
 #include "tls/s2n_alerts.h"
 #include "tls/s2n_tls13.h"
+#include "utils/s2n_init.h"
+#include "utils/s2n_result.h"
+#include "utils/s2n_safety.h"
 
 int test_count;
 
@@ -64,14 +64,14 @@ bool s2n_use_color_in_output = true;
  * number of independent childs at the start of a unit test and where you want
  * each child to have its own independently initialised s2n.
  */
-#define BEGIN_TEST_NO_INIT()                                        \
-    do {                                                            \
-        test_count = 0;                                             \
-        fprintf(stdout, "Running %-50s ... ", __FILE__);            \
-        fflush(stdout);                                             \
-        EXPECT_SUCCESS_WITHOUT_COUNT(s2n_in_unit_test_set(true));   \
-        S2N_TEST_OPTIONALLY_ENABLE_FIPS_MODE();                     \
-    } while(0)
+#define BEGIN_TEST_NO_INIT()                                      \
+    do {                                                          \
+        test_count = 0;                                           \
+        fprintf(stdout, "Running %-50s ... ", __FILE__);          \
+        fflush(stdout);                                           \
+        EXPECT_SUCCESS_WITHOUT_COUNT(s2n_in_unit_test_set(true)); \
+        EXPECT_SUCCESS(s2n_enable_atexit());                      \
+    } while (0)
 
 #define END_TEST_NO_INIT()                                          \
     do {                                                            \
@@ -214,24 +214,6 @@ bool s2n_use_color_in_output = true;
 #define EXPECT_STRING_EQUAL( p1, p2 ) EXPECT_EQUAL( strcmp( (p1), (p2) ), 0 )
 #define EXPECT_STRING_NOT_EQUAL( p1, p2 ) EXPECT_NOT_EQUAL( strcmp( (p1), (p2) ), 0 )
 
-#ifdef S2N_TEST_IN_FIPS_MODE
-#include <openssl/err.h>
-
-#define S2N_TEST_OPTIONALLY_ENABLE_FIPS_MODE() \
-    do { \
-        if (FIPS_mode_set(1) == 0) { \
-            unsigned long fips_rc = ERR_get_error(); \
-            char ssl_error_buf[256]; \
-            fprintf(stderr, "s2nd failed to enter FIPS mode with RC: %lu; String: %s\n", fips_rc, ERR_error_string(fips_rc, ssl_error_buf)); \
-            return 1; \
-        } \
-        printf("s2n entered FIPS mode\n"); \
-    } while (0)
-
-#else
-#define S2N_TEST_OPTIONALLY_ENABLE_FIPS_MODE()
-#endif
-
 /* Ensures fuzz test input length is greater than or equal to the minimum needed for the test */
 #define S2N_FUZZ_ENSURE_MIN_LEN( len , min ) do {if ( (len) < (min) ) return S2N_SUCCESS;} while (0)
 
@@ -261,11 +243,10 @@ void s2n_test__fuzz_cleanup() \
     if (fuzz_cleanup) { \
         ((void (*)()) fuzz_cleanup)(); \
     } \
-    s2n_cleanup(); \
+    s2n_cleanup_final(); \
 } \
 int LLVMFuzzerInitialize(int *argc, char **argv[]) \
 { \
-    S2N_TEST_OPTIONALLY_ENABLE_FIPS_MODE(); \
     EXPECT_SUCCESS_WITHOUT_COUNT(s2n_init()); \
     EXPECT_SUCCESS_WITHOUT_COUNT(atexit(s2n_test__fuzz_cleanup)); \
     if (!fuzz_init) { \

@@ -13,7 +13,6 @@
  * permissions and limitations under the License.
  */
 
-#include "crypto/s2n_ecdsa.h"
 #include "crypto/s2n_fips.h"
 #include "crypto/s2n_rsa_pss.h"
 #include "error/s2n_errno.h"
@@ -307,7 +306,7 @@ int main(int argc, char **argv)
                 client_policy.signature_preferences = &test_sig_preferences;
                 client_conn->security_policy_override = &client_policy;
 
-                struct s2n_test_io_pair io_pair = { 0 };
+                DEFER_CLEANUP(struct s2n_test_io_pair io_pair = { 0 }, s2n_io_pair_close);
                 EXPECT_SUCCESS(s2n_io_pair_init_non_blocking(&io_pair));
                 EXPECT_SUCCESS(s2n_connections_set_io_pair(client_conn, server_conn, &io_pair));
 

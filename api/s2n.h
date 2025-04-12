@@ -22,17 +22,12 @@
 
 #pragma once
 
-#if ((__GNUC__ >= 4) || defined(__clang__)) && defined(S2N_EXPORTS)
-    /**
-     * Marks a function as belonging to the public s2n API.
-     */
-    #define S2N_API __attribute__((visibility("default")))
-#else
+#ifndef S2N_API
     /**
      * Marks a function as belonging to the public s2n API.
      */
     #define S2N_API
-#endif /* __GNUC__ >= 4 || defined(__clang__) */
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -234,12 +229,19 @@ S2N_API extern unsigned long s2n_get_openssl_version(void);
 S2N_API extern int s2n_init(void);
 
 /**
- * Cleans up any internal resources used by s2n-tls. This function should be called from each thread or process
- * that is created subsequent to calling `s2n_init` when that thread or process is done calling other s2n-tls functions.
+ * Cleans up thread-local resources used by s2n-tls. Does not perform a full library cleanup. To fully
+ * clean up the library use s2n_cleanup_final().
  *
  * @returns S2N_SUCCESS on success. S2N_FAILURE on failure
  */
 S2N_API extern int s2n_cleanup(void);
+
+/*
+ * Performs a complete deinitialization and cleanup of the s2n-tls library.
+ *
+ * @returns S2N_SUCCESS on success. S2N_FAILURE on failure
+ */
+S2N_API extern int s2n_cleanup_final(void);
 
 typedef enum {
     S2N_FIPS_MODE_DISABLED = 0,
@@ -249,13 +251,13 @@ typedef enum {
 /**
  * Determines whether s2n-tls is operating in FIPS mode.
  *
- * s2n-tls enters FIPS mode on initialization when the linked libcrypto has FIPS mode enabled. Some
- * libcryptos, such as AWS-LC-FIPS, have FIPS mode enabled by default. With other libcryptos, such
- * as OpenSSL, FIPS mode must be enabled before initialization by calling `FIPS_mode_set()`.
+ * s2n-tls enters FIPS mode on initialization when built with a version of AWS-LC that supports
+ * FIPS (https://github.com/aws/aws-lc/blob/main/crypto/fipsmodule/FIPS.md). FIPS mode controls
+ * some internal configuration related to FIPS support, like which random number generator is used.
  *
- * s2n-tls MUST be linked to a FIPS libcrypto and MUST be in FIPS mode in order to comply with FIPS
- * requirements. Applications desiring FIPS compliance should use this API to ensure that s2n-tls
- * has been properly linked with a FIPS libcrypto and has successfully entered FIPS mode.
+ * FIPS mode does not enforce the use of FIPS-approved cryptography. Applications attempting to use
+ * only FIPS-approved cryptography should also ensure that s2n-tls is configured to use a security
+ * policy that only supports FIPS-approved cryptography.
  *
  * @param fips_mode Set to the FIPS mode of s2n-tls.
  * @returns S2N_SUCCESS on success. S2N_FAILURE on failure.
@@ -1772,7 +1774,7 @@ S2N_API extern int s2n_connection_get_write_fd(struct s2n_connection *conn, int 
 S2N_API extern int s2n_connection_use_corked_io(struct s2n_connection *conn);
 
 /**
- * Function pointer for a user provided send callback.
+ * Function pointer for a user provided recv callback.
  */
 typedef int s2n_recv_fn(void *io_context, uint8_t *buf, uint32_t len);
 
@@ -3186,6 +3188,38 @@ S2N_API extern int s2n_connection_client_cert_used(struct s2n_connection *conn);
  */
 S2N_API extern const char *s2n_connection_get_cipher(struct s2n_connection *conn);
 
+/** 
+ * A metric to determine whether or not the server found a certificate that matched
+ * the client's SNI extension.
+ *
+ * S2N_SNI_NONE: Client did not send the SNI extension.
+ * S2N_SNI_EXACT_MATCH: Server had a certificate that matched the client's SNI extension.
+ * S2N_SNI_WILDCARD_MATCH: Server had a certificate with a domain name containing a wildcard character
+ * that could be matched to the client's SNI extension.
+ * S2N_SNI_NO_MATCH: Server did not have a certificate that could be matched to the client's
+ * SNI extension.
+ */
+typedef enum {
+    S2N_SNI_NONE = 1,
+    S2N_SNI_EXACT_MATCH,
+    S2N_SNI_WILDCARD_MATCH,
+    S2N_SNI_NO_MATCH,
+} s2n_cert_sni_match;
+
+/**
+ * A function that provides insight into whether or not the server was able to send a certificate that
+ * partially or completely matched the client's SNI extension.
+ * 
+ * @note This function can be used as a metric in a failed connection as long as the failure
+ * occurs after certificate selection.
+ *
+ * @param conn A pointer to the connection
+ * @param cert_match An enum indicating whether or not the server found a certificate
+ * that matched the client's SNI extension.
+ * @returns S2N_SUCCESS on success. S2N_FAILURE on failure.
+ */
+S2N_API extern int s2n_connection_get_certificate_match(struct s2n_connection *conn, s2n_cert_sni_match *match_status);
+
 /**
  * Provides access to the TLS master secret.
  *
@@ -3260,6 +3294,8 @@ S2N_API extern int s2n_connection_is_valid_for_cipher_preferences(struct s2n_con
 
 /**
  * Function to get the human readable elliptic curve name for the connection.
+ * 
+ * @deprecated Use `s2n_connection_get_key_exchange_group` instead
  *
  * @param conn A pointer to the s2n connection
  * @returns A string indicating the elliptic curve used during ECDHE key exchange. The string "NONE" is returned if no curve was used.
@@ -3269,6 +3305,10 @@ S2N_API extern const char *s2n_connection_get_curve(struct s2n_connection *conn)
 /**
  * Function to get the human readable KEM name for the connection.
  *
+ * @deprecated This function was previously used to retrieve the negotiated PQ group in TLS 1.2.
+ * PQ key exchange in TLS1.2 was experimental and is now deprecated. Use s2n_connection_get_kem_group_name()
+ * to retrieve the PQ TLS 1.3 Group name.
+ *
  * @param conn A pointer to the s2n connection
  * @returns A human readable string for the KEM group. If there is no KEM configured returns "NONE"
  */
@@ -3277,10 +3317,28 @@ S2N_API extern const char *s2n_connection_get_kem_name(struct s2n_connection *co
 /**
  * Function to get the human readable KEM group name for the connection.
  *
+ * @note PQ key exchange will not occur if the connection is < TLS1.3 or the configured security
+ * policy has no KEM groups on it. It also will not occur if the peer does not support PQ key exchange.
+ * In these instances this function will return "NONE".
+ *
  * @param conn A pointer to the s2n connection
- * @returns A human readable string for the KEM group. If the connection is < TLS1.3 or there is no KEM group configured returns "NONE"
+ * @returns A human readable string for the KEM group. Returns "NONE" if no PQ key exchange occurred.
  */
 S2N_API extern const char *s2n_connection_get_kem_group_name(struct s2n_connection *conn);
+
+/**
+ * Function to get the human readable key exchange group name for the connection, for example: 
+ * `secp521r1` or `SecP256r1MLKEM768`. If an EC curve or KEM was not negotiated, S2N_FAILURE will be
+ * returned.
+ *
+ * @note This function replaces `s2n_connection_get_curve` and `s2n_connection_get_kem_group_name`, returning
+ * the named group regardless if a hybrid PQ group was negotiated or not. 
+ *
+ * @param conn A pointer to the s2n connection
+ * @param group_name A pointer that will be set to point to a const char* containing the group name
+ * @returns S2N_SUCCESS on success, S2N_FAILURE otherwise. `group_name` will be set on success.
+ */
+S2N_API extern int s2n_connection_get_key_exchange_group(struct s2n_connection *conn, const char **group_name);
 
 /**
  * Function to get the alert that caused a connection to close. s2n-tls considers all

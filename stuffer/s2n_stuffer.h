@@ -45,7 +45,11 @@ struct s2n_stuffer {
     uint32_t write_cursor;
     uint32_t high_water_mark;
 
-    /* Was this stuffer alloc()'d ? */
+    /* Was this stuffer alloc()'d?
+     * This field controls whether the stuffer "owns" the blob. If the stuffer
+     * was allocated, then `blob` must be freed when the stuffer is freed. If the
+     * stuffer was not allocated, then the blob must not be freed by the stuffer, even if the 
+     * blob itself is allocated. */
     unsigned int alloced : 1;
 
     /* Is this stuffer growable? */
@@ -172,8 +176,15 @@ S2N_RESULT s2n_stuffer_write_uint8_hex(struct s2n_stuffer *stuffer, uint8_t u);
 S2N_RESULT s2n_stuffer_read_uint16_hex(struct s2n_stuffer *stuffer, uint16_t *u);
 S2N_RESULT s2n_stuffer_write_uint16_hex(struct s2n_stuffer *stuffer, uint16_t u);
 
-/* Read and write base64 */
+/**
+ * Given base64 data in `stuffer`, write the decoded (binary) data into `out`. 
+ * 
+ * DANGER: If the data to be read is not a multiple of 4, any trailing bytes will
+ * be silently ignored.
+ */
 int s2n_stuffer_read_base64(struct s2n_stuffer *stuffer, struct s2n_stuffer *out);
+
+/* Given some binary data in `in`, write the encoded (base64) data to `stuffer`. */
 int s2n_stuffer_write_base64(struct s2n_stuffer *stuffer, struct s2n_stuffer *in);
 
 /* Useful for text manipulation ... */
@@ -208,8 +219,9 @@ int S2N_RESULT_MUST_USE s2n_stuffer_vprintf(struct s2n_stuffer *stuffer, const c
 /* Read a private key from a PEM encoded stuffer to an ASN1/DER encoded one */
 int S2N_RESULT_MUST_USE s2n_stuffer_private_key_from_pem(struct s2n_stuffer *pem, struct s2n_stuffer *asn1, int *type);
 
-/* Read a certificate  from a PEM encoded stuffer to an ASN1/DER encoded one */
+/* Read a certificate from a PEM encoded stuffer to an ASN1/DER encoded one */
 int S2N_RESULT_MUST_USE s2n_stuffer_certificate_from_pem(struct s2n_stuffer *pem, struct s2n_stuffer *asn1);
+bool s2n_stuffer_pem_has_certificate(struct s2n_stuffer *pem);
 
 /* Read a CRL from a PEM encoded stuffer to an ASN1/DER encoded one */
 int S2N_RESULT_MUST_USE s2n_stuffer_crl_from_pem(struct s2n_stuffer *pem, struct s2n_stuffer *asn1);

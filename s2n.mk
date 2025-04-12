@@ -49,9 +49,10 @@ endif
 
 DEFAULT_CFLAGS += -pedantic -Wall -Werror -Wimplicit -Wunused -Wcomment -Wchar-subscripts -Wuninitialized \
                  -Wshadow  -Wcast-align -Wwrite-strings -fPIC -Wno-missing-braces\
-                 -D_POSIX_C_SOURCE=200809L -O2 -I$(LIBCRYPTO_ROOT)/include/ \
+                 -O2 -I$(LIBCRYPTO_ROOT)/include/ \
+                 -DS2N_BUILD_RELEASE -include utils/s2n_prelude.h \
                  -I$(S2N_ROOT)/api/ -I$(S2N_ROOT) -Wno-deprecated-declarations -Wno-unknown-pragmas -Wformat-security \
-                 -D_FORTIFY_SOURCE=2 -fgnu89-inline -fvisibility=hidden -DS2N_EXPORTS
+                 -fgnu89-inline -fvisibility=hidden -DS2N_EXPORTS
 
 COVERAGE_CFLAGS = -fprofile-arcs -ftest-coverage
 COVERAGE_LDFLAGS = --coverage
@@ -65,11 +66,6 @@ endif
 
 ifeq ($(NO_INLINE), 1)
 DEFAULT_CFLAGS += -fno-inline
-endif
-
-# Define S2N_TEST_IN_FIPS_MODE - to be used for testing when present.
-ifdef S2N_TEST_IN_FIPS_MODE
-    DEFAULT_CFLAGS += -DS2N_TEST_IN_FIPS_MODE
 endif
 
 CFLAGS += ${DEFAULT_CFLAGS}
@@ -138,7 +134,7 @@ bindir ?= $(exec_prefix)/bin
 libdir ?= $(exec_prefix)/lib64
 includedir ?= $(exec_prefix)/include
 
-feature_probe = $(shell $(CC) $(CFLAGS) $(shell cat $(S2N_ROOT)/tests/features/GLOBAL.flags) $(shell cat $(S2N_ROOT)/tests/features/$(1).flags) -c -o tmp.o $(S2N_ROOT)/tests/features/$(1).c > /dev/null 2>&1 && echo "-D$(1)"; rm tmp.o > /dev/null 2>&1)
+feature_probe = $(shell $(CC) $(CFLAGS) $(shell cat $(S2N_ROOT)/tests/features/GLOBAL.flags) $(shell cat $(S2N_ROOT)/tests/features/$(1).flags) -c -o tmp.o $(S2N_ROOT)/tests/features/$(1).c > /dev/null 2>&1 && echo "-D$(1)=1"; rm tmp.o > /dev/null 2>&1)
 
 FEATURES := $(notdir $(patsubst %.c,%,$(wildcard $(S2N_ROOT)/tests/features/*.c)))
 SUPPORTED_FEATURES := $(foreach feature,$(FEATURES),$(call feature_probe,$(feature)))
