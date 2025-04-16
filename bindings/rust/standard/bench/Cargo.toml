@@ -12,6 +12,8 @@ strum = { version = "0.25", features = ["derive"] }
 rustls = { version = "0.23" }
 rustls-pemfile = { version = "2" }
 openssl = { version = "0.10", features = ["vendored"] }
+openssl-sys = { version = "0.9", features = ["vendored"]}
+foreign-types-shared = "0.1.1"
 
 [dev-dependencies]
 criterion = "0.5"

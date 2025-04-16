@@ -47,11 +47,11 @@ where
     }
 }
 
-struct ConfigPair<C, S>(C, S);
+struct ConfigBuilderPair<C, S>(C, S);
 
 // new_client_config()
 
-impl<C, S> Default for ConfigPair<C, S>
+impl<C, S> Default for ConfigBuilderPair<C, S>
 where
     C: TlsBenchConfig,
     S: TlsBenchConfig,
@@ -79,7 +79,7 @@ where
     }
 }
 
-impl<C, S> ConfigPair<C, S> {
+impl<C, S> ConfigBuilderPair<C, S> {
     pub fn split(self) -> (C, S) {
         (self.0, self.1)
     }
@@ -102,7 +102,7 @@ fn random_test_data(data_len: usize) -> Vec<u8> {
 #[test]
 fn type_erasure() {
     let (ossl_config, s2n_config) =
-    ConfigPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
+    ConfigBuilderPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
 
     let mut pair: TlsConnPair<OpenSslConnection, S2NConnection> =
         TlsConnPair::from_configs(&ossl_config, &s2n_config);

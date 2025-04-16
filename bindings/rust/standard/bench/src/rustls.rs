@@ -10,20 +10,14 @@ use crate::{
     SigType,
 };
 use rustls::{
-    crypto::{
+    client, crypto::{
         aws_lc_rs::{
             self,
             cipher_suite::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384},
             kx_group::{SECP256R1, X25519},
         },
         CryptoProvider,
-    },
-    pki_types::{CertificateDer, PrivateKeyDer, ServerName},
-    server::WebPkiClientVerifier,
-    version::TLS13,
-    ClientConfig, ClientConnection, Connection,
-    ProtocolVersion::TLSv1_3,
-    RootCertStore, ServerConfig, ServerConnection,
+    }, pki_types::{CertificateDer, PrivateKeyDer, ServerName}, server::WebPkiClientVerifier, version::TLS13, ClientConfig, ClientConnection, Connection, ProtocolVersion::TLSv1_3, RootCertStore, ServerConfig, ServerConnection
 };
 use std::{
     error::Error,
@@ -261,6 +255,24 @@ impl TlsConnection for RustlsConnection {
             s.received_resumption_data().is_some()
         } else {
             panic!("rustls connection resumption status must be check on the server side");
+        }
+    }
+    
+    fn send_shutdown(&mut self) {
+        match &mut self.connection {
+            Connection::Client(client_connection) => client_connection.send_close_notify(),
+            Connection::Server(server_connection) => server_connection.send_close_notify(),
+        }
+        // send the close notify
+        self.connection.complete_io(&mut self.io).unwrap();
+    }
+    
+    fn is_shutdown(&mut self) -> bool {
+        let res = self.connection.reader().read(&mut [0]);
+        if let Ok(0) = res {
+            true
+        } else {
+            false
         }
     }
 }

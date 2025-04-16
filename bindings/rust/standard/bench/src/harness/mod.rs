@@ -179,10 +179,59 @@ pub trait TlsConnection: Sized {
 
     /// Read application data from ConnectedBuffer
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
+
+    /// shutdown send
+    fn send_shutdown(&mut self);
+
+    /// shutdown send
+    fn is_shutdown(&mut self) -> bool;
+}
+
+pub trait TlsConnIo {
+    /// Run one handshake step: receive msgs from other connection, process, and send new msgs
+    fn handshake(&mut self) -> Result<(), Box<dyn Error>>;
+    fn handshake_completed(&self) -> bool;
+    /// Send application data to ConnectedBuffer
+    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>>;
+    /// Read application data from ConnectedBuffer
+    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>>;
+    /// shutdown send
+    fn send_shutdown(&mut self);
+
+    /// shutdown send
+    fn is_shutdown(&mut self) -> bool;
+}
+
+impl<T: TlsConnection> TlsConnIo for T {
+    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
+        self.handshake()
+    }
+
+    fn handshake_completed(&self) -> bool {
+        self.handshake_completed()
+    }
+
+    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+        self.send(data)
+    }
+
+    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
+        self.recv(data)
+    }
+
+    /// shutdown send
+    fn send_shutdown(&mut self) {
+        self.send_shutdown();
+    }
+
+    /// shutdown send
+    fn is_shutdown(&mut self) -> bool {
+        self.is_shutdown()
+    }
 }
 
 /// A TlsConnPair owns the client and server tls connections along with the IO buffers.
-pub struct TlsConnPair<C: TlsConnection, S: TlsConnection> {
+pub struct TlsConnPair<C, S> {
     pub client: C,
     pub server: S,
     pub io: TestPairIO,
@@ -329,6 +378,24 @@ where
     /// Checks if handshake is finished for both client and server
     pub fn handshake_completed(&self) -> bool {
         self.client.handshake_completed() && self.server.handshake_completed()
+    }
+
+    pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        println!("client send shutdown");
+        self.client.send_shutdown();
+        println!("server send shutdown");
+        self.server.send_shutdown();
+
+        println!("client recv");
+        self.client.recv(&mut [0])?;
+        println!("server recv");
+        self.server.recv(&mut [0])?;
+        
+        Ok(())
+    }
+
+    pub fn is_shutdown(&mut self) -> bool {
+        self.client.is_shutdown() && self.server.is_shutdown()
     }
 
 

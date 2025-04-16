@@ -10,8 +10,7 @@ use crate::{
     PemType::*,
 };
 use openssl::ssl::{
-    ErrorCode, Ssl, SslContext, SslFiletype, SslMethod, SslSession, SslSessionCacheMode, SslStream,
-    SslVerifyMode, SslVersion,
+    ErrorCode, ShutdownResult, ShutdownState, Ssl, SslContext, SslFiletype, SslMethod, SslSession, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion
 };
 use std::{
     error::Error,
@@ -246,13 +245,27 @@ impl TlsConnection for OpenSslConnection {
     fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
         let data_len = data.len();
         let mut read_offset = 0;
+
         while read_offset < data.len() {
-            read_offset += self.connection.read(&mut data[read_offset..data_len])?
+            let res = self.connection.read(&mut data[read_offset..data_len])?;
+            if res == 0 {
+                // connection is shutdown
+                return Ok(())
+            }
+            read_offset += res
         }
         Ok(())
     }
 
     fn resumed_connection(&self) -> bool {
         self.connection.ssl().session_reused()
+    }
+    
+    fn send_shutdown(&mut self) {
+        let res = self.connection.shutdown();
+    }
+
+    fn is_shutdown(&mut self) -> bool {
+        self.connection.shutdown().unwrap() == ShutdownResult::Received
     }
 }

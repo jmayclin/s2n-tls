@@ -3,6 +3,7 @@
 
 pub mod harness;
 pub mod openssl;
+pub mod openssl_extension;
 pub mod rustls;
 pub mod s2n_tls;
 // Although these are integration tests, we deliberately avoid the "integration"

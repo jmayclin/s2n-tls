@@ -159,8 +159,8 @@ impl crate::harness::TlsBenchConfig for S2NConfig {
 }
 
 pub struct S2NConnection {
-    connection: Connection,
-    handshake_completed: bool,
+    pub connection: Connection,
+    pub handshake_completed: bool,
 }
 
 impl S2NConnection {
@@ -305,10 +305,25 @@ impl TlsConnection for S2NConnection {
         let mut read_offset = 0;
         while read_offset < data_len {
             match self.connection.poll_recv(data) {
+                // connection is shutdown
+                Poll::Ready(Ok(0)) => return Ok(()),
                 Poll::Ready(bytes_read) => read_offset += bytes_read?,
                 Poll::Pending => return Err("unexpected pending".into()),
             }
         }
         Ok(())
+    }
+    
+    fn send_shutdown(&mut self) {
+        self.connection.poll_shutdown_send();
+    }
+    
+    fn is_shutdown(&mut self) -> bool {
+        let res = self.connection.poll_recv(&mut[0]);
+        if let Poll::Ready(Ok(0)) = res {
+            true
+        } else {
+            false
+        }
     }
 }

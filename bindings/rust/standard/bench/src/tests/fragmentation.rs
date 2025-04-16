@@ -3,7 +3,7 @@ use crate::{
     OpenSslConnection, S2NConnection, TlsConnPair,
 };
 
-use super::ConfigPair;
+use super::ConfigBuilderPair;
 
 /// Feature: s2n_connection_prefer_low_latency()
 /// 
@@ -12,7 +12,7 @@ use super::ConfigPair;
 #[test]
 fn prefer_low_latency() {
     let (ossl_config, s2n_config) =
-    ConfigPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
+    ConfigBuilderPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
 
     let mut pair: TlsConnPair<OpenSslConnection, S2NConnection> =
         TlsConnPair::from_configs(&ossl_config, &s2n_config);
@@ -36,7 +36,7 @@ fn fragmentation() {
 
     fn test_case(client_frag_length: usize) {
         let (mut ossl_config, s2n_config) =
-            ConfigPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
+            ConfigBuilderPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
     
         ossl_config.config.set_max_send_fragment(client_frag_length);
     

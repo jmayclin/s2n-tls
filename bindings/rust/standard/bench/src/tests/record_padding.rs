@@ -2,7 +2,7 @@ use crate::{
     openssl::OpenSslConfig,
     openssl_extension::SslContextExtension,
     s2n_tls::S2NConfig,
-    tests::{ConfigPair, TestUtils},
+    tests::{ConfigBuilderPair, TestUtils},
     OpenSslConnection, S2NConnection, TlsConnPair,
 };
 
@@ -19,12 +19,8 @@ fn record_padding() {
     const SEND_SIZES: [usize; 6] = [1, 10, 100, 1_000, 5_000, 10_000];
     const PAD_TO_CASES: [usize; 4] = [512, 1_024, 4_096, 16_000];
 
-    // we _could_ type erase the TlsConnPair, but it involves a decent amount of
-    // boilerplate to Box<dyn> everything. For the time being, the duplication is
-    // preferred.
-
     fn s2n_server_case(pad_to: usize) {
-        let (mut ossl_config, s2n_config) = ConfigPair::<OpenSslConfig, S2NConfig>::default().split();
+        let (mut ossl_config, s2n_config) = ConfigBuilderPair::<OpenSslConfig, S2NConfig>::default().split();
     
         ossl_config.config.set_block_padding(pad_to);
     
@@ -35,10 +31,13 @@ fn record_padding() {
         for send in SEND_SIZES {
             assert!(pair.round_trip_assert(send).is_ok());
         }
+
+        pair.shutdown().unwrap();
+        assert!(pair.is_shutdown());
     }
 
     fn s2n_client_case(pad_to: usize) {
-        let (s2n_config, mut ossl_config) = ConfigPair::<S2NConfig, OpenSslConfig>::default().split();
+        let (s2n_config, mut ossl_config) = ConfigBuilderPair::<S2NConfig, OpenSslConfig>::default().split();
     
         ossl_config.config.set_block_padding(pad_to);
     
@@ -49,6 +48,9 @@ fn record_padding() {
         for send in SEND_SIZES {
             assert!(pair.round_trip_assert(send).is_ok());
         }
+
+        pair.shutdown().unwrap();
+        assert!(pair.is_shutdown());
     }
 
     PAD_TO_CASES
