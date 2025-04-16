@@ -43,12 +43,13 @@ int main()
             EXPECT_SUCCESS(s2n_get_fips_mode(&fips_mode));
 
             if (s2n_is_in_fips_mode()) {
+                printf("we're in fips mode!\n");
                 EXPECT_EQUAL(fips_mode, S2N_FIPS_MODE_ENABLED);
             } else {
+                printf("oh no we're not in fips mode :(\n");
                 EXPECT_EQUAL(fips_mode, S2N_FIPS_MODE_DISABLED);
             }
         }
     }
-
     END_TEST();
 }

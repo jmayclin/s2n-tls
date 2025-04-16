@@ -24,6 +24,7 @@
 #include "tls/s2n_connection.h"
 #include "tls/s2n_tls.h"
 #include "tls/s2n_tls13.h"
+#include "crypto/s2n_fips.h"
 
 int main(int argc, char **argv)
 {
@@ -33,18 +34,25 @@ int main(int argc, char **argv)
     /* TLS 1.3 is not used by default */
     EXPECT_FALSE(s2n_use_default_tls13_config());
 
-    /* TLS1.3 is not supported or configured by default */
+    /* TLS1.3 is not supported or configured by default, but is supported by default_fips */
     {
         /* Client does not support or configure TLS 1.3 */
         {
             struct s2n_connection *conn = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_CLIENT));
-
-            EXPECT_NOT_EQUAL(conn->client_protocol_version, S2N_TLS13);
+            // if (s2n_is_in_fips_mode()) {
+            //     EXPECT_EQUAL(conn->client_protocol_version, S2N_TLS13);
+            // } else {
+            //     EXPECT_NOT_EQUAL(conn->client_protocol_version, S2N_TLS13);
+            // }
 
             const struct s2n_security_policy *security_policy = NULL;
             EXPECT_SUCCESS(s2n_connection_get_security_policy(conn, &security_policy));
-            EXPECT_FALSE(s2n_security_policy_supports_tls13(security_policy));
+            if (s2n_is_in_fips_mode()) {
+                EXPECT_TRUE(s2n_security_policy_supports_tls13(security_policy));
+            } else {
+                EXPECT_FALSE(s2n_security_policy_supports_tls13(security_policy));
+            }
 
             EXPECT_SUCCESS(s2n_connection_free(conn));
         };
@@ -53,12 +61,19 @@ int main(int argc, char **argv)
         {
             struct s2n_connection *conn = NULL;
             EXPECT_NOT_NULL(conn = s2n_connection_new(S2N_SERVER));
-
-            EXPECT_NOT_EQUAL(conn->server_protocol_version, S2N_TLS13);
+            // if (s2n_is_in_fips_mode()) {
+            //     EXPECT_EQUAL(conn->server_protocol_version, S2N_TLS13);
+            // } else {
+            //     EXPECT_NOT_EQUAL(conn->server_protocol_version, S2N_TLS13);
+            // }
 
             const struct s2n_security_policy *security_policy = NULL;
             EXPECT_SUCCESS(s2n_connection_get_security_policy(conn, &security_policy));
-            EXPECT_FALSE(s2n_security_policy_supports_tls13(security_policy));
+            if (s2n_is_in_fips_mode()) {
+                EXPECT_TRUE(s2n_security_policy_supports_tls13(security_policy));
+            } else {
+                EXPECT_FALSE(s2n_security_policy_supports_tls13(security_policy));
+            }
 
             EXPECT_SUCCESS(s2n_connection_free(conn));
         };

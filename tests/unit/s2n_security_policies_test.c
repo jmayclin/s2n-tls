@@ -286,7 +286,6 @@ int main(int argc, char **argv)
     {
         char tls12_only_security_policy_strings[][255] = {
             "default",
-            "default_fips",
             "ELBSecurityPolicy-TLS-1-0-2015-04",
             "ELBSecurityPolicy-TLS-1-0-2015-05",
             "ELBSecurityPolicy-2016-08",
@@ -341,6 +340,7 @@ int main(int argc, char **argv)
 
         char tls13_security_policy_strings[][255] = {
             "default_tls13",
+            "default_fips",
             "test_all",
             "test_all_tls13",
             "20190801",
@@ -880,6 +880,7 @@ int main(int argc, char **argv)
             const struct s2n_security_policy *versioned_policies[] = {
                 &security_policy_20240416,
                 &security_policy_20240502,
+                &security_policy_20250416,
             };
 
             const struct s2n_supported_cert supported_certs[] = {
