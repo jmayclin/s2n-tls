@@ -178,9 +178,11 @@ static S2N_RESULT s2n_ktls_crypto_info_init(struct s2n_connection *conn, s2n_ktl
 
     switch (conn->actual_protocol_version) {
         case S2N_TLS12:
+            printf("ktls crypto info, %s, TLS 12\n", conn->mode == S2N_SERVER ? "server" : "client");
             RESULT_GUARD(s2n_prf_generate_key_material(conn, &key_material));
             break;
         case S2N_TLS13:
+        printf("ktls crypto info, %s TLS 13\n", conn->mode == S2N_SERVER ? "server" : "client");
             RESULT_GUARD(s2n_tls13_key_schedule_generate_key_material(
                     conn, key_mode, &key_material));
             break;

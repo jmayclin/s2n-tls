@@ -697,6 +697,6 @@ int main(int argc, char **argv)
             }
         }
     }
-
+    EXPECT_TRUE(false);
     END_TEST();
 }

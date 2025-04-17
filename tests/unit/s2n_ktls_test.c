@@ -639,5 +639,7 @@ int main(int argc, char **argv)
         EXPECT_TRUE(config->ktls_tls13_enabled);
     };
 
+    EXPECT_TRUE(false);
+
     END_TEST();
 }

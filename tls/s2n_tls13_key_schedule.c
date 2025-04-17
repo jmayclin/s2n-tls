@@ -361,6 +361,7 @@ S2N_RESULT s2n_tls13_key_schedule_generate_key_material(struct s2n_connection *c
 {
     RESULT_GUARD(s2n_key_material_init(key_material, conn));
     if (sender == S2N_CLIENT) {
+        printf("calling s2n_tls13_key_schedule_get_keying_material with sending == client\n");
         RESULT_GUARD(s2n_tls13_key_schedule_get_keying_material(conn, S2N_MASTER_SECRET,
                 sender, &key_material->client_iv, &key_material->client_key));
     } else {
