@@ -9,27 +9,41 @@
 
 use std::ffi::c_long;
 
-use openssl::ssl::SslContext;
+use openssl::ssl::{SslContext, SslContextBuilder, SslRef, SslStream};
 use openssl_sys::SSL_CTX;
 
-// very tediously, we need to import exactly the same verion of ForeignType as 
+// very tediously, we need to import exactly the same verion of ForeignType as
 // ossl because we need this trait impl to access the raw pointers on all of the
 // openssl types.
 use foreign_types_shared::ForeignType;
 
 // expose the macro as a function
 fn SSL_CTX_set_max_send_fragment(ctx: *mut SSL_CTX, m: c_long) -> c_long {
-        // # define SSL_CTRL_SET_MAX_SEND_FRAGMENT          52
-        const SSL_CTRL_SET_MAX_SEND_FRAGMENT: std::ffi::c_int = 52;
+    // # define SSL_CTRL_SET_MAX_SEND_FRAGMENT          52
+    const SSL_CTRL_SET_MAX_SEND_FRAGMENT: std::ffi::c_int = 52;
 
-        // TODO: assert on the return value
-        unsafe {openssl_sys::SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MAX_SEND_FRAGMENT, m, std::ptr::null_mut())} 
+    // TODO: assert on the return value
+    unsafe {
+        openssl_sys::SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MAX_SEND_FRAGMENT, m, std::ptr::null_mut())
+    }
 }
 
 extern "C" {
     // int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size);
     pub fn SSL_CTX_set_block_padding(ctx: *mut SSL_CTX, block_size: usize) -> std::ffi::c_int;
+
+    pub fn SSLv3_method() -> *const openssl_sys::SSL_METHOD;
 }
+
+// #[derive(Copy, Clone)]
+// pub struct SslMethod(*const ffi::SSL_METHOD);
+
+// impl SslMethod {
+//     /// Support all versions of the TLS protocol.
+//     #[corresponds(TLS_method)]
+//     pub fn tls() -> SslMethod {
+//         unsafe { SslMethod(TLS_method()) }
+//     }
 
 pub trait SslContextExtension {
     fn set_max_send_fragment(&mut self, max_send_fragment: usize);
@@ -37,12 +51,26 @@ pub trait SslContextExtension {
     fn set_block_padding(&mut self, block_size: usize);
 }
 
-impl SslContextExtension for SslContext {
+impl SslContextExtension for SslContextBuilder {
     fn set_max_send_fragment(&mut self, max_send_fragment: usize) {
         SSL_CTX_set_max_send_fragment(self.as_ptr(), max_send_fragment as _);
     }
-    
+
     fn set_block_padding(&mut self, block_size: usize) {
-        unsafe {SSL_CTX_set_block_padding(self.as_ptr(), block_size as _);}
+        unsafe {
+            SSL_CTX_set_block_padding(self.as_ptr(), block_size as _);
+        }
+    }
+}
+
+pub trait SslStreamExtension {
+    fn mut_ssl(&mut self) -> &mut SslRef;
+}
+
+impl<T> SslStreamExtension for SslStream<T> {
+    /// PR open upstream: https://github.com/sfackler/rust-openssl/pull/2223
+    #[allow(invalid_reference_casting)]
+    fn mut_ssl(&mut self) -> &mut SslRef {
+        unsafe { &mut *(self.ssl() as *const openssl::ssl::SslRef as *mut openssl::ssl::SslRef) }
     }
 }

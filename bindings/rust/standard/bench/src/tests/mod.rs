@@ -1,9 +1,12 @@
 use crate::{
-    harness::{self, TlsBenchConfig}, s2n_tls::S2NConfig, CryptoConfig, HandshakeType, Mode, OpenSslConnection, S2NConnection, SigType, TlsConnPair
+    harness::{self, TlsBenchConfig, TlsConfigBuilder, TlsConnIo},
+    s2n_tls::S2NConfig,
+    CryptoConfig, HandshakeType, Mode, OpenSslConnection, S2NConnection, SigType, TlsConnPair,
 };
 
 mod fragmentation;
 mod record_padding;
+mod session_resumption;
 
 trait TestUtils {
     /// Assert that application data can be successfully transmitted between
@@ -47,21 +50,24 @@ where
     }
 }
 
-struct ConfigBuilderPair<C, S>(C, S);
+struct ConfigBuilderPair<C, S> {
+    pub client: C,
+    pub server: S,
+}
 
 // new_client_config()
 
 impl<C, S> Default for ConfigBuilderPair<C, S>
 where
-    C: TlsBenchConfig,
-    S: TlsBenchConfig,
+    C: TlsConfigBuilder,
+    S: TlsConfigBuilder,
 {
     fn default() -> Self {
         // select certificate
-        let crypto_config = CryptoConfig::default();
+        // let crypto_config = CryptoConfig::default();
 
-        let c = C::make_config(Mode::Client, crypto_config, HandshakeType::ServerAuth).unwrap();
-        let s = S::make_config(Mode::Server, crypto_config, HandshakeType::ServerAuth).unwrap();
+        // let c = C::make_config(Mode::Client, crypto_config, HandshakeType::ServerAuth).unwrap();
+        // let s = S::make_config(Mode::Server, crypto_config, HandshakeType::ServerAuth).unwrap();
 
         // select protocol versions
 
@@ -69,19 +75,44 @@ where
         // select kx groups
         // select signatures
 
-        //let s2n_config = s2n_tls::config::Config::builder()
+        // let s2n_config = s2n_tls::config::Config::builder()
         // configure with certificates
 
         // default configuration -> set protocol, sig scheme, ciphers, etc
         // configure certs -> mode dependent. Maybe add to trust store, maybe prepare to send
 
-        Self(c, s)
+        Self {
+            client: C::new_integration_config(Mode::Client),
+            server: S::new_integration_config(Mode::Server),
+        }
     }
 }
 
-impl<C, S> ConfigBuilderPair<C, S> {
+impl<C, S> ConfigBuilderPair<C, S>
+where
+    C: TlsConfigBuilder,
+    S: TlsConfigBuilder,
+{
+    fn set_cert(&mut self, sigtype: SigType) {
+        self.client.set_trust(sigtype);
+        self.server.set_chain(sigtype);
+    }
+
     pub fn split(self) -> (C, S) {
-        (self.0, self.1)
+        (self.client, self.server)
+    }
+
+    pub fn build(self) -> (C::Config, S::Config) {
+        (self.client.build(), self.server.build())
+    }
+
+    pub fn connection_pair<ClientConn, ServerConn>(self) -> TlsConnPair<ClientConn, ServerConn>
+    where
+        ClientConn: TlsConnIo<Config = C::Config>,
+        ServerConn: TlsConnIo<Config = S::Config>,
+    {
+        let (client_config, server_config) = self.build();
+        TlsConnPair::from_configs(&client_config, &server_config)
     }
 }
 
@@ -98,18 +129,16 @@ fn random_test_data(data_len: usize) -> Vec<u8> {
 //     }
 // }
 
+// #[test]
+// fn type_erasure() {
+//     let (ossl_config, s2n_config) =
+//         ConfigBuilderPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
 
-#[test]
-fn type_erasure() {
-    let (ossl_config, s2n_config) =
-    ConfigBuilderPair::<crate::openssl::OpenSslConfig, S2NConfig>::default().split();
+//     let mut pair: TlsConnPair<OpenSslConnection, S2NConnection> =
+//         TlsConnPair::from_configs(&ossl_config, &s2n_config);
 
-    let mut pair: TlsConnPair<OpenSslConnection, S2NConnection> =
-        TlsConnPair::from_configs(&ossl_config, &s2n_config);
+//     // type erase the conn pair, which will make it easy to return in different scenarios
 
-    // type erase the conn pair, which will make it easy to return in different scenarios
-
-
-    assert!(pair.handshake().is_ok());
-    assert!(pair.round_trip_assert(16_000).is_ok());
-}
+//     assert!(pair.handshake().is_ok());
+//     assert!(pair.round_trip_assert(16_000).is_ok());
+// }

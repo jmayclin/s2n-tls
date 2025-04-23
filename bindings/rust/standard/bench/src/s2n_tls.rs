@@ -4,7 +4,7 @@
 use crate::{
     harness::{
         self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer,
-        Mode, TlsConnection,
+        Mode, TlsConfigBuilder, TlsConnIo, TlsConnection,
     },
     PemType::*,
 };
@@ -13,7 +13,7 @@ use s2n_tls::{
     config::Builder,
     connection::Connection,
     enums::{Blinding, ClientAuthType, Version},
-    security::Policy,
+    security::{Policy, DEFAULT_TLS13},
 };
 use std::{
     borrow::BorrowMut,
@@ -37,8 +37,53 @@ impl VerifyHostNameCallback for HostNameHandler {
     }
 }
 
+impl TlsConfigBuilder for s2n_tls::config::Builder {
+    type Config = s2n_tls::config::Config;
+
+    fn new_integration_config(mode: Mode) -> Self {
+        let mut builder = s2n_tls::config::Builder::new();
+        builder.with_system_certs(false).unwrap();
+        builder
+            .set_security_policy(&Policy::from_version("test_all").unwrap())
+            .unwrap();
+        builder
+    }
+
+    fn set_chain(&mut self, sig_type: crate::SigType) {
+        self.load_pem(
+            read_to_bytes(ClientCertChain, sig_type).as_slice(),
+            read_to_bytes(ClientKey, sig_type).as_slice(),
+        )
+        .unwrap();
+    }
+
+    fn set_trust(&mut self, sig_type: crate::SigType) {
+        self.trust_pem(read_to_bytes(CACert, sig_type).as_slice())
+            .unwrap();
+        self.set_verify_host_callback(HostNameHandler {
+            expected_server_name: "localhost",
+        })
+        .unwrap();
+    }
+
+    fn build(self) -> Self::Config {
+        self.build().unwrap()
+    }
+
+    fn set_protocol(&mut self, version: openssl::ssl::SslVersion) {
+        panic!("s2n-tls does not trust you, peasant.");
+    }
+}
+
 #[derive(Clone, Debug, Default)]
-pub struct SessionTicketStorage(Arc<Mutex<Option<Vec<u8>>>>);
+pub struct SessionTicketStorage(pub Arc<Mutex<Option<Vec<u8>>>>);
+
+impl SessionTicketStorage {
+    /// panics if a ticket is not available
+    pub fn get_ticket(self) -> Vec<u8> {
+        self.0.lock().unwrap().borrow_mut().take().unwrap()
+    }
+}
 
 impl SessionTicketCallback for SessionTicketStorage {
     fn on_session_ticket(
@@ -205,6 +250,103 @@ impl S2NConnection {
     }
 }
 
+impl TlsConnIo for S2NConnection {
+    type Config = s2n_tls::config::Config;
+
+    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
+        self.handshake_completed = self
+            .connection
+            .poll_negotiate()
+            .map(|res| res.unwrap()) // unwrap `Err` if present
+            .is_ready();
+        Ok(())
+    }
+
+    fn handshake_completed(&self) -> bool {
+        self.handshake_completed
+    }
+
+    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut write_offset = 0;
+        while write_offset < data.len() {
+            match self.connection.poll_send(&data[write_offset..]) {
+                Poll::Ready(bytes_written) => write_offset += bytes_written?,
+                Poll::Pending => return Err("unexpected pending".into()),
+            }
+            assert!(self.connection.poll_flush().is_ready());
+        }
+        Ok(())
+    }
+
+    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
+        let data_len = data.len();
+        let mut read_offset = 0;
+        while read_offset < data_len {
+            match self.connection.poll_recv(data) {
+                // connection is shutdown
+                Poll::Ready(Ok(0)) => return Ok(()),
+                Poll::Ready(bytes_read) => read_offset += bytes_read?,
+                Poll::Pending => return Err("unexpected pending".into()),
+            }
+        }
+        Ok(())
+    }
+
+    fn send_shutdown(&mut self) {
+        tracing::debug!("send shutdown");
+        self.connection.poll_shutdown_send();
+    }
+
+    fn is_shutdown(&mut self) -> bool {
+        tracing::debug!("is_shutdown");
+        let res = self.connection.poll_recv(&mut [0]);
+        if let Poll::Ready(Ok(0)) = res {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn new_from_config(
+        mode: harness::Mode,
+        config: &Self::Config,
+        io: &harness::TestPairIO,
+    ) -> Result<Self, Box<dyn Error>> {
+        let s2n_mode = match mode {
+            Mode::Client => s2n_tls::enums::Mode::Client,
+            Mode::Server => s2n_tls::enums::Mode::Server,
+        };
+
+        let io = match mode {
+            Mode::Client => io.client_view(),
+            Mode::Server => io.server_view(),
+        };
+
+        let io = Box::pin(io);
+
+        let mut connection = Connection::new(s2n_mode);
+        connection
+            .set_blinding(Blinding::SelfService)?
+            .set_config(config.clone())?
+            .set_send_callback(Some(Self::send_cb))?
+            .set_receive_callback(Some(Self::recv_cb))?;
+        unsafe {
+            connection
+                .set_send_context(
+                    &io.send_ctx as &LocalDataBuffer as *const LocalDataBuffer as *mut c_void,
+                )?
+                .set_receive_context(
+                    &io.recv_ctx as &LocalDataBuffer as *const LocalDataBuffer as *mut c_void,
+                )?;
+        }
+
+        Ok(Self {
+            connection,
+            handshake_completed: false,
+        })
+    }
+}
+
 impl TlsConnection for S2NConnection {
     type Config = S2NConfig;
 
@@ -255,19 +397,6 @@ impl TlsConnection for S2NConnection {
         })
     }
 
-    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        self.handshake_completed = self
-            .connection
-            .poll_negotiate()
-            .map(|res| res.unwrap()) // unwrap `Err` if present
-            .is_ready();
-        Ok(())
-    }
-
-    fn handshake_completed(&self) -> bool {
-        self.handshake_completed
-    }
-
     fn get_negotiated_cipher_suite(&self) -> CipherSuite {
         match self.connection.cipher_suite().unwrap() {
             "TLS_AES_128_GCM_SHA256" => CipherSuite::AES_128_GCM_SHA256,
@@ -286,44 +415,5 @@ impl TlsConnection for S2NConnection {
             .handshake_type()
             .unwrap()
             .contains("FULL_HANDSHAKE")
-    }
-
-    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        let mut write_offset = 0;
-        while write_offset < data.len() {
-            match self.connection.poll_send(&data[write_offset..]) {
-                Poll::Ready(bytes_written) => write_offset += bytes_written?,
-                Poll::Pending => return Err("unexpected pending".into()),
-            }
-            assert!(self.connection.poll_flush().is_ready());
-        }
-        Ok(())
-    }
-
-    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
-        let data_len = data.len();
-        let mut read_offset = 0;
-        while read_offset < data_len {
-            match self.connection.poll_recv(data) {
-                // connection is shutdown
-                Poll::Ready(Ok(0)) => return Ok(()),
-                Poll::Ready(bytes_read) => read_offset += bytes_read?,
-                Poll::Pending => return Err("unexpected pending".into()),
-            }
-        }
-        Ok(())
-    }
-    
-    fn send_shutdown(&mut self) {
-        self.connection.poll_shutdown_send();
-    }
-    
-    fn is_shutdown(&mut self) -> bool {
-        let res = self.connection.poll_recv(&mut[0]);
-        if let Poll::Ready(Ok(0)) = res {
-            true
-        } else {
-            false
-        }
     }
 }

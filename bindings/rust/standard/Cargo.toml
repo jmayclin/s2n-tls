@@ -4,3 +4,6 @@ members = [
     "integration",
     "s2n-tls-hyper"
 ]
+
+[patch.crates-io]
+openssl-src = { path = "/home/ubuntu/workspace/openssl-src-rs", features = ["legacy", "weak-crypto"] }

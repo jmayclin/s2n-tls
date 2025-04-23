@@ -5,12 +5,13 @@ use crate::{
     get_cert_path,
     harness::{
         self, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode, TlsBenchConfig,
-        TlsConnection, ViewIO,
+        TlsConfigBuilder, TlsConnIo, TlsConnection, TlsImpl, ViewIO,
     },
-    PemType::*,
+    PemType::{self, *},
 };
 use openssl::ssl::{
-    ErrorCode, ShutdownResult, ShutdownState, Ssl, SslContext, SslFiletype, SslMethod, SslSession, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion
+    ErrorCode, ShutdownResult, ShutdownState, Ssl, SslContext, SslContextBuilder, SslFiletype,
+    SslMethod, SslOptions, SslSession, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
 };
 use std::{
     error::Error,
@@ -18,23 +19,75 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub struct OsslImpl;
+impl TlsImpl for OsslImpl {
+    type Connection = OpenSslConnection;
+    type ConfigBuilder = SslContextBuilder;
+}
+
+impl TlsConfigBuilder for SslContextBuilder {
+    type Config = SslContext;
+
+    fn new_integration_config(mode: Mode) -> Self {
+        let mut builder = match mode {
+            Mode::Client => SslContext::builder(SslMethod::tls_client()).unwrap(),
+            Mode::Server => SslContext::builder(SslMethod::tls_server()).unwrap(),
+        };
+        builder.set_security_level(0);
+        //builder.clear_options(openssl::ssl::SslOptions::NO_SSLV3);
+        builder
+    }
+
+    fn set_chain(&mut self, sig_type: crate::SigType) {
+        self.set_certificate_chain_file(get_cert_path(PemType::ServerCertChain, sig_type))
+            .unwrap();
+        self.set_private_key_file(
+            get_cert_path(PemType::ServerKey, sig_type),
+            SslFiletype::PEM,
+        )
+        .unwrap();
+    }
+
+    fn set_trust(&mut self, sig_type: crate::SigType) {
+        self.set_ca_file(get_cert_path(PemType::CACert, sig_type))
+            .unwrap();
+    }
+
+    fn build(mut self) -> Self::Config {
+        self.set_cipher_list("ALL:eNULL:SSLv3").unwrap();
+        self.build()
+    }
+
+    fn set_protocol(&mut self, version: openssl::ssl::SslVersion) {
+        self.set_min_proto_version(Some(version)).unwrap();
+        self.set_max_proto_version(Some(version)).unwrap();
+    }
+}
+
 // Creates session ticket callback handler
 #[derive(Clone, Default)]
 pub struct SessionTicketStorage {
-    stored_ticket: Arc<Mutex<Option<SslSession>>>,
+    pub stored_ticket: Arc<Mutex<Option<SslSession>>>,
+}
+
+impl SessionTicketStorage {
+    // panics if no ticket is available
+    pub fn get_ticket(self) -> SslSession {
+        self.stored_ticket.lock().unwrap().take().unwrap()
+    }
 }
 
 pub struct OpenSslConnection {
-    connection: SslStream<ViewIO>,
+    pub connection: SslStream<ViewIO>,
 }
 
-impl Drop for OpenSslConnection {
-    fn drop(&mut self) {
-        // shutdown must be called for session resumption to work
-        // https://www.openssl.org/docs/man1.1.1/man3/SSL_set_session.html
-        self.connection.shutdown().unwrap();
-    }
-}
+// impl Drop for OpenSslConnection {
+//     fn drop(&mut self) {
+//         // shutdown must be called for session resumption to work
+//         // https://www.openssl.org/docs/man1.1.1/man3/SSL_set_session.html
+//         self.connection.shutdown().unwrap();
+//     }
+// }
 
 pub struct OpenSslConfig {
     pub config: SslContext,
@@ -137,6 +190,82 @@ impl TlsBenchConfig for OpenSslConfig {
     }
 }
 
+impl TlsConnIo for OpenSslConnection {
+    type Config = SslContext;
+
+    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
+        let result = if self.connection.ssl().is_server() {
+            self.connection.accept()
+        } else {
+            self.connection.connect()
+        };
+
+        // treat blocking (`ErrorCode::WANT_READ`) as `Ok`, expected during handshake
+        match result {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                if err.code() != ErrorCode::WANT_READ {
+                    Err(err.into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    fn handshake_completed(&self) -> bool {
+        self.connection.ssl().is_init_finished()
+    }
+
+    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut write_offset = 0;
+        while write_offset < data.len() {
+            write_offset += self.connection.write(&data[write_offset..data.len()])?;
+            self.connection.flush()?; // make sure internal buffers don't fill up
+        }
+        Ok(())
+    }
+
+    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
+        let data_len = data.len();
+        let mut read_offset = 0;
+
+        while read_offset < data.len() {
+            let res = self.connection.read(&mut data[read_offset..data_len])?;
+            if res == 0 {
+                // connection is shutdown
+                return Ok(());
+            }
+            read_offset += res
+        }
+        Ok(())
+    }
+
+    fn send_shutdown(&mut self) {
+        let res = self.connection.shutdown();
+    }
+
+    fn is_shutdown(&mut self) -> bool {
+        self.connection.shutdown().unwrap() == ShutdownResult::Received
+    }
+
+    fn new_from_config(
+        mode: harness::Mode,
+        config: &Self::Config,
+        io: &harness::TestPairIO,
+    ) -> Result<Self, Box<dyn Error>> {
+        let connection = Ssl::new(&config)?;
+
+        let io = match mode {
+            Mode::Client => io.client_view(),
+            Mode::Server => io.server_view(),
+        };
+
+        let connection = SslStream::new(connection, io)?;
+        Ok(Self { connection })
+    }
+}
+
 impl TlsConnection for OpenSslConnection {
     type Config = OpenSslConfig;
 
@@ -187,30 +316,6 @@ impl TlsConnection for OpenSslConnection {
         Ok(Self { connection })
     }
 
-    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        let result = if self.connection.ssl().is_server() {
-            self.connection.accept()
-        } else {
-            self.connection.connect()
-        };
-
-        // treat blocking (`ErrorCode::WANT_READ`) as `Ok`, expected during handshake
-        match result {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                if err.code() != ErrorCode::WANT_READ {
-                    Err(err.into())
-                } else {
-                    Ok(())
-                }
-            }
-        }
-    }
-
-    fn handshake_completed(&self) -> bool {
-        self.connection.ssl().is_init_finished()
-    }
-
     fn get_negotiated_cipher_suite(&self) -> CipherSuite {
         let cipher_suite = self
             .connection
@@ -233,39 +338,7 @@ impl TlsConnection for OpenSslConnection {
             == SslVersion::TLS1_3
     }
 
-    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        let mut write_offset = 0;
-        while write_offset < data.len() {
-            write_offset += self.connection.write(&data[write_offset..data.len()])?;
-            self.connection.flush()?; // make sure internal buffers don't fill up
-        }
-        Ok(())
-    }
-
-    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
-        let data_len = data.len();
-        let mut read_offset = 0;
-
-        while read_offset < data.len() {
-            let res = self.connection.read(&mut data[read_offset..data_len])?;
-            if res == 0 {
-                // connection is shutdown
-                return Ok(())
-            }
-            read_offset += res
-        }
-        Ok(())
-    }
-
     fn resumed_connection(&self) -> bool {
         self.connection.ssl().session_reused()
-    }
-    
-    fn send_shutdown(&mut self) {
-        let res = self.connection.shutdown();
-    }
-
-    fn is_shutdown(&mut self) -> bool {
-        self.connection.shutdown().unwrap() == ShutdownResult::Received
     }
 }

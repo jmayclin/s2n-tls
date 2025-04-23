@@ -4,26 +4,40 @@
 use crate::{
     harness::{
         self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, Mode,
-        TlsBenchConfig, TlsConnection, ViewIO,
+        TlsBenchConfig, TlsConfigBuilder, TlsConnIo, TlsConnection, TlsImpl, ViewIO,
     },
     PemType::{self, *},
     SigType,
 };
 use rustls::{
-    client, crypto::{
+    client,
+    crypto::{
+        self,
         aws_lc_rs::{
             self,
             cipher_suite::{TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384},
             kx_group::{SECP256R1, X25519},
         },
         CryptoProvider,
-    }, pki_types::{CertificateDer, PrivateKeyDer, ServerName}, server::WebPkiClientVerifier, version::TLS13, ClientConfig, ClientConnection, Connection, ProtocolVersion::TLSv1_3, RootCertStore, ServerConfig, ServerConnection
+    },
+    pki_types::{CertificateDer, PrivateKeyDer, ServerName},
+    server::WebPkiClientVerifier,
+    version::{TLS12, TLS13},
+    ClientConfig, ClientConnection, Connection,
+    ProtocolVersion::TLSv1_3,
+    RootCertStore, ServerConfig, ServerConnection, SupportedProtocolVersion,
 };
 use std::{
     error::Error,
     io::{BufReader, Read, Write},
     sync::Arc,
 };
+
+pub struct RustlsImpl;
+impl TlsImpl for RustlsImpl {
+    type Connection = RustlsConnection;
+    type ConfigBuilder = RustlsConfigBuilder;
+}
 
 pub struct RustlsConnection {
     // the rustls connection has to own the io view, because it is passed as an
@@ -46,6 +60,32 @@ impl RustlsConnection {
                 _ => Err(err),
             },
         }
+    }
+}
+
+fn get_root_cert_store(sig_type: SigType) -> RootCertStore {
+    let mut root_store = RootCertStore::empty();
+    root_store.add_parsable_certificates(
+        rustls_pemfile::certs(&mut BufReader::new(&*read_to_bytes(CACert, sig_type)))
+            .map(|r| r.unwrap()),
+    );
+    root_store
+}
+
+fn get_cert_chain(pem_type: PemType, sig_type: SigType) -> Vec<CertificateDer<'static>> {
+    rustls_pemfile::certs(&mut BufReader::new(&*read_to_bytes(pem_type, sig_type)))
+        .map(|result| result.unwrap())
+        .collect()
+}
+
+fn get_key(pem_type: PemType, sig_type: SigType) -> PrivateKeyDer<'static> {
+    let key =
+        rustls_pemfile::read_one(&mut BufReader::new(&*read_to_bytes(pem_type, sig_type))).unwrap();
+    if let Some(rustls_pemfile::Item::Pkcs8Key(pkcs_8_key)) = key {
+        pkcs_8_key.into()
+    } else {
+        // https://docs.rs/rustls-pemfile/latest/rustls_pemfile/enum.Item.html
+        panic!("unexpected key type: {:?}", key);
     }
 }
 
@@ -74,6 +114,67 @@ impl RustlsConfig {
         } else {
             // https://docs.rs/rustls-pemfile/latest/rustls_pemfile/enum.Item.html
             panic!("unexpected key type: {:?}", key);
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RustlsConfigBuilder {
+    mode: Option<Mode>,
+    protocol_version: Option<&'static SupportedProtocolVersion>,
+    cert: Option<SigType>,
+}
+
+impl TlsConfigBuilder for RustlsConfigBuilder {
+    type Config = RustlsConfig;
+
+    fn new_integration_config(mode: Mode) -> Self {
+        let mut builder = Self::default();
+        builder.mode = Some(mode);
+        builder
+    }
+
+    fn set_chain(&mut self, sig_type: SigType) {
+        self.cert = Some(sig_type)
+    }
+
+    fn set_trust(&mut self, sig_type: SigType) {
+        self.cert = Some(sig_type)
+    }
+
+    fn set_protocol(&mut self, version: openssl::ssl::SslVersion) {
+        if version == openssl::ssl::SslVersion::TLS1_3 {
+            self.protocol_version = Some(&TLS13);
+        } else if version == openssl::ssl::SslVersion::TLS1_2 {
+            self.protocol_version = Some(&TLS12);
+        } else {
+            panic!("rustls has principles, and you're asking it to violate them")
+        }
+    }
+
+    fn build(self) -> Self::Config {
+        let mode = self.mode.unwrap();
+        let version = self.protocol_version.unwrap();
+        let cert = self.cert.unwrap();
+
+        let crypto_provider = Arc::new(aws_lc_rs::default_provider());
+        match mode {
+            Mode::Client => ClientConfig::builder_with_provider(crypto_provider)
+                .with_protocol_versions(&[version])
+                .unwrap()
+                .with_root_certificates(get_root_cert_store(cert))
+                .with_no_client_auth()
+                .into(),
+            Mode::Server => ServerConfig::builder_with_provider(crypto_provider)
+                .with_protocol_versions(&[version])
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(
+                    get_cert_chain(ServerCertChain, cert),
+                    get_key(ServerKey, cert),
+                )
+                .unwrap()
+                .into(),
         }
     }
 }
@@ -169,6 +270,87 @@ impl TlsBenchConfig for RustlsConfig {
     }
 }
 
+impl TlsConnIo for RustlsConnection {
+    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
+        Self::ignore_block(self.connection.complete_io(&mut self.io))?;
+        Ok(())
+    }
+
+    fn handshake_completed(&self) -> bool {
+        !self.connection.is_handshaking()
+    }
+
+    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut write_offset = 0;
+        while write_offset < data.len() {
+            write_offset += self
+                .connection
+                .writer()
+                .write(&data[write_offset..data.len()])?;
+            self.connection.writer().flush()?;
+            self.connection.complete_io(&mut self.io)?;
+        }
+        Ok(())
+    }
+
+    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
+        let data_len = data.len();
+        let mut read_offset = 0;
+        while read_offset < data.len() {
+            self.connection.complete_io(&mut self.io)?;
+            read_offset += Self::ignore_block(
+                self.connection
+                    .reader()
+                    .read(&mut data[read_offset..data_len]),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn send_shutdown(&mut self) {
+        match &mut self.connection {
+            Connection::Client(client_connection) => client_connection.send_close_notify(),
+            Connection::Server(server_connection) => server_connection.send_close_notify(),
+        }
+        // send the close notify
+        self.connection.complete_io(&mut self.io).unwrap();
+    }
+
+    fn is_shutdown(&mut self) -> bool {
+        let res = self.connection.reader().read(&mut [0]);
+        if let Ok(0) = res {
+            true
+        } else {
+            false
+        }
+    }
+
+    type Config = RustlsConfig;
+
+    fn new_from_config(
+        mode: harness::Mode,
+        config: &Self::Config,
+        io: &harness::TestPairIO,
+    ) -> Result<Self, Box<dyn Error>> {
+        let connection = match config {
+            RustlsConfig::Client(config) => Connection::Client(ClientConnection::new(
+                config.clone(),
+                ServerName::try_from("localhost")?,
+            )?),
+            RustlsConfig::Server(config) => {
+                Connection::Server(ServerConnection::new(config.clone())?)
+            }
+        };
+
+        let io = match mode {
+            Mode::Client => io.client_view(),
+            Mode::Server => io.server_view(),
+        };
+
+        Ok(Self { io, connection })
+    }
+}
+
 impl TlsConnection for RustlsConnection {
     type Config = RustlsConfig;
 
@@ -199,15 +381,6 @@ impl TlsConnection for RustlsConnection {
         Ok(Self { io, connection })
     }
 
-    fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        Self::ignore_block(self.connection.complete_io(&mut self.io))?;
-        Ok(())
-    }
-
-    fn handshake_completed(&self) -> bool {
-        !self.connection.is_handshaking()
-    }
-
     fn get_negotiated_cipher_suite(&self) -> CipherSuite {
         match self.connection.negotiated_cipher_suite().unwrap().suite() {
             rustls::CipherSuite::TLS13_AES_128_GCM_SHA256 => CipherSuite::AES_128_GCM_SHA256,
@@ -223,56 +396,11 @@ impl TlsConnection for RustlsConnection {
             == TLSv1_3
     }
 
-    fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
-        let mut write_offset = 0;
-        while write_offset < data.len() {
-            write_offset += self
-                .connection
-                .writer()
-                .write(&data[write_offset..data.len()])?;
-            self.connection.writer().flush()?;
-            self.connection.complete_io(&mut self.io)?;
-        }
-        Ok(())
-    }
-
-    fn recv(&mut self, data: &mut [u8]) -> Result<(), Box<dyn Error>> {
-        let data_len = data.len();
-        let mut read_offset = 0;
-        while read_offset < data.len() {
-            self.connection.complete_io(&mut self.io)?;
-            read_offset += Self::ignore_block(
-                self.connection
-                    .reader()
-                    .read(&mut data[read_offset..data_len]),
-            )?;
-        }
-        Ok(())
-    }
-
     fn resumed_connection(&self) -> bool {
         if let rustls::Connection::Server(s) = &self.connection {
             s.received_resumption_data().is_some()
         } else {
             panic!("rustls connection resumption status must be check on the server side");
-        }
-    }
-    
-    fn send_shutdown(&mut self) {
-        match &mut self.connection {
-            Connection::Client(client_connection) => client_connection.send_close_notify(),
-            Connection::Server(server_connection) => server_connection.send_close_notify(),
-        }
-        // send the close notify
-        self.connection.complete_io(&mut self.io).unwrap();
-    }
-    
-    fn is_shutdown(&mut self) -> bool {
-        let res = self.connection.reader().read(&mut [0]);
-        if let Ok(0) = res {
-            true
-        } else {
-            false
         }
     }
 }
