@@ -60,9 +60,7 @@ fn send_buffer_min_size() {
 /// Replaces: test_buffered_send.py
 #[test]
 fn buffered_send() {
-    const K_BYTES: u32 = 1024;
-    const BUFFER_SIZES: &[u32] = &[1034, K_BYTES * 2, K_BYTES * 17, K_BYTES * 35, K_BYTES * 512];
-    const TEST_DATA: usize = 2 << 14;
+
 
     #[derive(Debug, Copy, Clone)]
     enum FragPref {
@@ -70,9 +68,14 @@ fn buffered_send() {
         Throughput,
     }
 
+    /// kilobyte
+    const KB: u32 = 1024;
+    const TEST_DATA: usize = 2 << 14;
+
+    /// How do these interact? Why are there so many knobs? 
+    const BUFFER_SIZES: &[u32] = &[1034, KB * 2, KB * 17, KB * 35, KB * 512];
     const FRAGMENT_PREFERENCES: &[Option<FragPref>] =
         &[Some(FragPref::LowLatency), Some(FragPref::Throughput), None];
-
     const PROTOCOLS: &[SslVersion] = &[
         SslVersion::TLS1_3,
         SslVersion::TLS1_2,

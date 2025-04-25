@@ -69,6 +69,7 @@ fn openssl_client_resumption_config(
             let _ = sts.stored_ticket.lock().unwrap().insert(ticket);
         }
     });
+    // set security level to zero to enable a wider variety of algorithms and SSLv3.
     builder.set_security_level(0);
     builder
         .set_min_proto_version(Some(protocol_version))
