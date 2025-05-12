@@ -1,16 +1,24 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{cell::RefCell, collections::VecDeque, io::ErrorKind, pin::Pin, rc::Rc};
+use std::{cell::RefCell, collections::VecDeque, fmt::Debug, io::ErrorKind, pin::Pin, rc::Rc};
 
 pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
 
-#[derive(Debug)]
 pub struct TestPairIO {
     /// a data buffer that the server writes to and the client reads from
     pub server_tx_stream: Pin<Rc<LocalDataBuffer>>,
     /// a data buffer that the client writes to and the server reads from
     pub client_tx_stream: Pin<Rc<LocalDataBuffer>>,
+}
+
+impl Debug for TestPairIO {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestPairIO")
+            .field("server_tx_stream", &self.server_tx_stream.borrow().len())
+            .field("client_tx_stream", &self.client_tx_stream.borrow().len())
+            .finish()
+    }
 }
 
 impl TestPairIO {
