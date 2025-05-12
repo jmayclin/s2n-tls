@@ -294,17 +294,22 @@ impl TlsConnIo for S2NConnection {
 
     fn send_shutdown(&mut self) {
         tracing::debug!("send shutdown");
-        self.connection.poll_shutdown_send();
+        assert!(matches!(self.connection.poll_shutdown(), Poll::Pending));
     }
 
     fn is_shutdown(&mut self) -> bool {
         tracing::debug!("is_shutdown");
-        let res = self.connection.poll_recv(&mut [0]);
-        if let Poll::Ready(Ok(0)) = res {
-            true
-        } else {
-            false
-        }
+        assert!(matches!(self.connection.poll_shutdown(), Poll::Ready(_)));
+        true
+        // so, this works for the renegotiate tests by breaks my other tests ...
+
+        // let res = self.connection.poll_recv(&mut [0]);
+        // println!("is shutdown result: {:?}", res);
+        // if let Poll::Ready(Ok(0)) = res {
+        //     true
+        // } else {
+        //     false
+        // }
     }
 
     fn new_from_config(

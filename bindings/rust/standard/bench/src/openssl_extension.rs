@@ -16,6 +16,8 @@ use openssl_sys::SSL_CTX;
 // ossl because we need this trait impl to access the raw pointers on all of the
 // openssl types.
 use foreign_types_shared::ForeignType;
+use foreign_types_shared::ForeignTypeRef;
+
 
 // expose the macro as a function
 fn SSL_CTX_set_max_send_fragment(ctx: *mut SSL_CTX, m: c_long) -> c_long {
@@ -28,11 +30,24 @@ fn SSL_CTX_set_max_send_fragment(ctx: *mut SSL_CTX, m: c_long) -> c_long {
     }
 }
 
+// expose macro as a function
+// # define SSL_get_secure_renegotiation_support(ssl) \
+//         SSL_ctrl((ssl), SSL_CTRL_GET_RI_SUPPORT, 0, NULL)
+// # define SSL_CTRL_GET_RI_SUPPORT                 76
+fn SSL_get_secure_renegotiation_support(ssl: *mut openssl_sys::SSL) -> std::ffi::c_long {
+    const SSL_CTRL_GET_RI_SUPPORT: std::ffi::c_int = 76;
+    unsafe {
+        openssl_sys::SSL_ctrl(ssl, SSL_CTRL_GET_RI_SUPPORT, 0, std::ptr::null_mut())
+    }
+}
 extern "C" {
     // int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size);
     pub fn SSL_CTX_set_block_padding(ctx: *mut SSL_CTX, block_size: usize) -> std::ffi::c_int;
 
     pub fn SSLv3_method() -> *const openssl_sys::SSL_METHOD;
+
+    pub fn SSL_renegotiate_pending(ssl: *mut openssl_sys::SSL) -> std::ffi::c_int;
+    pub fn SSL_renegotiate(ssl: *mut openssl_sys::SSL) -> std::ffi::c_int;
 }
 
 // #[derive(Copy, Clone)]
@@ -72,5 +87,43 @@ impl<T> SslStreamExtension for SslStream<T> {
     #[allow(invalid_reference_casting)]
     fn mut_ssl(&mut self) -> &mut SslRef {
         unsafe { &mut *(self.ssl() as *const openssl::ssl::SslRef as *mut openssl::ssl::SslRef) }
+    }
+}
+
+pub trait SslExtension {
+    /// Returns `true` if the peer supports secure renegotiation and 0 if it does not.
+    /// 
+    /// Probably better to say "returns true" if the peer is patched against insecure
+    /// renegotiation.
+    fn secure_renegotiation_support(&self) -> bool;
+
+    fn renegotiate_pending(&self) -> bool;
+
+    /// Schedule a renegotiate request to be sent on the next io.
+    fn renegotiate(&mut self);
+}
+
+impl SslExtension for openssl::ssl::SslRef {    
+    fn secure_renegotiation_support(&self) -> bool {
+        let result = SSL_get_secure_renegotiation_support(self.as_ptr());
+        match result {
+            1 => true,
+            0 => false,
+            _ => unreachable!("openssl documentation lied. It Lied!"),
+        }
+    }
+
+    fn renegotiate_pending(&self) -> bool {
+        match unsafe {SSL_renegotiate_pending(self.as_ptr())} {
+            1 => true,
+            0 => false,
+            _ => unreachable!("openssl documentation lied.")
+        }
+    }
+    
+    fn renegotiate(&mut self) {
+        // https://docs.openssl.org/3.3/man3/SSL_key_update/#return-values
+        let result = unsafe {SSL_renegotiate(self.as_ptr())};
+        assert_eq!(result, 1);
     }
 }

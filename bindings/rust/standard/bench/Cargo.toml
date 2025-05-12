@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = ["renegotiate"]
+renegotiate = ["s2n-tls/unstable-renegotiate"]
+
 [dependencies]
 s2n-tls = { path = "../../extended/s2n-tls" }
 errno = "0.3"

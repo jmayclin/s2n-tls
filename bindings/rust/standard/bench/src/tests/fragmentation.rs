@@ -173,6 +173,8 @@ fn prefer_low_latency() {
 
     assert!(pair.handshake().is_ok());
     assert!(pair.round_trip_assert(16_000).is_ok());
+    pair.shutdown().unwrap();
+    assert!(pair.is_shutdown());
 }
 
 /// Correctness: s2n-tls correctly handles different record sizes

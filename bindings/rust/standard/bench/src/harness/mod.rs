@@ -378,21 +378,30 @@ where
     }
 
     pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
+        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
         println!("client send shutdown");
         self.client.send_shutdown();
         println!("server send shutdown");
         self.server.send_shutdown();
 
-        println!("client recv");
+        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
+        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
+
         // self.client.recv(&mut [0])?;
-        println!("server recv");
         // self.server.recv(&mut [0])?;
 
         Ok(())
     }
 
     pub fn is_shutdown(&mut self) -> bool {
-        self.client.is_shutdown() && self.server.is_shutdown()
+        let client_shutdown = self.client.is_shutdown();
+        let server_shutdown = self.server.is_shutdown();
+        println!("client shutdown: {client_shutdown}");
+        println!("server shutdown: {server_shutdown}");
+        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
+        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
+        client_shutdown && server_shutdown
     }
 
     /// Send data from client to server, and then from server to client
