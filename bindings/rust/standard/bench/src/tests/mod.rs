@@ -6,8 +6,8 @@ use crate::{
 
 mod fragmentation;
 mod record_padding;
-mod session_resumption;
 mod renegotiate;
+mod session_resumption;
 
 trait TestUtils {
     /// Assert that application data can be successfully transmitted between

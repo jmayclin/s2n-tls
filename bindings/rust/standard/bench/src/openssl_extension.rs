@@ -15,9 +15,7 @@ use openssl_sys::SSL_CTX;
 // very tediously, we need to import exactly the same verion of ForeignType as
 // ossl because we need this trait impl to access the raw pointers on all of the
 // openssl types.
-use foreign_types_shared::ForeignType;
-use foreign_types_shared::ForeignTypeRef;
-
+use foreign_types_shared::{ForeignType, ForeignTypeRef};
 
 // expose the macro as a function
 fn SSL_CTX_set_max_send_fragment(ctx: *mut SSL_CTX, m: c_long) -> c_long {
@@ -36,9 +34,7 @@ fn SSL_CTX_set_max_send_fragment(ctx: *mut SSL_CTX, m: c_long) -> c_long {
 // # define SSL_CTRL_GET_RI_SUPPORT                 76
 fn SSL_get_secure_renegotiation_support(ssl: *mut openssl_sys::SSL) -> std::ffi::c_long {
     const SSL_CTRL_GET_RI_SUPPORT: std::ffi::c_int = 76;
-    unsafe {
-        openssl_sys::SSL_ctrl(ssl, SSL_CTRL_GET_RI_SUPPORT, 0, std::ptr::null_mut())
-    }
+    unsafe { openssl_sys::SSL_ctrl(ssl, SSL_CTRL_GET_RI_SUPPORT, 0, std::ptr::null_mut()) }
 }
 extern "C" {
     // int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size);
@@ -92,7 +88,7 @@ impl<T> SslStreamExtension for SslStream<T> {
 
 pub trait SslExtension {
     /// Returns `true` if the peer supports secure renegotiation and 0 if it does not.
-    /// 
+    ///
     /// Probably better to say "returns true" if the peer is patched against insecure
     /// renegotiation.
     fn secure_renegotiation_support(&self) -> bool;
@@ -103,7 +99,7 @@ pub trait SslExtension {
     fn renegotiate(&mut self);
 }
 
-impl SslExtension for openssl::ssl::SslRef {    
+impl SslExtension for openssl::ssl::SslRef {
     fn secure_renegotiation_support(&self) -> bool {
         let result = SSL_get_secure_renegotiation_support(self.as_ptr());
         match result {
@@ -114,16 +110,16 @@ impl SslExtension for openssl::ssl::SslRef {
     }
 
     fn renegotiate_pending(&self) -> bool {
-        match unsafe {SSL_renegotiate_pending(self.as_ptr())} {
+        match unsafe { SSL_renegotiate_pending(self.as_ptr()) } {
             1 => true,
             0 => false,
-            _ => unreachable!("openssl documentation lied.")
+            _ => unreachable!("openssl documentation lied."),
         }
     }
-    
+
     fn renegotiate(&mut self) {
         // https://docs.openssl.org/3.3/man3/SSL_key_update/#return-values
-        let result = unsafe {SSL_renegotiate(self.as_ptr())};
+        let result = unsafe { SSL_renegotiate(self.as_ptr()) };
         assert_eq!(result, 1);
     }
 }

@@ -60,8 +60,6 @@ fn send_buffer_min_size() {
 /// Replaces: test_buffered_send.py
 #[test]
 fn buffered_send() {
-
-
     #[derive(Debug, Copy, Clone)]
     enum FragPref {
         LowLatency,
@@ -72,7 +70,7 @@ fn buffered_send() {
     const KB: u32 = 1024;
     const TEST_DATA: usize = 2 << 14;
 
-    /// How do these interact? Why are there so many knobs? 
+    /// How do these interact? Why are there so many knobs?
     const BUFFER_SIZES: &[u32] = &[1034, KB * 2, KB * 17, KB * 35, KB * 512];
     const FRAGMENT_PREFERENCES: &[Option<FragPref>] =
         &[Some(FragPref::LowLatency), Some(FragPref::Throughput), None];
@@ -174,7 +172,6 @@ fn prefer_low_latency() {
     assert!(pair.handshake().is_ok());
     assert!(pair.round_trip_assert(16_000).is_ok());
     pair.shutdown().unwrap();
-    assert!(pair.is_shutdown());
 }
 
 /// Correctness: s2n-tls correctly handles different record sizes
@@ -197,7 +194,6 @@ fn fragmentation() {
         assert!(pair.handshake().is_ok());
         assert!(pair.round_trip_assert(16_000).is_ok());
         pair.shutdown().unwrap();
-        assert!(pair.is_shutdown());
     }
 
     FRAGMENT_TEST_CASES

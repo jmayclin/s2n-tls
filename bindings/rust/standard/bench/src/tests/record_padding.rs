@@ -35,7 +35,6 @@ fn record_padding() {
         }
 
         pair.shutdown().unwrap();
-        assert!(pair.is_shutdown());
     }
 
     fn s2n_client_case(pad_to: usize) {
@@ -52,7 +51,6 @@ fn record_padding() {
         }
 
         pair.shutdown().unwrap();
-        assert!(pair.is_shutdown());
     }
 
     PAD_TO_CASES.into_iter().for_each(|pad_to| {

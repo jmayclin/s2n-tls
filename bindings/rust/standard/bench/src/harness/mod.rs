@@ -391,17 +391,17 @@ where
         // self.client.recv(&mut [0])?;
         // self.server.recv(&mut [0])?;
 
-        Ok(())
-    }
-
-    pub fn is_shutdown(&mut self) -> bool {
         let client_shutdown = self.client.is_shutdown();
         let server_shutdown = self.server.is_shutdown();
         println!("client shutdown: {client_shutdown}");
         println!("server shutdown: {server_shutdown}");
         println!("client tx: {}", self.io.client_tx_stream.borrow().len());
         println!("server tx: {}", self.io.server_tx_stream.borrow().len());
-        client_shutdown && server_shutdown
+        if client_shutdown && server_shutdown {
+            Ok(())
+        } else {
+            Err("oh no".into())
+        }
     }
 
     /// Send data from client to server, and then from server to client
