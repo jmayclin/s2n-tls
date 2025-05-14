@@ -3,7 +3,7 @@
 mod io;
 pub use io::{LocalDataBuffer, TestPairIO, ViewIO};
 
-use std::{error::Error, fmt::Debug, fs::read_to_string, rc::Rc};
+use std::{cell::RefCell, error::Error, fmt::Debug, fs::read_to_string, rc::Rc};
 use strum::EnumIter;
 
 use crate::{
@@ -74,7 +74,7 @@ pub fn read_to_bytes(pem_type: PemType, sig_type: SigType) -> Vec<u8> {
         .into_bytes()
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Client,
     Server,
@@ -188,7 +188,7 @@ pub trait TlsConnection: Sized {
     fn new_from_config(
         mode: Mode,
         config: &Self::Config,
-        io: &TestPairIO,
+        io: &mut TestPairIO,
     ) -> Result<Self, Box<dyn Error>>;
 
     fn get_negotiated_cipher_suite(&self) -> CipherSuite;
@@ -208,7 +208,7 @@ pub trait TlsConnIo: Sized {
     fn new_from_config(
         mode: Mode,
         config: &Self::Config,
-        io: &TestPairIO,
+        io: &mut TestPairIO,
     ) -> Result<Self, Box<dyn Error>>;
 
     /// Run one handshake step: receive msgs from other connection, process, and send new msgs
@@ -300,12 +300,16 @@ where
     S: TlsConnIo,
 {
     pub fn from_configs(client_config: &C::Config, server_config: &S::Config) -> Self {
-        let io = TestPairIO {
-            server_tx_stream: Rc::pin(Default::default()),
-            client_tx_stream: Rc::pin(Default::default()),
-        };
-        let client = C::new_from_config(Mode::Client, client_config, &io).unwrap();
-        let server = S::new_from_config(Mode::Server, server_config, &io).unwrap();
+        Self::from_configs_with_io(client_config, server_config, TestPairIO::default())
+    }
+
+    pub fn from_configs_with_io(
+        client_config: &C::Config,
+        server_config: &S::Config,
+        mut io: TestPairIO,
+    ) -> Self {
+        let client = C::new_from_config(Mode::Client, client_config, &mut io).unwrap();
+        let server = S::new_from_config(Mode::Server, server_config, &mut io).unwrap();
         Self { client, server, io }
     }
 
@@ -361,14 +365,9 @@ where
     /// from the client and be ready to send data
     pub fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
         while !self.handshake_completed() {
-            println!("client drive handshake");
             self.client.handshake()?;
-            println!("server drive handshake");
             self.server.handshake()?;
         }
-        // for _ in 0..2 {
-        // }
-        // assert!(self.handshake_completed());
         Ok(())
     }
 
@@ -378,25 +377,17 @@ where
     }
 
     pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
-        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
-        println!("client send shutdown");
+        // debug helper: all data should have been read before attempting to shutdown.
+        // You are probably making an application error if you are hitting this
+        // statement.
+        assert!(self.io.client_tx_stream.borrow().is_empty());
+        assert!(self.io.server_tx_stream.borrow().is_empty());
+
         self.client.send_shutdown();
-        println!("server send shutdown");
         self.server.send_shutdown();
-
-        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
-        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
-
-        // self.client.recv(&mut [0])?;
-        // self.server.recv(&mut [0])?;
 
         let client_shutdown = self.client.is_shutdown();
         let server_shutdown = self.server.is_shutdown();
-        println!("client shutdown: {client_shutdown}");
-        println!("server shutdown: {server_shutdown}");
-        println!("client tx: {}", self.io.client_tx_stream.borrow().len());
-        println!("server tx: {}", self.io.server_tx_stream.borrow().len());
         if client_shutdown && server_shutdown {
             Ok(())
         } else {

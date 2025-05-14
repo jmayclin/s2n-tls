@@ -20,9 +20,14 @@ fn renegotiate_pair(
 
     // send the renegotiate request
     let _ = pair.server.connection.write(&[]);
+    println!("sent renegotiate request: {:#?}", pair.io);
 
     // read the renegotiate request & send the renegotiation client hello
     let _ = pair.client.connection.poll_recv(&mut [0]);
+    println!(
+        "read renegotiate request & send client hello: {:#?}",
+        pair.io
+    );
 
     if let Some(data) = &app_data {
         // server sends application data before sending the server hello
@@ -215,9 +220,12 @@ mod tests {
             .set_security_policy(&Policy::from_version("default")?)?
             .set_renegotiate_callback(RenegotiateResponse::Schedule)?;
         let mut pair: TlsConnPair<S2NConnection, OpenSslConnection> = configs.connection_pair();
-
+        println!("running handshake");
         pair.handshake()?;
+
+        println!("done with handshake");
         renegotiate_pair(&mut pair, Some(Vec::from(b"some application data")))?;
+        println!("done with renegotiate");
         pair.round_trip_assert(1_024)?;
         pair.shutdown()?;
 

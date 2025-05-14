@@ -4,8 +4,8 @@ use crate::{
     CryptoConfig, HandshakeType, Mode, OpenSslConnection, S2NConnection, SigType, TlsConnPair,
 };
 
-mod fragmentation;
 mod record_padding;
+mod record_sizing;
 mod renegotiate;
 mod session_resumption;
 

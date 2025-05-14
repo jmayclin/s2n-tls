@@ -4,7 +4,7 @@
 use crate::{
     harness::{
         self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer,
-        Mode, TlsConfigBuilder, TlsConnIo, TlsConnection,
+        Mode, TlsConfigBuilder, TlsConnIo, TlsConnection, ViewIO,
     },
     PemType::*,
 };
@@ -19,8 +19,9 @@ use std::{
     borrow::BorrowMut,
     error::Error,
     ffi::c_void,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     os::raw::c_int,
+    pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,
     time::SystemTime,
@@ -214,31 +215,31 @@ impl S2NConnection {
     /// s2n-tls IO is usually used with file descriptors to a TCP socket, but we
     /// reduce overhead and outside noise with a local buffer for benchmarking
     unsafe extern "C" fn send_cb(context: *mut c_void, data: *const u8, len: u32) -> c_int {
-        let context = &*(context as *const LocalDataBuffer);
+        let context = &mut *(context as *mut ViewIO);
         let data = core::slice::from_raw_parts(data, len as _);
-        let bytes_written = context.borrow_mut().write(data).unwrap();
+        let bytes_written = context.write(data).unwrap();
         bytes_written as c_int
+
+        // let context = &*(context as *const LocalDataBuffer);
     }
 
     // Note: this callback will be invoked multiple times in the event that
     // the byte-slices of the VecDeque are not contiguous (wrap around).
     unsafe extern "C" fn recv_cb(context: *mut c_void, data: *mut u8, len: u32) -> c_int {
-        let context = &*(context as *const LocalDataBuffer);
+        let context = &mut *(context as *mut ViewIO);
         let data = core::slice::from_raw_parts_mut(data, len as _);
-        match context.borrow_mut().read(data) {
-            Ok(len) => {
-                if len == 0 {
-                    // returning a length of 0 indicates a channel close (e.g. a
-                    // TCP Close) which would not be correct. To just communicate
-                    // "no more data", we instead set the errno to WouldBlock and
-                    // return -1.
-                    errno::set_errno(errno::Errno(libc::EWOULDBLOCK));
-                    -1
-                } else {
-                    len as c_int
-                }
+        match context.read(data) {
+            Ok(len) => len as c_int,
+            Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                // returning a length of 0 indicates a channel close (e.g. a
+                // TCP Close) which would not be correct. To just communicate
+                // "no more data", we instead set the errno to WouldBlock and
+                // return -1.
+                errno::set_errno(errno::Errno(libc::EWOULDBLOCK));
+                -1
             }
             Err(err) => {
+                println!("error: {:?}", err);
                 // VecDeque IO Operations should never fail
                 panic!("{err:?}");
             }
@@ -294,7 +295,10 @@ impl TlsConnIo for S2NConnection {
 
     fn send_shutdown(&mut self) {
         tracing::debug!("send shutdown");
-        assert!(matches!(self.connection.poll_shutdown(), Poll::Pending));
+        // this we definitely send the close notify, and maybe also ready the
+        // peers
+        let _ = self.connection.poll_shutdown();
+        //assert!(matches!(self.connection.poll_shutdown(), Poll::Pending));
     }
 
     fn is_shutdown(&mut self) -> bool {
@@ -315,19 +319,27 @@ impl TlsConnIo for S2NConnection {
     fn new_from_config(
         mode: harness::Mode,
         config: &Self::Config,
-        io: &harness::TestPairIO,
+        io: &mut harness::TestPairIO,
     ) -> Result<Self, Box<dyn Error>> {
         let s2n_mode = match mode {
             Mode::Client => s2n_tls::enums::Mode::Client,
             Mode::Server => s2n_tls::enums::Mode::Server,
         };
 
-        let io = match mode {
+        let io_view = match mode {
             Mode::Client => io.client_view(),
             Mode::Server => io.server_view(),
         };
 
-        let io = Box::pin(io);
+        // pin the box, so that this pointer to it will remain valid
+        let io_view = Box::pin(io_view);
+        // let res = Pin::into_inner(io.as_ref());
+        let io_ptr =
+            Pin::into_inner(io_view.as_ref()) as *const ViewIO as *mut ViewIO as *mut c_void;
+        // we set the ViewIo as an application context, which is then "owned" by
+        // then connection and will be freed when the connection is dropped.
+
+        io.associated_storage.push(Box::new(io_view));
 
         let mut connection = Connection::new(s2n_mode);
         connection
@@ -335,14 +347,11 @@ impl TlsConnIo for S2NConnection {
             .set_config(config.clone())?
             .set_send_callback(Some(Self::send_cb))?
             .set_receive_callback(Some(Self::recv_cb))?;
+        // .set_application_context(io);
         unsafe {
             connection
-                .set_send_context(
-                    &io.send_ctx as &LocalDataBuffer as *const LocalDataBuffer as *mut c_void,
-                )?
-                .set_receive_context(
-                    &io.recv_ctx as &LocalDataBuffer as *const LocalDataBuffer as *mut c_void,
-                )?;
+                .set_send_context(io_ptr)?
+                .set_receive_context(io_ptr)?;
         }
 
         Ok(Self {
@@ -362,7 +371,7 @@ impl TlsConnection for S2NConnection {
     fn new_from_config(
         mode: harness::Mode,
         config: &Self::Config,
-        io: &harness::TestPairIO,
+        io: &mut harness::TestPairIO,
     ) -> Result<Self, Box<dyn Error>> {
         let s2n_mode = match mode {
             Mode::Client => s2n_tls::enums::Mode::Client,

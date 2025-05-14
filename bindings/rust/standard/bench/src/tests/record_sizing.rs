@@ -1,3 +1,5 @@
+use std::{thread::sleep, time::Duration};
+
 use itertools::iproduct;
 use openssl::{
     ssl::{SslContextBuilder, SslVersion},
@@ -5,13 +7,13 @@ use openssl::{
 };
 
 use crate::{
-    harness::{TlsConfigBuilder, TlsImpl},
+    harness::{TestPairIO, TlsConfigBuilder, TlsConnIo, TlsImpl},
     openssl::OsslImpl,
     openssl_extension::SslContextExtension,
     rustls::RustlsImpl,
     s2n_tls::S2NConfig,
     tests::TestUtils,
-    OpenSslConnection, S2NConnection, SigType, TlsConnPair,
+    Mode, OpenSslConnection, S2NConnection, SigType, TlsConnPair,
 };
 
 use super::ConfigBuilderPair;
@@ -199,4 +201,119 @@ fn fragmentation() {
     FRAGMENT_TEST_CASES
         .into_iter()
         .for_each(|frag_length| test_case(frag_length));
+}
+
+/// Feature: s2n_connection_set_dynamic_record_threshold()
+///
+/// Note that the resize threshold is only counting application data, not handshake
+/// messages.
+///
+/// The amount of data is chosen so that we don't have to worry about "remainder"
+/// data
+#[test]
+fn dynamic_record_sizing() -> Result<(), Box<dyn std::error::Error>> {
+    const RESIZE_THRESHOLD: usize = 16_000;
+    const SMALL_RECORD_SIZE: usize = 1_500;
+    // Chosen so the final record is always more than 1,500, which makes assertions easier.
+    const APP_DATA_SIZE: usize = 100_000;
+
+    fn test_case<C: TlsConnIo, S: TlsConnIo>(
+        mut pair: TlsConnPair<C, S>,
+        s2n_tls_role: Mode,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        pair.handshake()?;
+        let client_handshake_total = pair.io.total_bytes_sent(s2n_tls_role);
+        println!("client handshake total: {:?}", client_handshake_total);
+
+        // initial ramp up: should start with small records, then switch to large records
+        pair.round_trip_assert(APP_DATA_SIZE)?;
+
+        let mut total_sent = 0;
+        for record in pair.io.writes(s2n_tls_role) {
+            if total_sent < (RESIZE_THRESHOLD + client_handshake_total) {
+                assert!(record.len() < SMALL_RECORD_SIZE)
+            } else {
+                assert!(record.len() > SMALL_RECORD_SIZE)
+            }
+            total_sent += record.len();
+        }
+        pair.io.transcript.as_ref().unwrap().borrow_mut().clear();
+
+        // steady state: there should not be any small records
+        pair.round_trip_assert(APP_DATA_SIZE)?;
+
+        for record in pair.io.writes(s2n_tls_role) {
+            assert!(record.len() > SMALL_RECORD_SIZE);
+        }
+        pair.io.transcript.as_ref().unwrap().borrow_mut().clear();
+
+        // timeout threshold: the connection should now have to "ramp up" again
+        sleep(Duration::from_secs(2));
+        pair.round_trip_assert(APP_DATA_SIZE)?;
+
+        let mut total_sent = 0;
+        for record in pair.io.writes(s2n_tls_role) {
+            if total_sent < RESIZE_THRESHOLD {
+                assert!(record.len() < SMALL_RECORD_SIZE)
+            } else {
+                assert!(record.len() > SMALL_RECORD_SIZE)
+            }
+            total_sent += record.len();
+        }
+        pair.shutdown()?;
+        Ok(())
+    }
+
+    // s2n-tls server
+    let mut builder = ConfigBuilderPair::<SslContextBuilder, s2n_tls::config::Builder>::default();
+    builder.set_cert(crate::SigType::Rsa2048);
+    let (client, server) = builder.build();
+    let mut pair: TlsConnPair<OpenSslConnection, S2NConnection> =
+        TlsConnPair::from_configs_with_io(&client, &server, TestPairIO::new_with_recording());
+    pair.server
+        .connection
+        .set_dynamic_record_threshold(RESIZE_THRESHOLD as u32, 1)?;
+    test_case(pair, Mode::Server)?;
+
+    // pair.handshake()?;
+    // let client_handshake_total = pair.io.total_bytes_sent(Mode::Server);
+    // println!("client handshake total: {:?}", client_handshake_total);
+
+    // // initial ramp up: should start with small records, then switch to large records
+    // pair.round_trip_assert(APP_DATA_SIZE)?;
+
+    // let mut total_sent = 0;
+    // for record in pair.io.writes(Mode::Server) {
+    //     if total_sent < (RESIZE_THRESHOLD + client_handshake_total) {
+    //         assert!(record.len() < SMALL_RECORD_SIZE)
+    //     } else {
+    //         assert!(record.len() > SMALL_RECORD_SIZE)
+    //     }
+    //     total_sent += record.len();
+    // }
+    // pair.io.transcript.as_ref().unwrap().borrow_mut().clear();
+
+    // // steady state: there should not be any small records
+    // pair.round_trip_assert(APP_DATA_SIZE)?;
+
+    // for record in pair.io.writes(Mode::Server) {
+    //     assert!(record.len() > SMALL_RECORD_SIZE);
+    // }
+    // pair.io.transcript.as_ref().unwrap().borrow_mut().clear();
+
+    // // timeout threshold: the connection should now have to "ramp up" again
+    // sleep(Duration::from_secs(5));
+    // pair.round_trip_assert(APP_DATA_SIZE)?;
+
+    // let mut total_sent = 0;
+    // for record in pair.io.writes(Mode::Server) {
+    //     if total_sent < RESIZE_THRESHOLD {
+    //         assert!(record.len() < SMALL_RECORD_SIZE)
+    //     } else {
+    //         assert!(record.len() > SMALL_RECORD_SIZE)
+    //     }
+    //     total_sent += record.len();
+    // }
+
+    Ok(())
 }

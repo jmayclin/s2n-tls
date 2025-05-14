@@ -353,6 +353,7 @@ impl Connection {
 
         // Wipe if starting renegotiation
         if self.renegotiate_state().needs_wipe {
+            println!("wiping for renegotiate");
             self.wipe_for_renegotiate()?;
         }
 

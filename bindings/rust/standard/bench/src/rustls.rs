@@ -317,6 +317,8 @@ impl TlsConnIo for RustlsConnection {
     }
 
     fn is_shutdown(&mut self) -> bool {
+        self.connection.complete_io(&mut self.io).unwrap();
+
         let res = self.connection.reader().read(&mut [0]);
         if let Ok(0) = res {
             true
@@ -330,7 +332,7 @@ impl TlsConnIo for RustlsConnection {
     fn new_from_config(
         mode: harness::Mode,
         config: &Self::Config,
-        io: &harness::TestPairIO,
+        io: &mut harness::TestPairIO,
     ) -> Result<Self, Box<dyn Error>> {
         let connection = match config {
             RustlsConfig::Client(config) => Connection::Client(ClientConnection::new(
@@ -361,7 +363,7 @@ impl TlsConnection for RustlsConnection {
     fn new_from_config(
         mode: harness::Mode,
         config: &Self::Config,
-        io: &harness::TestPairIO,
+        io: &mut harness::TestPairIO,
     ) -> Result<Self, Box<dyn Error>> {
         let connection = match config {
             RustlsConfig::Client(config) => Connection::Client(ClientConnection::new(
