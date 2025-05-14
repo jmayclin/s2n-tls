@@ -99,10 +99,6 @@ where
         self.server.set_chain(sigtype);
     }
 
-    pub fn split(self) -> (C, S) {
-        (self.client, self.server)
-    }
-
     pub fn build(self) -> (C::Config, S::Config) {
         (self.client.build(), self.server.build())
     }
