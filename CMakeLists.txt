@@ -373,6 +373,10 @@ if (NOT S2N_EXECINFO_AVAILABLE)
 endif()
 feature_probe_result(S2N_STACKTRACE ${S2N_STACKTRACE})
 
+if (S2N_COMPILER_SUPPORTS_BRANCH_ALIGN AND NOT S2N_FUZZ_TEST)
+    target_compile_options(${PROJECT_NAME} PRIVATE "-Wa,-mbranches-within-32B-boundaries")
+endif()
+
 if (S2N_INTERN_LIBCRYPTO)
 
     # Check if the AWS::crypto target has beeen added and handle it
@@ -640,6 +644,7 @@ if (BUILD_TESTING)
                         COMMAND
                         pytest
                         -x -n=${N} --reruns=2 --durations=10 --cache-clear -rpfsq
+			--junitxml=../../build/junit/${test_target}.xml
                         -o log_cli=true --log-cli-level=DEBUG --provider-version=$ENV{S2N_LIBCRYPTO}
                         ${test_file_path}
                         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/integrationv2

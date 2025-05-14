@@ -185,7 +185,8 @@ fn builder(libcrypto: &Libcrypto) -> cc::Build {
         .flag_if_supported("-z now")
         .flag_if_supported("-z noexecstack")
         // we use some deprecated libcrypto features so don't warn here
-        .flag_if_supported("-Wno-deprecated-declarations");
+        .flag_if_supported("-Wno-deprecated-declarations")
+        .flag_if_supported("-Wa,-mbranches-within-32B-boundaries");
 
     build
 }
@@ -256,6 +257,10 @@ impl External {
 
     fn link(&self) {
         println!("cargo:rustc-cfg={EXTERNAL_BUILD_CFG_NAME}");
+
+        // Propagate an external build flag to dependents, of the form
+        // `DEP_S2N_TLS_EXTERNAL_BUILD=true`.
+        println!("cargo:external_build=true");
 
         println!(
             "cargo:rustc-link-search={}",
