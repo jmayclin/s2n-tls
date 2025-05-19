@@ -20,6 +20,7 @@
 #include "s2n_extension_type.h"
 #include "s2n_extension_type_lists.h"
 #include "utils/s2n_safety.h"
+#include "utils/s2n_event.h"
 
 #define s2n_parsed_extension_is_empty(parsed_extension) ((parsed_extension)->extension.data == NULL)
 
@@ -183,5 +184,13 @@ int s2n_extension_list_parse(struct s2n_stuffer *in, s2n_parsed_extensions_list 
     }
 
     parsed_extension_list->count = wire_index;
+
+    {
+        char event_log_buffer [256];
+        /* I'm not using snprintf because I'm a bad person */
+        sprintf (event_log_buffer, "the client send %d extensions", parsed_extension_list->count);
+        (*s2n_event_log_cb)("DEBUG", event_log_buffer);
+    };
+
     return S2N_SUCCESS;
 }

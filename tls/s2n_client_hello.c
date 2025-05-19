@@ -41,6 +41,7 @@
 #include "utils/s2n_bitmap.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
+#include "utils/s2n_event.h"
 
 struct s2n_client_hello *s2n_connection_get_client_hello(struct s2n_connection *conn)
 {
@@ -427,6 +428,15 @@ S2N_RESULT s2n_client_hello_parse_raw(struct s2n_client_hello *client_hello,
 int s2n_parse_client_hello(struct s2n_connection *conn)
 {
     POSIX_ENSURE_REF(conn);
+
+    {
+        s2n_event_log_cb("DEBUG", "parsing client hello");
+        // char event_log_buffer [256];
+        // int n, a=5, b=3;
+        // /* I'm not using snprintf because I'm a bad person */
+        // n = sprintf (event_log_buffer, "%d plus %d is %d", a, b, a+b);
+        // printf ("[%s] is a string %d chars long\n",buffer,n);
+    }
 
     /* SSLv2 ClientHellos are not allowed during a HelloRetryRequest */
     if (s2n_is_hello_retry_handshake(conn)) {

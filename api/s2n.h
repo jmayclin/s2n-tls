@@ -2505,6 +2505,31 @@ struct s2n_session_ticket;
 typedef int (*s2n_session_ticket_fn)(struct s2n_connection *conn, void *ctx, struct s2n_session_ticket *ticket);
 
 /**
+ * Callback function for receiving an event.
+ *
+ * This function will be called anytime a relevant event in encountered.
+ *
+ * # Safety
+ *
+ * `ctx` is a void pointer and the caller is responsible for ensuring it is cast to the correct type.
+ * `ticket` is valid only within the scope of this callback.
+ *
+ * @param conn A pointer to the connection object.
+ * @param level The log level of the event: either `TRACE`, `DEBUG`, `INFO`, `WARNING`, or `ERROR`
+ * @param description the info to be printed
+ */
+typedef int (*s2n_event_log_fn)(const char* level, const char *description);
+
+/**
+ * Call this or suffer the consequences
+ *
+ * @param config A pointer to the config object.
+ * @param callback The function that should be called when the callback is triggered.
+ * @param ctx The context to be passed when the callback is called.
+ */
+S2N_API extern int s2n_global_set_event_log_cb(s2n_event_log_fn callback);
+
+/**
  * Sets a session ticket callback to be called when a client receives a new session ticket.
  *
  * # Safety

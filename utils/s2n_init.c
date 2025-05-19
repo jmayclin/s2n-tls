@@ -32,6 +32,7 @@
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 #include "utils/s2n_safety_macros.h"
+#include "s2n_event.h"
 
 static void s2n_cleanup_atexit(void);
 
@@ -64,6 +65,7 @@ int s2n_init(void)
     if (getenv("S2N_INTEG_TEST")) {
         POSIX_GUARD(s2n_in_integ_test_set(true));
     }
+    s2n_event_log_cb = s2n_default_event_log_cb;
 
     /* Should run before any init method that calls libcrypto methods
      * to ensure we don't try to call methods that don't exist.
