@@ -70,6 +70,11 @@ async fn run_server(cert_pem: &[u8], key_pem: &[u8], addr: &str) -> Result<(), B
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+
+    tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::TRACE)
+        .init();
+    
     let args = Args::parse();
     let cert_pem = fs::read(args.cert)?;
     let key_pem = fs::read(args.key)?;

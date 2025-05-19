@@ -11,9 +11,10 @@ use crate::{
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
+use libc::c_char;
 use s2n_tls_sys::*;
 use std::{
-    ffi::{c_void, CString},
+    ffi::{self, c_void, CStr, CString},
     path::Path,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
@@ -178,6 +179,37 @@ pub struct Builder {
     enable_ocsp: bool,
 }
 
+unsafe extern "C" fn rust_default_event_cb(
+    level: *const c_char,
+    description: *const c_char,
+) -> libc::c_int {
+    let level = CStr::from_ptr(level).to_str();
+    let description = CStr::from_ptr(description).to_str();
+    let (level, description) = match (level, description) {
+        (Ok(level), Ok(description)) => (level, description),
+        (maybe_level, maybe_description) => {
+            tracing::error!(
+            "failed to get event with {:?} and {:?}",
+            maybe_level,
+            maybe_description
+        );
+        return 0;
+    },
+    };
+
+    match level {
+        "TRACE" => tracing::trace!(description),
+        "DEBUG" => tracing::debug!(description),
+        "INFO" => tracing::info!(description),
+        "WARN" => tracing::warn!(description),
+        "ERROR" => tracing::error!(description),
+        unrecognized_level => {
+            tracing::error!("event with unrecognized level: {level}, {description}")
+        }
+    };
+    0
+}
+
 impl Builder {
     /// # Warning
     ///
@@ -196,6 +228,10 @@ impl Builder {
 
         let context = Box::<Context>::default();
         let context = Box::into_raw(context) as *mut c_void;
+
+        unsafe { s2n_global_set_event_log_cb(Some(rust_default_event_cb)) }
+            .into_result()
+            .unwrap();
 
         unsafe {
             s2n_config_set_ctx(config.as_ptr(), context)
