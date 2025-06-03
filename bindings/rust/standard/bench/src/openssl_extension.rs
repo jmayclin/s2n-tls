@@ -7,7 +7,7 @@
 // # define SSL_CTX_set_max_send_fragment(ctx,m) \
 //         SSL_CTX_ctrl(ctx,SSL_CTRL_SET_MAX_SEND_FRAGMENT,m,NULL)
 
-use std::ffi::c_long;
+use std::{ffi::c_long, os::raw::c_void};
 
 use openssl::ssl::{SslContext, SslContextBuilder, SslRef, SslStream};
 use openssl_sys::SSL_CTX;
@@ -39,6 +39,7 @@ fn SSL_get_secure_renegotiation_support(ssl: *mut openssl_sys::SSL) -> std::ffi:
 extern "C" {
     // int SSL_CTX_set_block_padding(SSL_CTX *ctx, size_t block_size);
     pub fn SSL_CTX_set_block_padding(ctx: *mut SSL_CTX, block_size: usize) -> std::ffi::c_int;
+    // pub fn SSL_CTX_set_block_padding(ctx: *mut c_void, block_size: usize) -> std::ffi::c_int;
 
     pub fn SSLv3_method() -> *const openssl_sys::SSL_METHOD;
 
@@ -59,7 +60,7 @@ extern "C" {
 pub trait SslContextExtension {
     fn set_max_send_fragment(&mut self, max_send_fragment: usize);
 
-    fn set_block_padding(&mut self, block_size: usize);
+    // fn set_block_padding(&mut self, block_size: usize);
 }
 
 impl SslContextExtension for SslContextBuilder {
@@ -67,13 +68,14 @@ impl SslContextExtension for SslContextBuilder {
         SSL_CTX_set_max_send_fragment(self.as_ptr(), max_send_fragment as _);
     }
 
-    fn set_block_padding(&mut self, block_size: usize) {
-        unsafe {
-            SSL_CTX_set_block_padding(self.as_ptr(), block_size as _);
-        }
-    }
+    // fn set_block_padding(&mut self, block_size: usize) {
+    //     unsafe {
+    //         SSL_CTX_set_block_padding(self.as_ptr(), block_size as _);
+    //     }
+    // }
 }
-
+/// context.set_block_padding(512);
+/// SSL_CTX_set_block_padding(context.as_ptr(), 512);
 pub trait SslStreamExtension {
     fn mut_ssl(&mut self) -> &mut SslRef;
 }

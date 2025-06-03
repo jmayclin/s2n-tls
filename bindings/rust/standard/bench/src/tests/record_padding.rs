@@ -1,4 +1,5 @@
 use openssl::ssl::SslContextBuilder;
+use openssl_sys::SSL_CTX_set_options;
 
 use crate::{
     openssl::OpenSslConfig,
@@ -38,10 +39,17 @@ fn record_padding() {
     }
 
     fn s2n_client_case(pad_to: usize) {
+        const NO_SSLV2: u64 = 0b000010;
+        const NO_SSLV3: u64 = 0b000100;
+        
         let mut configs: ConfigBuilderPair<s2n_tls::config::Builder, SslContextBuilder> =
             ConfigBuilderPair::default();
         configs.set_cert(SigType::Rsa4096);
-        configs.server.set_block_padding(pad_to);
+        // configs.server.set_options(option)
+
+        SSL_CTX_set_options(configs.server.as_ptr(), NO_SSLV2);
+        //configs.server.set_block_padding(pad_to);
+        // SSL_CTX_set_record_padding(configs.server.as_ptr(), pad_to);
 
         let mut pair: TlsConnPair<S2NConnection, OpenSslConnection> = configs.connection_pair();
 

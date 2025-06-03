@@ -9,6 +9,8 @@ use super::Mode;
 
 pub type LocalDataBuffer = RefCell<VecDeque<u8>>;
 
+pub struct Transcript(RefCell<Vec<(Mode, Vec<u8>)>>);
+
 pub struct TestPairIO {
     /// a data buffer that the server writes to and the client reads from
     pub server_tx_stream: Pin<Rc<LocalDataBuffer>>,

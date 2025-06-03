@@ -223,9 +223,7 @@ pub trait TlsConnIo: Sized {
 
     /// shutdown send
     fn send_shutdown(&mut self);
-
-    /// shutdown send
-    fn is_shutdown(&mut self) -> bool;
+    fn shutdown_completed(&mut self) -> bool;
 }
 
 /// A TlsConnPair owns the client and server tls connections along with the IO buffers.
@@ -234,18 +232,6 @@ pub struct TlsConnPair<C, S> {
     pub server: S,
     pub io: TestPairIO,
 }
-
-// impl<C, S> Default for TlsConnPair<C, S>
-// where
-//     C: TlsConnection,
-//     S: TlsConnection,
-//     C::Config: TlsBenchConfig,
-//     S::Config: TlsBenchConfig,
-// {
-//     fn default() -> Self {
-//         Self::new_bench_pair(CryptoConfig::default(), HandshakeType::default()).unwrap()
-//     }
-// }
 
 impl<C, S> TlsConnPair<C, S>
 where
@@ -313,22 +299,6 @@ where
         Self { client, server, io }
     }
 
-    pub fn client(&self) -> &C {
-        &self.client
-    }
-
-    pub fn client_mut(&mut self) -> &mut C {
-        &mut self.client
-    }
-
-    pub fn server(&self) -> &S {
-        &self.server
-    }
-
-    pub fn server_mut(&mut self) -> &mut S {
-        &mut self.server
-    }
-
     // pub fn get_negotiated_cipher_suite(&self) -> CipherSuite {
     //     assert!(self.handshake_completed());
     //     assert!(
@@ -386,8 +356,8 @@ where
         self.client.send_shutdown();
         self.server.send_shutdown();
 
-        let client_shutdown = self.client.is_shutdown();
-        let server_shutdown = self.server.is_shutdown();
+        let client_shutdown = self.client.shutdown_completed();
+        let server_shutdown = self.server.shutdown_completed();
         if client_shutdown && server_shutdown {
             Ok(())
         } else {

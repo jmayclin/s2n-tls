@@ -301,7 +301,7 @@ impl TlsConnIo for S2NConnection {
         //assert!(matches!(self.connection.poll_shutdown(), Poll::Pending));
     }
 
-    fn is_shutdown(&mut self) -> bool {
+    fn shutdown_completed(&mut self) -> bool {
         tracing::debug!("is_shutdown");
         assert!(matches!(self.connection.poll_shutdown(), Poll::Ready(_)));
         true

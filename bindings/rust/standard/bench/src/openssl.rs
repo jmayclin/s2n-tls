@@ -245,7 +245,7 @@ impl TlsConnIo for OpenSslConnection {
         let res = self.connection.shutdown();
     }
 
-    fn is_shutdown(&mut self) -> bool {
+    fn shutdown_completed(&mut self) -> bool {
         self.connection.shutdown().unwrap() == ShutdownResult::Received
     }
 

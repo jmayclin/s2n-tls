@@ -316,7 +316,7 @@ impl TlsConnIo for RustlsConnection {
         self.connection.complete_io(&mut self.io).unwrap();
     }
 
-    fn is_shutdown(&mut self) -> bool {
+    fn shutdown_completed(&mut self) -> bool {
         self.connection.complete_io(&mut self.io).unwrap();
 
         let res = self.connection.reader().read(&mut [0]);

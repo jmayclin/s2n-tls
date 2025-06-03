@@ -20,7 +20,6 @@ fn renegotiate_pair(
 
     // send the renegotiate request
     let _ = pair.server.connection.write(&[]);
-    println!("sent renegotiate request: {:#?}", pair.io);
 
     // read the renegotiate request & send the renegotiation client hello
     let _ = pair.client.connection.poll_recv(&mut [0]);
