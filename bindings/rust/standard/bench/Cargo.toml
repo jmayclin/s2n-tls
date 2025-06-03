@@ -36,3 +36,9 @@ harness = false
 [[bench]]
 name = "connection_creation"
 harness = false
+
+[profile.bench]
+debug = true
+
+[profile.release]
+debug = true
