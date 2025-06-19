@@ -1,6 +1,9 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //! This example shows how to setup key logging for our rust bindings.
 //!
-//! The builds off the the basic client and server configuration, so be sure to
+//! This builds off the the basic client and server configuration, so be sure to
 //! first check out the `tokio-server-client` example if you are generally unfamiliar
 //! with s2n-tls APIs.
 
@@ -64,10 +67,6 @@ impl TlsKeyLogger {
 
         Some(())
     }
-}
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
 }
 
 #[cfg(test)]
@@ -135,7 +134,8 @@ mod tests {
             client_config.set_security_policy(&DEFAULT_TLS13)?;
             unsafe {
                 // The s2n-tls API currently requires a raw C callback and a raw C "context"
-                // pointer.
+                // pointer, although we have plans to improve this in the future:
+                // https://github.com/aws/s2n-tls/issues/4805. (Please +1 if interested)
                 //
                 // The callback is the "extern C" function that we defined for the TlsKeyLogger,
                 // and we get the underlying pointer to the KeyLogger to use as the
