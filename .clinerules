@@ -21,8 +21,6 @@ Library users can set this callback to receive/log the events that we are going 
 extern s2n_event_log_fn s2n_event_log_cb;
 ```
 
-You are in phase 1.
-
 ## Phase 1
 
 Plan the events that should be added to the library, collecting the proposed events into a document `proposed_events.md` which I will review before we move to phase 2.
