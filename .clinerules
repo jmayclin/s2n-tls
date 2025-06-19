@@ -1,0 +1,65 @@
+# Project Brief
+s2n-tls is a C TLS library. s2n-tls has a terrible observability story, and is incredibly difficult to debug. We will be improving this experience by adding log events to the s2n-tls library. This will enable consumers of the library to see what the library is doing and executing, and provide more information about any errors that it hits.
+
+## Overview
+We recently added an event callback to the library. The shape of this callback is defined in `api/s2n.h`.
+```c
+/**
+ * Callback function for receiving an event.
+ *
+ * This function will be called anytime a relevant event in encountered.
+ *
+ * @param level The log level of the event: either `TRACE`, `DEBUG`, `INFO`, `WARNING`, or `ERROR`
+ * @param description the info to be printed
+ */
+typedef int (*s2n_event_log_fn)(const char* level, const char *description);
+```
+
+Library users can set this callback to receive/log the events that we are going to add. Specifically there is a global callback declared in `utils/s2n_event.h`
+```c
+/* global event logging callback */
+extern s2n_event_log_fn s2n_event_log_cb;
+```
+
+You are in phase 1.
+
+## Phase 1
+
+Plan the events that should be added to the library, collecting the proposed events into a document `proposed_events.md` which I will review before we move to phase 2.
+
+1. iterate through each file in the `tls/` folder, excluding `tls/extensions`.
+2. for each file, decide which events should be emitted. 
+3. for each event that should be emitted, add it to `proposed_events.md` and include
+    - an example event
+    - the file and line number where the event will be added
+
+### Choosing Events
+You should add an event for every interesting event that happens.
+
+examples of good events:
+- which TLS message was sent
+- the size of the record that was received
+- a verbose ERROR log about why a cert was untrusted (e.g. verify host failed? Trust store failed? cert parsing failed?)
+- a TLS feature was used 
+    - session resumption was used (which STEK was used?)
+    - a PSK was used (what was the PSK identity)
+
+examples of bad events:
+- some bytes were read from a stuffer: this is too low level to be interesting
+
+I expect that you will be adding lots of events, likely more than a hundred. Thus it is important to follow the instructions and use `proposed_events.md` as an efficient way to preserve context.
+
+## Phase 2
+
+Implement all of the events in `proposed_events.md`.
+
+Events should follow a strict style: They should always be in their own scope, denoted by `{ ... }`.
+
+## Development Workflow
+
+There are three useful bash aliases defined.
+- `sfb` -> "s2n tls full build". This will remove the existing build folder, rerun CMAKE to generate the build file, build everything, and run the unit tests.
+- `sb` -> "s2n tls build". This will just rerun the build portion, not rerunning cmake or running the tests.
+- `st` -> "s2n-tls test". This will just run the unit tests. 
+
+As you are adding events you should ensure that all of the tests continue to pass.

@@ -13,7 +13,7 @@ int s2n_default_event_log_cb(const char *level, const char *description) {
     if ((memcmp(level, "TRACE", sizeof "TRACE") == 0)) {
         return 0;
     }
-    printf("[%s]: %s", level, description);
+    printf("[%s]: %s\n", level, description);
     return 0;
 }
 
