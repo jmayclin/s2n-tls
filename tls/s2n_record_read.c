@@ -17,6 +17,8 @@
 
 #include <sys/param.h>
 
+#include "utils/s2n_event.h"
+
 #include "crypto/s2n_cipher.h"
 #include "crypto/s2n_hmac.h"
 #include "crypto/s2n_sequence.h"
@@ -142,6 +144,39 @@ int s2n_record_header_parse(
     POSIX_GUARD(s2n_stuffer_read_uint16(in, fragment_length));
     POSIX_GUARD(s2n_stuffer_reread(in));
 
+    /* Log record received event */
+    {
+        char event_log_buffer[256];
+        const char *version_str = "UNKNOWN";
+        
+        if (version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        const char *type_str = "UNKNOWN";
+        if (*content_type == TLS_CHANGE_CIPHER_SPEC) {
+            type_str = "CHANGE_CIPHER_SPEC";
+        } else if (*content_type == TLS_ALERT) {
+            type_str = "ALERT";
+        } else if (*content_type == TLS_HANDSHAKE) {
+            type_str = "HANDSHAKE";
+        } else if (*content_type == TLS_APPLICATION_DATA) {
+            type_str = "APPLICATION_DATA";
+        }
+        
+        sprintf(event_log_buffer, "Received record: type=%s, version=%s, length=%u", 
+                type_str, version_str, *fragment_length);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
+
     return 0;
 }
 
@@ -220,6 +255,25 @@ int s2n_record_parse(struct s2n_connection *conn)
             break;
     }
 
+    /* Log record decryption event */
+    {
+        char event_log_buffer[256];
+        const char *type_str = "UNKNOWN";
+        if (content_type == TLS_CHANGE_CIPHER_SPEC) {
+            type_str = "CHANGE_CIPHER_SPEC";
+        } else if (content_type == TLS_ALERT) {
+            type_str = "ALERT";
+        } else if (content_type == TLS_HANDSHAKE) {
+            type_str = "HANDSHAKE";
+        } else if (content_type == TLS_APPLICATION_DATA) {
+            type_str = "APPLICATION_DATA";
+        }
+        
+        uint16_t data_size = s2n_stuffer_data_available(&conn->in);
+        sprintf(event_log_buffer, "Decrypted record: type=%s, length=%u", type_str, data_size);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
+
     return 0;
 }
 
@@ -264,6 +318,24 @@ int s2n_tls13_parse_record_type(struct s2n_stuffer *stuffer, uint8_t *record_typ
 
     /* Even in the incorrect case above with up to 16 extra bytes, we should never see too much data after unpadding */
     S2N_ERROR_IF(s2n_stuffer_data_available(stuffer) > S2N_MAXIMUM_INNER_PLAINTEXT_LENGTH - 1, S2N_ERR_MAX_INNER_PLAINTEXT_SIZE);
+
+    /* Log TLS1.3 inner content type */
+    {
+        char event_log_buffer[256];
+        const char *type_str = "UNKNOWN";
+        if (*record_type == TLS_CHANGE_CIPHER_SPEC) {
+            type_str = "CHANGE_CIPHER_SPEC";
+        } else if (*record_type == TLS_ALERT) {
+            type_str = "ALERT";
+        } else if (*record_type == TLS_HANDSHAKE) {
+            type_str = "HANDSHAKE";
+        } else if (*record_type == TLS_APPLICATION_DATA) {
+            type_str = "APPLICATION_DATA";
+        }
+        
+        sprintf(event_log_buffer, "TLS1.3 inner content type: %s", type_str);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     return 0;
 }

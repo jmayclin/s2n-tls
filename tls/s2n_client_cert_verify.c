@@ -15,6 +15,7 @@
 
 #include "api/s2n.h"
 #include "error/s2n_errno.h"
+#include "utils/s2n_event.h"
 #include "stuffer/s2n_stuffer.h"
 #include "tls/s2n_async_pkey.h"
 #include "tls/s2n_config.h"
@@ -30,6 +31,13 @@ int s2n_client_cert_verify_recv(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn);
     struct s2n_handshake_hashes *hashes = conn->handshake.hashes;
     POSIX_ENSURE_REF(hashes);
+
+    /* Log client certificate verification event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Verifying client certificate signature");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     struct s2n_stuffer *in = &conn->handshake.io;
 
@@ -54,6 +62,13 @@ int s2n_client_cert_verify_recv(struct s2n_connection *conn)
     /* Client certificate has been verified. Minimize required handshake hash algs */
     POSIX_GUARD(s2n_conn_update_required_handshake_hashes(conn));
 
+    /* Log client certificate verification result */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Client certificate verification result: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return S2N_SUCCESS;
 }
 
@@ -62,6 +77,13 @@ int s2n_client_cert_verify_send(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn);
     struct s2n_handshake_hashes *hashes = conn->handshake.hashes;
     POSIX_ENSURE_REF(hashes);
+
+    /* Log client certificate verification sending event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Sending client certificate verification");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     S2N_ASYNC_PKEY_GUARD(conn);
     struct s2n_stuffer *out = &conn->handshake.io;
@@ -88,6 +110,13 @@ static int s2n_client_cert_verify_send_complete(struct s2n_connection *conn, str
 
     /* Client certificate has been verified. Minimize required handshake hash algs */
     POSIX_GUARD(s2n_conn_update_required_handshake_hashes(conn));
+
+    /* Log client certificate verification completion event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Client certificate verification sent");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_SUCCESS;
 }

@@ -16,6 +16,7 @@
 #include "tls/s2n_connection.h"
 
 #include <stdbool.h>
+#include "utils/s2n_event.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -469,6 +470,41 @@ int s2n_connection_free_handshake(struct s2n_connection *conn)
 int s2n_connection_wipe(struct s2n_connection *conn)
 {
     POSIX_ENSURE_REF(conn);
+
+    /* Log connection established event if handshake is complete */
+    if (is_handshake_complete(conn)) {
+        char event_log_buffer[256];
+        const char *protocol_version = "unknown";
+        const char *cipher_name = "unknown";
+        
+        switch (conn->actual_protocol_version) {
+            case S2N_SSLv3:
+                protocol_version = "SSLv3";
+                break;
+            case S2N_TLS10:
+                protocol_version = "TLSv1.0";
+                break;
+            case S2N_TLS11:
+                protocol_version = "TLSv1.1";
+                break;
+            case S2N_TLS12:
+                protocol_version = "TLSv1.2";
+                break;
+            case S2N_TLS13:
+                protocol_version = "TLSv1.3";
+                break;
+            default:
+                break;
+        }
+        
+        if (conn->secure && conn->secure->cipher_suite && conn->secure->cipher_suite->name) {
+            cipher_name = conn->secure->cipher_suite->name;
+        }
+        
+        sprintf(event_log_buffer, "Connection established: protocol=%s, cipher=%s", 
+                protocol_version, cipher_name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     /* First make a copy of everything we'd like to save, which isn't very much. */
     int mode = conn->mode;
@@ -1369,6 +1405,25 @@ S2N_CLEANUP_RESULT s2n_connection_apply_error_blinding(struct s2n_connection **c
 S2N_RESULT s2n_connection_set_closed(struct s2n_connection *conn)
 {
     RESULT_ENSURE_REF(conn);
+    
+    /* Only log if we're actually changing the state */
+    if (!s2n_atomic_flag_test(&conn->read_closed) || !s2n_atomic_flag_test(&conn->write_closed)) {
+        /* Log connection closed event */
+        char event_log_buffer[256];
+        const char *reason = "application_closed";
+        
+        if (s2n_atomic_flag_test(&conn->error_alert_received)) {
+            reason = "error_alert_received";
+        } else if (conn->writer_alert_out || conn->reader_alert_out) {
+            reason = "alert_sent";
+        } else if (conn->delay) {
+            reason = "blinded";
+        }
+        
+        sprintf(event_log_buffer, "Connection closed: reason=%s", reason);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     s2n_atomic_flag_set(&conn->read_closed);
     s2n_atomic_flag_set(&conn->write_closed);
     return S2N_RESULT_OK;

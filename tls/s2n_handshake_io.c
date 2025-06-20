@@ -36,6 +36,7 @@
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 #include "utils/s2n_socket.h"
+#include "utils/s2n_event.h"
 
 /* clang-format off */
 struct s2n_handshake_action {
@@ -852,6 +853,15 @@ static int s2n_advance_message(struct s2n_connection *conn)
     char previous_writer = ACTIVE_STATE(conn).writer;
     char this_mode = CONNECTION_WRITER(conn);
 
+    /* Log handshake message transition */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Handshake message transition: %s -> %s", 
+                message_names[ACTIVE_MESSAGE(conn)], 
+                message_names[conn->handshake.message_number]);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     /* Actually advance the message number */
     conn->handshake.message_number++;
 
@@ -1018,6 +1028,15 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
 
     if (IS_TLS13_HANDSHAKE(conn)) {
         POSIX_GUARD_RESULT(s2n_conn_set_tls13_handshake_type(conn));
+        
+        /* Log handshake type selection */
+        {
+            char event_log_buffer[256];
+            sprintf(event_log_buffer, "Selected handshake type: %s", 
+                    s2n_connection_get_handshake_type_name(conn));
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
+        
         return S2N_SUCCESS;
     }
 
@@ -1096,6 +1115,14 @@ skip_cache_lookup:
 
     if (s2n_server_can_send_ocsp(conn) || s2n_server_sent_ocsp(conn)) {
         POSIX_GUARD_RESULT(s2n_handshake_type_set_tls12_flag(conn, OCSP_STATUS));
+    }
+
+    /* Log handshake type selection */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Selected handshake type: %s", 
+                s2n_connection_get_handshake_type_name(conn));
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return S2N_SUCCESS;
@@ -1675,6 +1702,13 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
         }
 
         if (ACTIVE_STATE(conn).writer == 'B') {
+            /* Log handshake completion */
+            {
+                char event_log_buffer[256];
+                sprintf(event_log_buffer, "Handshake completed successfully");
+                s2n_event_log_cb("INFO", event_log_buffer);
+            }
+            
             /* Clean up handshake secrets */
             POSIX_GUARD_RESULT(s2n_tls13_secrets_clean(conn));
 

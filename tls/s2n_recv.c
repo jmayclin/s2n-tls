@@ -32,6 +32,7 @@
 #include "tls/s2n_resume.h"
 #include "tls/s2n_tls.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_io.h"
 #include "utils/s2n_safety.h"
 #include "utils/s2n_socket.h"
@@ -286,6 +287,14 @@ ssize_t s2n_recv_impl(struct s2n_connection *conn, void *buf, ssize_t size_signe
      */
     if (s2n_stuffer_data_available(&conn->in) == 0) {
         *blocked = S2N_NOT_BLOCKED;
+    }
+    
+    /* Log data received event */
+    if (bytes_read > 0) {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Data received: bytes=%zd, encrypted=%s", 
+                bytes_read, conn->actual_protocol_version > S2N_SSLv2 ? "true" : "false");
+        s2n_event_log_cb("DEBUG", event_log_buffer);
     }
 
     return bytes_read;

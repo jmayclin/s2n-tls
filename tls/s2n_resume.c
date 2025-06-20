@@ -25,6 +25,7 @@
 #include "tls/s2n_crypto.h"
 #include "tls/s2n_tls.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 
@@ -461,6 +462,13 @@ int s2n_resume_from_cache(struct s2n_connection *conn)
     S2N_ERROR_IF(conn->session_id_len == 0, S2N_ERR_SESSION_ID_TOO_SHORT);
     S2N_ERROR_IF(conn->session_id_len > S2N_TLS_SESSION_ID_MAX_LEN, S2N_ERR_SESSION_ID_TOO_LONG);
 
+    /* Log session resumption attempt event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Attempting session resumption from cache");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     uint8_t data[S2N_TLS12_TICKET_SIZE_IN_BYTES] = { 0 };
     struct s2n_blob entry = { 0 };
     POSIX_GUARD(s2n_blob_init(&entry, data, S2N_TLS12_TICKET_SIZE_IN_BYTES));
@@ -478,11 +486,25 @@ int s2n_resume_from_cache(struct s2n_connection *conn)
     POSIX_GUARD(s2n_stuffer_write(&from, &entry));
     POSIX_GUARD_RESULT(s2n_resume_decrypt_session(conn, &from));
 
+    /* Log session resumption success event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Session resumption result: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return 0;
 }
 
 S2N_RESULT s2n_store_to_cache(struct s2n_connection *conn)
 {
+    /* Log session ticket creation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Creating new session ticket for cache: ttl=%d seconds", S2N_TLS_SESSION_CACHE_TTL);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     uint8_t data[S2N_TLS12_TICKET_SIZE_IN_BYTES] = { 0 };
     struct s2n_blob entry = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&entry, data, S2N_TLS12_TICKET_SIZE_IN_BYTES));
@@ -824,6 +846,17 @@ S2N_RESULT s2n_resume_encrypt_session_ticket(struct s2n_connection *conn,
 
     RESULT_ENSURE(key != NULL, S2N_ERR_NO_TICKET_ENCRYPT_DECRYPT_KEY);
 
+    /* Log session ticket encryption event */
+    {
+        char event_log_buffer[256];
+        uint32_t lifetime = 0;
+        if (conn->config) {
+            lifetime = conn->config->session_state_lifetime_in_nanos / ONE_SEC_IN_NANOS;
+        }
+        sprintf(event_log_buffer, "Creating new session ticket: lifetime=%u seconds", lifetime);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     /* Generate unique per-ticket encryption key */
     struct s2n_unique_ticket_key ticket_key = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&ticket_key.initial_key, key->aes_key, sizeof(key->aes_key)));
@@ -895,6 +928,13 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
     RESULT_ENSURE_REF(from);
     RESULT_ENSURE_REF(conn->config);
 
+    /* Log session ticket decryption attempt event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Attempting session resumption from ticket");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     /* Read version number */
     uint8_t version = 0;
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(from, &version));
@@ -953,6 +993,13 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
     RESULT_GUARD_POSIX(s2n_stuffer_init(&state_stuffer, &state_blob));
     RESULT_GUARD_POSIX(s2n_stuffer_skip_write(&state_stuffer, state_blob_size));
     RESULT_GUARD(s2n_deserialize_resumption_state(conn, &from->blob, &state_stuffer));
+
+    /* Log session ticket decryption success event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Session resumption from ticket result: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_RESULT_OK;
 }

@@ -26,6 +26,7 @@
 #include "tls/s2n_kex.h"
 #include "tls/s2n_security_policies.h"
 #include "tls/s2n_signature_algorithms.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 
@@ -38,6 +39,29 @@ int s2n_server_key_recv(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn->secure->cipher_suite);
     POSIX_ENSURE_REF(conn->secure->cipher_suite->key_exchange_alg);
     POSIX_ENSURE_REF(conn->handshake.hashes);
+
+    /* Log server key exchange reception event */
+    {
+        char event_log_buffer[256];
+        const char *kex_name = "UNKNOWN";
+        
+        if (conn->secure->cipher_suite->key_exchange_alg) {
+            if (conn->secure->cipher_suite->key_exchange_alg == &s2n_rsa) {
+                kex_name = "RSA";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_dhe) {
+                kex_name = "DHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_ecdhe) {
+                kex_name = "ECDHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_kem) {
+                kex_name = "KEM";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_hybrid_ecdhe_kem) {
+                kex_name = "HYBRID_ECDHE_KEM";
+            }
+        }
+        
+        sprintf(event_log_buffer, "Receiving server key exchange: key_exchange_algorithm=%s", kex_name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     struct s2n_hash_state *signature_hash = &conn->handshake.hashes->hash_workspace;
     const struct s2n_kex *key_exchange = conn->secure->cipher_suite->key_exchange_alg;
@@ -77,6 +101,14 @@ int s2n_server_key_recv(struct s2n_connection *conn)
 
     /* Parse the KEX data into whatever form needed and save it to the connection object */
     POSIX_GUARD_RESULT(s2n_kex_server_key_recv_parse_data(key_exchange, conn, &kex_data));
+    
+    /* Log server key exchange verification result */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Server key exchange verification: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     return 0;
 }
 
@@ -253,6 +285,29 @@ int s2n_server_key_send(struct s2n_connection *conn)
     POSIX_ENSURE_REF(sig_scheme);
     struct s2n_stuffer *out = &conn->handshake.io;
     struct s2n_blob data_to_sign = { 0 };
+    
+    /* Log server key exchange sending event */
+    {
+        char event_log_buffer[256];
+        const char *kex_name = "UNKNOWN";
+        
+        if (key_exchange) {
+            if (key_exchange == &s2n_rsa) {
+                kex_name = "RSA";
+            } else if (key_exchange == &s2n_dhe) {
+                kex_name = "DHE";
+            } else if (key_exchange == &s2n_ecdhe) {
+                kex_name = "ECDHE";
+            } else if (key_exchange == &s2n_kem) {
+                kex_name = "KEM";
+            } else if (key_exchange == &s2n_hybrid_ecdhe_kem) {
+                kex_name = "HYBRID_ECDHE_KEM";
+            }
+        }
+        
+        sprintf(event_log_buffer, "Sending server key exchange: key_exchange_algorithm=%s", kex_name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     /* Call the negotiated key exchange method to send it's data */
     POSIX_GUARD_RESULT(s2n_kex_server_key_send(key_exchange, conn, &data_to_sign));
@@ -347,6 +402,19 @@ int s2n_server_key_send_write_signature(struct s2n_connection *conn, struct s2n_
 
     POSIX_GUARD(s2n_stuffer_write_uint16(out, signature->size));
     POSIX_GUARD(s2n_stuffer_write_bytes(out, signature->data, signature->size));
+
+        /* Log server key exchange signature event */
+        {
+            char event_log_buffer[256];
+            const struct s2n_signature_scheme *sig_scheme = conn->handshake_params.server_cert_sig_scheme;
+            if (sig_scheme) {
+                sprintf(event_log_buffer, "Server key exchange signature: algorithm=0x%04x, length=%u bytes", 
+                    sig_scheme->iana_value, (unsigned int)signature->size);
+            } else {
+                sprintf(event_log_buffer, "Server key exchange signature: length=%u bytes", (unsigned int)signature->size);
+            }
+            s2n_event_log_cb("DEBUG", event_log_buffer);
+        }
 
     return 0;
 }

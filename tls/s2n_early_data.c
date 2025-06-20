@@ -18,6 +18,7 @@
 #include <sys/param.h>
 
 #include "tls/s2n_cipher_suites.h"
+#include "utils/s2n_event.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_psk.h"
 #include "utils/s2n_mem.h"
@@ -74,6 +75,25 @@ static S2N_RESULT s2n_early_data_validate(struct s2n_connection *conn)
 
     struct s2n_early_data_config *config = &conn->psk_params.chosen_psk->early_data_config;
     RESULT_ENSURE_GT(config->max_early_data_size, 0);
+    
+    /* Log early data validation event */
+    {
+        char event_log_buffer[256];
+        const char *protocol_version = "UNKNOWN";
+        const char *cipher_suite_name = "UNKNOWN";
+        
+        if (config->protocol_version == S2N_TLS13) {
+            protocol_version = "TLS1.3";
+        }
+        
+        if (config->cipher_suite && config->cipher_suite->name) {
+            cipher_suite_name = config->cipher_suite->name;
+        }
+        
+        sprintf(event_log_buffer, "Early data validation: protocol=%s, cipher=%s", 
+                protocol_version, cipher_suite_name);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     /**
      *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.10
@@ -156,6 +176,20 @@ S2N_RESULT s2n_early_data_accept_or_reject(struct s2n_connection *conn)
         }
     } else {
         RESULT_GUARD(s2n_connection_set_early_data_state(conn, S2N_EARLY_DATA_ACCEPTED));
+    }
+    
+    /* Log early data status event */
+    if (conn->early_data_state == S2N_EARLY_DATA_ACCEPTED) {
+        char event_log_buffer[256];
+        uint32_t max_size = 0;
+        if (s2n_connection_get_max_early_data_size(conn, &max_size) == S2N_SUCCESS) {
+            sprintf(event_log_buffer, "Early data status: accepted, max_size=%u bytes", max_size);
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
+    } else if (conn->early_data_state == S2N_EARLY_DATA_REJECTED) {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Early data status: rejected");
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
     return S2N_RESULT_OK;
 }
@@ -424,6 +458,14 @@ int s2n_offered_early_data_reject(struct s2n_offered_early_data *early_data)
     struct s2n_connection *conn = early_data->conn;
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD_RESULT(s2n_connection_set_early_data_state(conn, S2N_EARLY_DATA_REJECTED));
+    
+    /* Log early data rejection event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Early data status: rejected by application callback");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     return S2N_SUCCESS;
 }
 
@@ -433,5 +475,16 @@ int s2n_offered_early_data_accept(struct s2n_offered_early_data *early_data)
     struct s2n_connection *conn = early_data->conn;
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD_RESULT(s2n_connection_set_early_data_state(conn, S2N_EARLY_DATA_ACCEPTED));
+    
+    /* Log early data acceptance event */
+    {
+        char event_log_buffer[256];
+        uint32_t max_size = 0;
+        if (s2n_connection_get_max_early_data_size(conn, &max_size) == S2N_SUCCESS) {
+            sprintf(event_log_buffer, "Early data status: accepted by application callback, max_size=%u bytes", max_size);
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
+    }
+    
     return S2N_SUCCESS;
 }

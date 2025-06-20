@@ -27,6 +27,7 @@
 #include "tls/s2n_ktls.h"
 #include "tls/s2n_record.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 
@@ -626,6 +627,40 @@ int s2n_record_writev(struct s2n_connection *conn, uint8_t content_type, const s
     if (conn->actual_protocol_version == S2N_TLS13 && content_type == TLS_CHANGE_CIPHER_SPEC) {
         conn->client = current_client_crypto;
         conn->server = current_server_crypto;
+    }
+
+    /* Log record sent event */
+    {
+        char event_log_buffer[256];
+        const char *version_str = "UNKNOWN";
+        uint8_t protocol_version = conn->actual_protocol_version;
+        
+        if (protocol_version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (protocol_version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (protocol_version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (protocol_version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (protocol_version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        const char *type_str = "UNKNOWN";
+        if (content_type == TLS_CHANGE_CIPHER_SPEC) {
+            type_str = "CHANGE_CIPHER_SPEC";
+        } else if (content_type == TLS_ALERT) {
+            type_str = "ALERT";
+        } else if (content_type == TLS_HANDSHAKE) {
+            type_str = "HANDSHAKE";
+        } else if (content_type == TLS_APPLICATION_DATA) {
+            type_str = "APPLICATION_DATA";
+        }
+        
+        sprintf(event_log_buffer, "Sent record: type=%s, version=%s, length=%u", 
+                type_str, version_str, actual_fragment_length);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
     }
 
     return data_bytes_to_take;

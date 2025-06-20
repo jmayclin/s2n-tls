@@ -18,6 +18,7 @@
 #include "tls/s2n_tls.h"
 #include "tls/s2n_tls13_handshake.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_event.h"
 
 /* Length of the synthetic message header */
 #define MESSAGE_HASH_HEADER_LENGTH 4
@@ -36,6 +37,15 @@ S2N_RESULT s2n_handshake_transcript_update(struct s2n_connection *conn)
     RESULT_GUARD_POSIX(s2n_blob_init(&data, bytes, len));
 
     RESULT_GUARD_POSIX(s2n_conn_update_handshake_hashes(conn, &data));
+    
+    /* Log handshake transcript update event */
+    if (len > 0 && bytes[0] < 128) {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Handshake transcript updated: message_type=%s, length=%u", 
+                s2n_tls_message_type_to_str(bytes[0]), len);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
+    
     return S2N_RESULT_OK;
 }
 
@@ -115,6 +125,13 @@ int s2n_server_hello_retry_recreate_transcript(struct s2n_connection *conn)
 
     /* Step 1: Reset the hash state */
     POSIX_GUARD_RESULT(s2n_handshake_reset_hash_state(conn, keys.hash_algorithm));
+    
+    /* Log handshake transcript reset event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Handshake transcript reset: reason=HELLO_RETRY_REQUEST");
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     /* Step 2: Update the transcript with the synthetic message */
     struct s2n_blob msg_blob = { 0 };

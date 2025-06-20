@@ -19,6 +19,7 @@
 #include <sys/param.h>
 
 #include "error/s2n_errno.h"
+#include "utils/s2n_event.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_record.h"
 #include "tls/s2n_resume.h"
@@ -255,6 +256,96 @@ int s2n_process_alert_fragment(struct s2n_connection *conn)
         POSIX_GUARD(s2n_stuffer_copy(&conn->in, &conn->alert_in, bytes_to_read));
 
         if (s2n_stuffer_data_available(&conn->alert_in) == 2) {
+            /* Log alert received event */
+            {
+                char event_log_buffer[256];
+                const char *level_str = "UNKNOWN";
+                const char *desc_str = "UNKNOWN";
+                
+                if (conn->alert_in_data[0] == S2N_TLS_ALERT_LEVEL_WARNING) {
+                    level_str = "WARNING";
+                } else if (conn->alert_in_data[0] == S2N_TLS_ALERT_LEVEL_FATAL) {
+                    level_str = "FATAL";
+                }
+                
+                switch (conn->alert_in_data[1]) {
+                    case S2N_TLS_ALERT_CLOSE_NOTIFY:
+                        desc_str = "CLOSE_NOTIFY";
+                        break;
+                    case S2N_TLS_ALERT_UNEXPECTED_MESSAGE:
+                        desc_str = "UNEXPECTED_MESSAGE";
+                        break;
+                    case S2N_TLS_ALERT_BAD_RECORD_MAC:
+                        desc_str = "BAD_RECORD_MAC";
+                        break;
+                    case S2N_TLS_ALERT_RECORD_OVERFLOW:
+                        desc_str = "RECORD_OVERFLOW";
+                        break;
+                    case S2N_TLS_ALERT_HANDSHAKE_FAILURE:
+                        desc_str = "HANDSHAKE_FAILURE";
+                        break;
+                    case S2N_TLS_ALERT_BAD_CERTIFICATE:
+                        desc_str = "BAD_CERTIFICATE";
+                        break;
+                    case S2N_TLS_ALERT_UNSUPPORTED_CERTIFICATE:
+                        desc_str = "UNSUPPORTED_CERTIFICATE";
+                        break;
+                    case S2N_TLS_ALERT_CERTIFICATE_REVOKED:
+                        desc_str = "CERTIFICATE_REVOKED";
+                        break;
+                    case S2N_TLS_ALERT_CERTIFICATE_EXPIRED:
+                        desc_str = "CERTIFICATE_EXPIRED";
+                        break;
+                    case S2N_TLS_ALERT_CERTIFICATE_UNKNOWN:
+                        desc_str = "CERTIFICATE_UNKNOWN";
+                        break;
+                    case S2N_TLS_ALERT_ILLEGAL_PARAMETER:
+                        desc_str = "ILLEGAL_PARAMETER";
+                        break;
+                    case S2N_TLS_ALERT_UNKNOWN_CA:
+                        desc_str = "UNKNOWN_CA";
+                        break;
+                    case S2N_TLS_ALERT_ACCESS_DENIED:
+                        desc_str = "ACCESS_DENIED";
+                        break;
+                    case S2N_TLS_ALERT_DECODE_ERROR:
+                        desc_str = "DECODE_ERROR";
+                        break;
+                    case S2N_TLS_ALERT_DECRYPT_ERROR:
+                        desc_str = "DECRYPT_ERROR";
+                        break;
+                    case S2N_TLS_ALERT_PROTOCOL_VERSION:
+                        desc_str = "PROTOCOL_VERSION";
+                        break;
+                    case S2N_TLS_ALERT_INSUFFICIENT_SECURITY:
+                        desc_str = "INSUFFICIENT_SECURITY";
+                        break;
+                    case S2N_TLS_ALERT_INTERNAL_ERROR:
+                        desc_str = "INTERNAL_ERROR";
+                        break;
+                    case S2N_TLS_ALERT_USER_CANCELED:
+                        desc_str = "USER_CANCELED";
+                        break;
+                    case S2N_TLS_ALERT_NO_RENEGOTIATION:
+                        desc_str = "NO_RENEGOTIATION";
+                        break;
+                    case S2N_TLS_ALERT_MISSING_EXTENSION:
+                        desc_str = "MISSING_EXTENSION";
+                        break;
+                    case S2N_TLS_ALERT_UNSUPPORTED_EXTENSION:
+                        desc_str = "UNSUPPORTED_EXTENSION";
+                        break;
+                    case S2N_TLS_ALERT_CERTIFICATE_REQUIRED:
+                        desc_str = "CERTIFICATE_REQUIRED";
+                        break;
+                    default:
+                        break;
+                }
+                
+                sprintf(event_log_buffer, "Received alert: level=%s, description=%s", level_str, desc_str);
+                s2n_event_log_cb("INFO", event_log_buffer);
+            }
+
             /* Close notifications are handled as shutdowns */
             if (conn->alert_in_data[1] == S2N_TLS_ALERT_CLOSE_NOTIFY) {
                 s2n_atomic_flag_set(&conn->read_closed);
@@ -368,6 +459,97 @@ S2N_RESULT s2n_alerts_write_error_or_close_notify(struct s2n_connection *conn)
 
     RESULT_GUARD(s2n_record_write(conn, TLS_ALERT, &alert));
     conn->alert_sent = true;
+
+    /* Log alert sent event */
+    {
+        char event_log_buffer[256];
+        const char *level_str = "UNKNOWN";
+        const char *desc_str = "UNKNOWN";
+        
+        if (level == S2N_TLS_ALERT_LEVEL_WARNING) {
+            level_str = "WARNING";
+        } else if (level == S2N_TLS_ALERT_LEVEL_FATAL) {
+            level_str = "FATAL";
+        }
+        
+        switch (code) {
+            case S2N_TLS_ALERT_CLOSE_NOTIFY:
+                desc_str = "CLOSE_NOTIFY";
+                break;
+            case S2N_TLS_ALERT_UNEXPECTED_MESSAGE:
+                desc_str = "UNEXPECTED_MESSAGE";
+                break;
+            case S2N_TLS_ALERT_BAD_RECORD_MAC:
+                desc_str = "BAD_RECORD_MAC";
+                break;
+            case S2N_TLS_ALERT_RECORD_OVERFLOW:
+                desc_str = "RECORD_OVERFLOW";
+                break;
+            case S2N_TLS_ALERT_HANDSHAKE_FAILURE:
+                desc_str = "HANDSHAKE_FAILURE";
+                break;
+            case S2N_TLS_ALERT_BAD_CERTIFICATE:
+                desc_str = "BAD_CERTIFICATE";
+                break;
+            case S2N_TLS_ALERT_UNSUPPORTED_CERTIFICATE:
+                desc_str = "UNSUPPORTED_CERTIFICATE";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_REVOKED:
+                desc_str = "CERTIFICATE_REVOKED";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_EXPIRED:
+                desc_str = "CERTIFICATE_EXPIRED";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_UNKNOWN:
+                desc_str = "CERTIFICATE_UNKNOWN";
+                break;
+            case S2N_TLS_ALERT_ILLEGAL_PARAMETER:
+                desc_str = "ILLEGAL_PARAMETER";
+                break;
+            case S2N_TLS_ALERT_UNKNOWN_CA:
+                desc_str = "UNKNOWN_CA";
+                break;
+            case S2N_TLS_ALERT_ACCESS_DENIED:
+                desc_str = "ACCESS_DENIED";
+                break;
+            case S2N_TLS_ALERT_DECODE_ERROR:
+                desc_str = "DECODE_ERROR";
+                break;
+            case S2N_TLS_ALERT_DECRYPT_ERROR:
+                desc_str = "DECRYPT_ERROR";
+                break;
+            case S2N_TLS_ALERT_PROTOCOL_VERSION:
+                desc_str = "PROTOCOL_VERSION";
+                break;
+            case S2N_TLS_ALERT_INSUFFICIENT_SECURITY:
+                desc_str = "INSUFFICIENT_SECURITY";
+                break;
+            case S2N_TLS_ALERT_INTERNAL_ERROR:
+                desc_str = "INTERNAL_ERROR";
+                break;
+            case S2N_TLS_ALERT_USER_CANCELED:
+                desc_str = "USER_CANCELED";
+                break;
+            case S2N_TLS_ALERT_NO_RENEGOTIATION:
+                desc_str = "NO_RENEGOTIATION";
+                break;
+            case S2N_TLS_ALERT_MISSING_EXTENSION:
+                desc_str = "MISSING_EXTENSION";
+                break;
+            case S2N_TLS_ALERT_UNSUPPORTED_EXTENSION:
+                desc_str = "UNSUPPORTED_EXTENSION";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_REQUIRED:
+                desc_str = "CERTIFICATE_REQUIRED";
+                break;
+            default:
+                break;
+        }
+        
+        sprintf(event_log_buffer, "Sent alert: level=%s, description=%s", level_str, desc_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return S2N_RESULT_OK;
 }
 
@@ -385,5 +567,90 @@ S2N_RESULT s2n_alerts_write_warning(struct s2n_connection *conn)
     RESULT_GUARD_POSIX(s2n_blob_init(&alert, alert_bytes, sizeof(alert_bytes)));
 
     RESULT_GUARD(s2n_record_write(conn, TLS_ALERT, &alert));
+
+    /* Log alert sent event */
+    {
+        char event_log_buffer[256];
+        const char *level_str = "WARNING";
+        const char *desc_str = "UNKNOWN";
+        
+        switch (code) {
+            case S2N_TLS_ALERT_CLOSE_NOTIFY:
+                desc_str = "CLOSE_NOTIFY";
+                break;
+            case S2N_TLS_ALERT_UNEXPECTED_MESSAGE:
+                desc_str = "UNEXPECTED_MESSAGE";
+                break;
+            case S2N_TLS_ALERT_BAD_RECORD_MAC:
+                desc_str = "BAD_RECORD_MAC";
+                break;
+            case S2N_TLS_ALERT_RECORD_OVERFLOW:
+                desc_str = "RECORD_OVERFLOW";
+                break;
+            case S2N_TLS_ALERT_HANDSHAKE_FAILURE:
+                desc_str = "HANDSHAKE_FAILURE";
+                break;
+            case S2N_TLS_ALERT_BAD_CERTIFICATE:
+                desc_str = "BAD_CERTIFICATE";
+                break;
+            case S2N_TLS_ALERT_UNSUPPORTED_CERTIFICATE:
+                desc_str = "UNSUPPORTED_CERTIFICATE";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_REVOKED:
+                desc_str = "CERTIFICATE_REVOKED";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_EXPIRED:
+                desc_str = "CERTIFICATE_EXPIRED";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_UNKNOWN:
+                desc_str = "CERTIFICATE_UNKNOWN";
+                break;
+            case S2N_TLS_ALERT_ILLEGAL_PARAMETER:
+                desc_str = "ILLEGAL_PARAMETER";
+                break;
+            case S2N_TLS_ALERT_UNKNOWN_CA:
+                desc_str = "UNKNOWN_CA";
+                break;
+            case S2N_TLS_ALERT_ACCESS_DENIED:
+                desc_str = "ACCESS_DENIED";
+                break;
+            case S2N_TLS_ALERT_DECODE_ERROR:
+                desc_str = "DECODE_ERROR";
+                break;
+            case S2N_TLS_ALERT_DECRYPT_ERROR:
+                desc_str = "DECRYPT_ERROR";
+                break;
+            case S2N_TLS_ALERT_PROTOCOL_VERSION:
+                desc_str = "PROTOCOL_VERSION";
+                break;
+            case S2N_TLS_ALERT_INSUFFICIENT_SECURITY:
+                desc_str = "INSUFFICIENT_SECURITY";
+                break;
+            case S2N_TLS_ALERT_INTERNAL_ERROR:
+                desc_str = "INTERNAL_ERROR";
+                break;
+            case S2N_TLS_ALERT_USER_CANCELED:
+                desc_str = "USER_CANCELED";
+                break;
+            case S2N_TLS_ALERT_NO_RENEGOTIATION:
+                desc_str = "NO_RENEGOTIATION";
+                break;
+            case S2N_TLS_ALERT_MISSING_EXTENSION:
+                desc_str = "MISSING_EXTENSION";
+                break;
+            case S2N_TLS_ALERT_UNSUPPORTED_EXTENSION:
+                desc_str = "UNSUPPORTED_EXTENSION";
+                break;
+            case S2N_TLS_ALERT_CERTIFICATE_REQUIRED:
+                desc_str = "CERTIFICATE_REQUIRED";
+                break;
+            default:
+                break;
+        }
+        
+        sprintf(event_log_buffer, "Sent alert: level=%s, description=%s", level_str, desc_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return S2N_RESULT_OK;
 }

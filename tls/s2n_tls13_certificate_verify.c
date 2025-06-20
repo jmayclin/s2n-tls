@@ -23,6 +23,7 @@
 #include "tls/s2n_async_pkey.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_tls13_handshake.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_safety.h"
 
 /**
@@ -61,12 +62,28 @@ int s2n_tls13_cert_verify_send(struct s2n_connection *conn)
 {
     S2N_ASYNC_PKEY_GUARD(conn);
 
+    /* Log certificate verification event */
+    {
+        char event_log_buffer[256];
+        const char *mode_str = (conn->mode == S2N_SERVER) ? "server" : "client";
+        sprintf(event_log_buffer, "Sending %s certificate verification", mode_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     if (conn->mode == S2N_SERVER) {
         /* Write digital signature */
         POSIX_GUARD(s2n_tls13_write_cert_verify_signature(conn, conn->handshake_params.server_cert_sig_scheme));
     } else {
         /* Write digital signature */
         POSIX_GUARD(s2n_tls13_write_cert_verify_signature(conn, conn->handshake_params.client_cert_sig_scheme));
+    }
+
+    /* Log certificate verification result */
+    {
+        char event_log_buffer[256];
+        const char *mode_str = (conn->mode == S2N_SERVER) ? "server" : "client";
+        sprintf(event_log_buffer, "%s certificate verification result: SUCCESS", mode_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return 0;
@@ -148,6 +165,14 @@ uint8_t s2n_tls13_cert_verify_header_length(s2n_mode mode)
 
 int s2n_tls13_cert_verify_recv(struct s2n_connection *conn)
 {
+    /* Log certificate verification event */
+    {
+        char event_log_buffer[256];
+        const char *mode_str = (conn->mode == S2N_SERVER) ? "client" : "server";
+        sprintf(event_log_buffer, "Verifying %s certificate", mode_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     POSIX_GUARD_RESULT(s2n_signature_algorithm_recv(conn, &conn->handshake.io));
     /* Read the rest of the signature and verify */
     if (conn->mode == S2N_SERVER) {
@@ -156,6 +181,14 @@ int s2n_tls13_cert_verify_recv(struct s2n_connection *conn)
     } else {
         POSIX_GUARD(s2n_tls13_cert_read_and_verify_signature(conn,
                 conn->handshake_params.server_cert_sig_scheme));
+    }
+
+    /* Log certificate verification result */
+    {
+        char event_log_buffer[256];
+        const char *mode_str = (conn->mode == S2N_SERVER) ? "client" : "server";
+        sprintf(event_log_buffer, "%s certificate verification result: SUCCESS", mode_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return 0;

@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "crypto/s2n_cipher.h"
+#include "utils/s2n_event.h"
 #include "crypto/s2n_openssl.h"
 #include "crypto/s2n_pq.h"
 #include "error/s2n_errno.h"
@@ -1171,6 +1172,13 @@ int s2n_set_cipher_as_client(struct s2n_connection *conn, uint8_t wire[S2N_TLS_C
         POSIX_ENSURE_REF(conn->secure->cipher_suite);
     }
 
+    /* Log cipher suite selection event */
+    {
+        char event_log_buffer[128];
+        sprintf(event_log_buffer, "Selected cipher suite: %s", conn->secure->cipher_suite->name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return 0;
 }
 
@@ -1341,18 +1349,42 @@ static int s2n_set_cipher_as_server(struct s2n_connection *conn, uint8_t *wire, 
             }
 
             conn->secure->cipher_suite = match;
+            
+            /* Log cipher suite selection event */
+            {
+                char event_log_buffer[128];
+                sprintf(event_log_buffer, "Selected cipher suite: %s", conn->secure->cipher_suite->name);
+                s2n_event_log_cb("INFO", event_log_buffer);
+            }
+            
             return S2N_SUCCESS;
         }
     }
 
     if (non_chacha20_match) {
         conn->secure->cipher_suite = non_chacha20_match;
+        
+        /* Log cipher suite selection event */
+        {
+            char event_log_buffer[128];
+            sprintf(event_log_buffer, "Selected cipher suite: %s", conn->secure->cipher_suite->name);
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
+        
         return S2N_SUCCESS;
     }
 
     /* Settle for a cipher with a higher required proto version, if it was set */
     if (higher_vers_match) {
         conn->secure->cipher_suite = higher_vers_match;
+        
+        /* Log cipher suite selection event */
+        {
+            char event_log_buffer[128];
+            sprintf(event_log_buffer, "Selected cipher suite: %s", conn->secure->cipher_suite->name);
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
+        
         return S2N_SUCCESS;
     }
 

@@ -29,6 +29,7 @@
 #include "tls/s2n_post_handshake.h"
 #include "tls/s2n_record.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_io.h"
 #include "utils/s2n_safety.h"
 
@@ -241,6 +242,14 @@ ssize_t s2n_sendv_with_offset_impl(struct s2n_connection *conn, const struct iov
 
     /* If everything has been written, then there's no user data pending */
     conn->current_user_data_consumed = 0;
+    
+    /* Log data sent event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Data sent: bytes=%zd, encrypted=%s", 
+                total_size, conn->actual_protocol_version > S2N_SSLv2 ? "true" : "false");
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     *blocked = S2N_NOT_BLOCKED;
     return total_size;

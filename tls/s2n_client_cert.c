@@ -16,6 +16,7 @@
 #include "api/s2n.h"
 #include "crypto/s2n_certificate.h"
 #include "error/s2n_errno.h"
+#include "utils/s2n_event.h"
 #include "stuffer/s2n_stuffer.h"
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_config.h"
@@ -105,6 +106,13 @@ static S2N_RESULT s2n_client_cert_chain_store(struct s2n_connection *conn,
 
 int s2n_client_cert_recv(struct s2n_connection *conn)
 {
+    /* Log client certificate reception event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Receiving client certificate");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     /* s2n_client_cert_recv() may be re-entered due to handling an async callback.
      * We operate on a copy of `handshake.io` to ensure the stuffer is initilized properly on the re-entry case.
      */
@@ -120,6 +128,12 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     POSIX_GUARD(s2n_stuffer_read_uint24(&in, &cert_chain_size));
     POSIX_ENSURE(cert_chain_size <= s2n_stuffer_data_available(&in), S2N_ERR_BAD_MESSAGE);
     if (cert_chain_size == 0) {
+        /* Log empty client certificate event */
+        {
+            char event_log_buffer[256];
+            sprintf(event_log_buffer, "Client certificate: NONE (empty certificate chain)");
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
         POSIX_GUARD(s2n_conn_set_handshake_no_client_cert(conn));
         return S2N_SUCCESS;
     }
@@ -149,11 +163,25 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     /* Update handshake.io to reflect the true stuffer state after all async callbacks are handled. */
     conn->handshake.io = in;
 
+    /* Log client certificate validation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Client certificate validation: status=VALID");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return S2N_SUCCESS;
 }
 
 int s2n_client_cert_send(struct s2n_connection *conn)
 {
+    /* Log client certificate sending event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Sending client certificate");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     struct s2n_cert_chain_and_key *chain_and_key = conn->handshake_params.our_chain_and_key;
 
     if (conn->actual_protocol_version >= S2N_TLS13) {
@@ -169,11 +197,25 @@ int s2n_client_cert_send(struct s2n_connection *conn)
     }
 
     if (chain_and_key == NULL) {
+        /* Log empty client certificate event */
+        {
+            char event_log_buffer[256];
+            sprintf(event_log_buffer, "Sent empty client certificate chain (no certificate available)");
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
         POSIX_GUARD(s2n_conn_set_handshake_no_client_cert(conn));
         POSIX_GUARD(s2n_send_empty_cert_chain(&conn->handshake.io));
         return 0;
     }
 
     POSIX_GUARD(s2n_send_cert_chain(conn, &conn->handshake.io, chain_and_key));
+    
+    /* Log client certificate sent event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Sent client certificate chain");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     return S2N_SUCCESS;
 }

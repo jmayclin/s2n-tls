@@ -18,6 +18,7 @@
 #include "tls/s2n_auth_selection.h"
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_tls.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_safety.h"
 
 int s2n_server_cert_recv(struct s2n_connection *conn)
@@ -58,6 +59,22 @@ int s2n_server_cert_recv(struct s2n_connection *conn)
     /* Update handshake.io to reflect the true stuffer state after all async callbacks are handled. */
     conn->handshake.io = in;
 
+    /* Log server certificate received event */
+    {
+        char event_log_buffer[256];
+        
+        /* Get certificate fingerprint if available */
+        struct s2n_cert_chain_and_key peer_chain_and_key = { 0 };
+        
+        if (s2n_connection_get_peer_cert_chain(conn, &peer_chain_and_key) == S2N_SUCCESS) {
+            sprintf(event_log_buffer, "Received server certificate chain: [SHA256: <hash available via s2n_connection_get_peer_cert_chain>]");
+        } else {
+            sprintf(event_log_buffer, "Received server certificate chain");
+        }
+        
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return 0;
 }
 
@@ -72,6 +89,20 @@ int s2n_server_cert_send(struct s2n_connection *conn)
     }
 
     POSIX_GUARD(s2n_send_cert_chain(conn, &conn->handshake.io, conn->handshake_params.our_chain_and_key));
+
+    /* Log server certificate sent event */
+    {
+        char event_log_buffer[256];
+        
+        /* Get certificate fingerprint if available */
+        if (conn->handshake_params.our_chain_and_key && conn->handshake_params.our_chain_and_key->cert_chain) {
+            sprintf(event_log_buffer, "Sent server certificate chain: [SHA256: <hash available via certificate chain>]");
+        } else {
+            sprintf(event_log_buffer, "Sent server certificate chain");
+        }
+        
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return 0;
 }

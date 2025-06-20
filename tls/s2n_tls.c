@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 #include "tls/s2n_tls_parameters.h"
+#include "utils/s2n_safety.h"
 
 uint8_t s2n_highest_protocol_version = S2N_TLS13;
 uint8_t s2n_unknown_protocol_version = S2N_UNKNOWN_PROTOCOL_VERSION;
@@ -37,3 +38,30 @@ uint16_t mfl_code_to_length[5] = {
     2048,                        /* S2N_TLS_MAX_FRAG_LEN_2048 */
     4096,                        /* S2N_TLS_MAX_FRAG_LEN_4096 */
 };
+
+/* Convert TLS handshake message type to string representation */
+const char *s2n_tls_message_type_to_str(uint8_t message_type)
+{
+    switch (message_type) {
+        case 0:  return "HELLO_REQUEST";
+        case 1:  return "CLIENT_HELLO";
+        case 2:  return "SERVER_HELLO";
+        case 3:  return "HELLO_VERIFY_REQUEST";
+        case 4:  return "NEW_SESSION_TICKET";
+        case 5:  return "END_OF_EARLY_DATA";
+        case 6:  return "ENCRYPTED_EXTENSIONS";
+        case 8:  return "CERTIFICATE";
+        case 9:  return "SERVER_KEY_EXCHANGE";
+        case 10: return "CERTIFICATE_REQUEST";
+        case 11: return "SERVER_HELLO_DONE";
+        case 12: return "CERTIFICATE_VERIFY";
+        case 13: return "CLIENT_KEY_EXCHANGE";
+        case 14: return "FINISHED";
+        case 15: return "CERTIFICATE_URL";
+        case 16: return "CERTIFICATE_STATUS";
+        case 17: return "SUPPLEMENTAL_DATA";
+        case 18: return "KEY_UPDATE";
+        case 20: return "MESSAGE_HASH";
+        default: return "UNKNOWN";
+    }
+}

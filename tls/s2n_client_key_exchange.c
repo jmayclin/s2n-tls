@@ -17,6 +17,7 @@
 
 #include "api/s2n.h"
 #include "crypto/s2n_dhe.h"
+#include "utils/s2n_event.h"
 #include "crypto/s2n_pkey.h"
 #include "error/s2n_errno.h"
 #include "stuffer/s2n_stuffer.h"
@@ -240,9 +241,39 @@ int s2n_client_key_recv(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn->secure);
     POSIX_ENSURE_REF(conn->secure->cipher_suite);
 
+    /* Log client key exchange processing event */
+    {
+        char event_log_buffer[256];
+        const char *kex_name = "UNKNOWN";
+        
+        if (conn->secure->cipher_suite->key_exchange_alg) {
+            if (conn->secure->cipher_suite->key_exchange_alg == &s2n_rsa) {
+                kex_name = "RSA";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_dhe) {
+                kex_name = "DHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_ecdhe) {
+                kex_name = "ECDHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_kem) {
+                kex_name = "KEM";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_hybrid_ecdhe_kem) {
+                kex_name = "HYBRID_ECDHE_KEM";
+            }
+        }
+        
+        sprintf(event_log_buffer, "Processing client key exchange: key_exchange_algorithm=%s", kex_name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     const struct s2n_kex *key_exchange = conn->secure->cipher_suite->key_exchange_alg;
     DEFER_CLEANUP(struct s2n_blob shared_key = { 0 }, s2n_free_or_wipe);
     POSIX_GUARD_RESULT(s2n_kex_client_key_recv(key_exchange, conn, &shared_key));
+
+    /* Log pre-master secret generation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Generated pre-master secret: length=%u bytes", (unsigned int)shared_key.size);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     POSIX_GUARD(s2n_calculate_keys(conn, &shared_key));
     return 0;
@@ -339,10 +370,40 @@ int s2n_client_key_send(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn->secure);
     POSIX_ENSURE_REF(conn->secure->cipher_suite);
 
+    /* Log client key exchange sending event */
+    {
+        char event_log_buffer[256];
+        const char *kex_name = "UNKNOWN";
+        
+        if (conn->secure->cipher_suite->key_exchange_alg) {
+            if (conn->secure->cipher_suite->key_exchange_alg == &s2n_rsa) {
+                kex_name = "RSA";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_dhe) {
+                kex_name = "DHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_ecdhe) {
+                kex_name = "ECDHE";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_kem) {
+                kex_name = "KEM";
+            } else if (conn->secure->cipher_suite->key_exchange_alg == &s2n_hybrid_ecdhe_kem) {
+                kex_name = "HYBRID_ECDHE_KEM";
+            }
+        }
+        
+        sprintf(event_log_buffer, "Sending client key exchange: key_exchange_algorithm=%s", kex_name);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     const struct s2n_kex *key_exchange = conn->secure->cipher_suite->key_exchange_alg;
     DEFER_CLEANUP(struct s2n_blob shared_key = { 0 }, s2n_free_or_wipe);
 
     POSIX_GUARD_RESULT(s2n_kex_client_key_send(key_exchange, conn, &shared_key));
+
+    /* Log pre-master secret generation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Generated pre-master secret: length=%u bytes", (unsigned int)shared_key.size);
+        s2n_event_log_cb("DEBUG", event_log_buffer);
+    }
 
     POSIX_GUARD(s2n_calculate_keys(conn, &shared_key));
     return 0;

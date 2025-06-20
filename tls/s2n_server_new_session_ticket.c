@@ -25,6 +25,7 @@
 #include "tls/s2n_resume.h"
 #include "tls/s2n_tls.h"
 #include "tls/s2n_tls13_handshake.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 
@@ -42,6 +43,13 @@
 int s2n_server_nst_recv(struct s2n_connection *conn)
 {
     POSIX_GUARD(s2n_stuffer_read_uint32(&conn->handshake.io, &conn->ticket_lifetime_hint));
+
+    /* Log session ticket reception event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Received new session ticket: lifetime=%u seconds", conn->ticket_lifetime_hint);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     uint16_t session_ticket_len = 0;
     POSIX_GUARD(s2n_stuffer_read_uint16(&conn->handshake.io, &session_ticket_len));
@@ -167,6 +175,14 @@ S2N_RESULT s2n_server_nst_write(struct s2n_connection *conn, uint32_t *lifetime_
     RESULT_ENSURE(key != NULL, S2N_ERR_NO_TICKET_ENCRYPT_DECRYPT_KEY);
 
     RESULT_GUARD(s2n_generate_ticket_lifetime(conn, key->intro_timestamp, lifetime_hint_in_secs));
+    
+    /* Log session ticket creation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Creating new session ticket: lifetime=%u seconds", *lifetime_hint_in_secs);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     RESULT_GUARD(s2n_resume_encrypt_session_ticket(conn, key, &output));
 
     return S2N_RESULT_OK;
@@ -318,6 +334,14 @@ S2N_RESULT s2n_tls13_server_nst_write(struct s2n_connection *conn, struct s2n_st
     RESULT_GUARD(s2n_generate_ticket_lifetime(conn, key->intro_timestamp, &ticket_lifetime_in_secs));
 
     RESULT_ENSURE(ticket_lifetime_in_secs > 0, S2N_ERR_ZERO_LIFETIME_TICKET);
+    
+    /* Log TLS1.3 session ticket creation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Creating new TLS1.3 session ticket: lifetime=%u seconds", ticket_lifetime_in_secs);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     RESULT_GUARD_POSIX(s2n_stuffer_write_uint32(output, ticket_lifetime_in_secs));
 
     /* Get random data to use as ticket_age_add value */
@@ -387,6 +411,14 @@ S2N_RESULT s2n_tls13_server_nst_recv(struct s2n_connection *conn, struct s2n_stu
     /* Handle `ticket_lifetime` field */
     uint32_t ticket_lifetime = 0;
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint32(input, &ticket_lifetime));
+    
+    /* Log TLS1.3 session ticket reception event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Received new TLS1.3 session ticket: lifetime=%u seconds", ticket_lifetime);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     /**
      *= https://www.rfc-editor.org/rfc/rfc8446#section-4.6.1
      *# Servers MUST NOT use any value greater than

@@ -18,6 +18,7 @@
 #include "crypto/s2n_sequence.h"
 #include "error/s2n_errno.h"
 #include "tls/s2n_connection.h"
+#include "utils/s2n_event.h"
 #include "tls/s2n_record.h"
 #include "tls/s2n_tls.h"
 #include "tls/s2n_tls13_handshake.h"
@@ -50,6 +51,14 @@ int s2n_key_update_recv(struct s2n_connection *conn, struct s2n_stuffer *request
         s2n_atomic_flag_set(&conn->key_update_pending);
     } else {
         POSIX_ENSURE(key_update_request == S2N_KEY_UPDATE_NOT_REQUESTED, S2N_ERR_BAD_MESSAGE);
+    }
+    
+    /* Log key update received event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Key update received: request_update=%s", 
+                key_update_request == S2N_KEY_UPDATE_REQUESTED ? "true" : "false");
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     /* Update peer's key since a key_update was received */
@@ -96,6 +105,14 @@ int s2n_key_update_send(struct s2n_connection *conn, s2n_blocked_status *blocked
 
         /* Update encryption key */
         POSIX_GUARD(s2n_update_application_traffic_keys(conn, conn->mode, SENDING));
+        
+        /* Log key update sent event */
+        {
+            char event_log_buffer[256];
+            sprintf(event_log_buffer, "Key update sent: request_update=%s", 
+                    key_update_request_val == S2N_KEY_UPDATE_REQUESTED ? "true" : "false");
+            s2n_event_log_cb("INFO", event_log_buffer);
+        }
 
         s2n_atomic_flag_clear(&conn->key_update_pending);
         POSIX_GUARD(s2n_flush(conn, blocked));

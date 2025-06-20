@@ -18,6 +18,7 @@
 #include "tls/s2n_cipher_suites.h"
 #include "tls/s2n_key_log.h"
 #include "tls/s2n_security_policies.h"
+#include "utils/s2n_event.h"
 
 static int s2n_zero_sequence_number(struct s2n_connection *conn, s2n_mode mode)
 {
@@ -67,6 +68,14 @@ int s2n_tls13_compute_ecc_shared_secret(struct s2n_connection *conn, struct s2n_
         POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(client_key, server_key, shared_secret));
     } else {
         POSIX_GUARD(s2n_ecc_evp_compute_shared_secret_from_params(server_key, client_key, shared_secret));
+    }
+    
+    /* Log shared secret computation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "TLS 1.3 shared secret computed: type=ECDHE, curve=%s", 
+                server_key->negotiated_curve->name);
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return S2N_SUCCESS;
@@ -124,6 +133,14 @@ int s2n_tls13_compute_pq_hybrid_shared_secret(struct s2n_connection *conn, struc
     } else {
         POSIX_GUARD(s2n_stuffer_write(&stuffer_combiner, &ecdhe_shared_secret));
         POSIX_GUARD(s2n_stuffer_write(&stuffer_combiner, pq_shared_secret));
+    }
+    
+    /* Log shared secret computation event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "TLS 1.3 shared secret computed: type=HYBRID, kem_group=%s", 
+                negotiated_kem_group->name);
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return S2N_SUCCESS;
@@ -214,6 +231,15 @@ int s2n_update_application_traffic_keys(struct s2n_connection *conn, s2n_mode mo
     struct s2n_stuffer old_secret_stuffer = { 0 };
     POSIX_GUARD(s2n_stuffer_init(&old_secret_stuffer, &old_app_secret));
     POSIX_GUARD(s2n_stuffer_write_bytes(&old_secret_stuffer, app_secret_update.data, keys.size));
+    
+    /* Log traffic keys update event */
+    {
+        char event_log_buffer[256];
+        const char *mode_str = (mode == S2N_CLIENT) ? "CLIENT" : "SERVER";
+        const char *status_str = (status == RECEIVING) ? "RECEIVING" : "SENDING";
+        sprintf(event_log_buffer, "TLS 1.3 traffic keys updated: mode=%s, status=%s", mode_str, status_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_SUCCESS;
 }

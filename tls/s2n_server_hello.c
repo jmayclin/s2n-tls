@@ -31,6 +31,7 @@
 #include "tls/s2n_tls13_handshake.h"
 #include "tls/s2n_tls13_key_schedule.h"
 #include "utils/s2n_bitmap.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 
@@ -275,6 +276,51 @@ int s2n_server_hello_recv(struct s2n_connection *conn)
 
     POSIX_GUARD(s2n_conn_set_handshake_type(conn));
 
+    /* Log server hello received event */
+    {
+        char event_log_buffer[1024];
+        const char *version_str = "UNKNOWN";
+        uint8_t protocol_version = conn->actual_protocol_version;
+        
+        if (protocol_version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (protocol_version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (protocol_version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (protocol_version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (protocol_version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        /* Format random bytes as hex */
+        char random_hex[S2N_TLS_RANDOM_DATA_LEN * 2 + 1] = {0};
+        for (int i = 0; i < S2N_TLS_RANDOM_DATA_LEN; i++) {
+            sprintf(random_hex + (i * 2), "%02x", conn->handshake_params.server_random[i]);
+        }
+        
+        /* Format session ID as hex if present */
+        char session_id_hex[S2N_TLS_SESSION_ID_MAX_LEN * 2 + 1] = {0};
+        if (conn->session_id_len > 0) {
+            for (int i = 0; i < conn->session_id_len; i++) {
+                sprintf(session_id_hex + (i * 2), "%02x", conn->session_id[i]);
+            }
+        } else {
+            strcpy(session_id_hex, "empty");
+        }
+        
+        /* Format cipher suite */
+        char cipher_suite_hex[8] = {0};
+        sprintf(cipher_suite_hex, "0x%02x%02x", 
+                conn->secure->cipher_suite->iana_value[0], 
+                conn->secure->cipher_suite->iana_value[1]);
+        
+        sprintf(event_log_buffer, "Received ServerHello: version=%s, random=%s, session_id=%s, cipher_suite=%s", 
+                version_str, random_hex, session_id_hex, cipher_suite_hex);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     /* If this is a HelloRetryRequest, we don't process the ServerHello.
      * Instead we proceed with retry logic. */
     if (s2n_is_hello_retry_message(conn)) {
@@ -339,6 +385,51 @@ int s2n_server_hello_send(struct s2n_connection *conn)
     POSIX_GUARD(s2n_server_extensions_send(conn, &conn->handshake.io));
 
     conn->actual_protocol_version_established = 1;
+
+    /* Log server hello sent event */
+    {
+        char event_log_buffer[1024];
+        const char *version_str = "UNKNOWN";
+        uint8_t protocol_version = conn->actual_protocol_version;
+        
+        if (protocol_version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (protocol_version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (protocol_version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (protocol_version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (protocol_version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        /* Format random bytes as hex */
+        char random_hex[S2N_TLS_RANDOM_DATA_LEN * 2 + 1] = {0};
+        for (int i = 0; i < S2N_TLS_RANDOM_DATA_LEN; i++) {
+            sprintf(random_hex + (i * 2), "%02x", conn->handshake_params.server_random[i]);
+        }
+        
+        /* Format session ID as hex if present */
+        char session_id_hex[S2N_TLS_SESSION_ID_MAX_LEN * 2 + 1] = {0};
+        if (conn->session_id_len > 0) {
+            for (int i = 0; i < conn->session_id_len; i++) {
+                sprintf(session_id_hex + (i * 2), "%02x", conn->session_id[i]);
+            }
+        } else {
+            strcpy(session_id_hex, "empty");
+        }
+        
+        /* Format cipher suite */
+        char cipher_suite_hex[8] = {0};
+        sprintf(cipher_suite_hex, "0x%02x%02x", 
+                conn->secure->cipher_suite->iana_value[0], 
+                conn->secure->cipher_suite->iana_value[1]);
+        
+        sprintf(event_log_buffer, "Sent ServerHello: version=%s, random=%s, session_id=%s, cipher_suite=%s", 
+                version_str, random_hex, session_id_hex, cipher_suite_hex);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return 0;
 }

@@ -18,6 +18,7 @@
 #include "tls/s2n_connection.h"
 #include "tls/s2n_tls.h"
 #include "utils/s2n_atomic.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_safety.h"
 
 static bool s2n_shutdown_expect_close_notify(struct s2n_connection *conn)
@@ -100,6 +101,13 @@ int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_status *blocked)
      *# Each party MUST send a "close_notify" alert before closing its write
      *# side of the connection, unless it has already sent some error alert.
      */
+    /* Log connection shutdown initiated event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Connection shutdown initiated: sending close_notify");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     POSIX_GUARD_RESULT(s2n_alerts_write_error_or_close_notify(conn));
     POSIX_GUARD(s2n_flush(conn, blocked));
     return S2N_SUCCESS;
@@ -134,6 +142,13 @@ int s2n_shutdown(struct s2n_connection *conn, s2n_blocked_status *blocked)
             POSIX_GUARD(s2n_process_alert_fragment(conn));
         }
         POSIX_GUARD_RESULT(s2n_record_wipe(conn));
+    }
+
+    /* Log connection shutdown complete event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Connection shutdown complete: close_notify received");
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     *blocked = S2N_NOT_BLOCKED;

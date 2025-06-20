@@ -21,6 +21,7 @@
 #include <time.h>
 
 #include "api/unstable/fingerprint.h"
+#include "utils/s2n_event.h"
 #include "crypto/s2n_fips.h"
 #include "crypto/s2n_hash.h"
 #include "error/s2n_errno.h"
@@ -429,15 +430,6 @@ int s2n_parse_client_hello(struct s2n_connection *conn)
 {
     POSIX_ENSURE_REF(conn);
 
-    {
-        s2n_event_log_cb("DEBUG", "parsing client hello");
-        // char event_log_buffer [256];
-        // int n, a=5, b=3;
-        // /* I'm not using snprintf because I'm a bad person */
-        // n = sprintf (event_log_buffer, "%d plus %d is %d", a, b, a+b);
-        // printf ("[%s] is a string %d chars long\n",buffer,n);
-    }
-
     /* SSLv2 ClientHellos are not allowed during a HelloRetryRequest */
     if (s2n_is_hello_retry_handshake(conn)) {
         POSIX_ENSURE(!conn->client_hello.sslv2, S2N_ERR_BAD_MESSAGE);
@@ -477,6 +469,66 @@ int s2n_parse_client_hello(struct s2n_connection *conn)
     /* Copy the session id to the connection. */
     conn->session_id_len = conn->client_hello.session_id.size;
     POSIX_CHECKED_MEMCPY(conn->session_id, conn->client_hello.session_id.data, conn->session_id_len);
+
+    /* Log client hello received event */
+    {
+        char event_log_buffer[1024];
+        const char *version_str = "UNKNOWN";
+        
+        if (conn->client_protocol_version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (conn->client_protocol_version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (conn->client_protocol_version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (conn->client_protocol_version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (conn->client_protocol_version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        /* Format random bytes as hex */
+        char random_hex[S2N_TLS_RANDOM_DATA_LEN * 2 + 1] = {0};
+        for (int i = 0; i < S2N_TLS_RANDOM_DATA_LEN; i++) {
+            sprintf(random_hex + (i * 2), "%02x", conn->handshake_params.client_random[i]);
+        }
+        
+        /* Format session ID as hex if present */
+        char session_id_hex[S2N_TLS_SESSION_ID_MAX_LEN * 2 + 1] = {0};
+        if (conn->session_id_len > 0) {
+            for (int i = 0; i < conn->session_id_len; i++) {
+                sprintf(session_id_hex + (i * 2), "%02x", conn->session_id[i]);
+            }
+        } else {
+            strcpy(session_id_hex, "empty");
+        }
+        
+        /* Format first few cipher suites */
+        char cipher_suites_str[256] = {0};
+        uint16_t cipher_count = conn->client_hello.cipher_suites.size / 2;
+        uint16_t display_count = cipher_count > 4 ? 4 : cipher_count;
+        
+        strcpy(cipher_suites_str, "[");
+        for (int i = 0; i < display_count; i++) {
+            uint8_t *cipher_ptr = conn->client_hello.cipher_suites.data + (i * 2);
+            char cipher_hex[8];
+            sprintf(cipher_hex, "0x%02x%02x", cipher_ptr[0], cipher_ptr[1]);
+            
+            strcat(cipher_suites_str, cipher_hex);
+            if (i < display_count - 1) {
+                strcat(cipher_suites_str, ", ");
+            }
+        }
+        
+        if (display_count < cipher_count) {
+            strcat(cipher_suites_str, ", ...");
+        }
+        strcat(cipher_suites_str, "]");
+        
+        sprintf(event_log_buffer, "Received ClientHello: version=%s, random=%s, session_id=%s, cipher_suites=%s", 
+                version_str, random_hex, session_id_hex, cipher_suites_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     POSIX_GUARD_RESULT(s2n_client_hello_verify_for_retry(conn,
             &previous_hello_retry, &conn->client_hello, previous_client_random));
@@ -535,10 +587,10 @@ int s2n_process_client_hello(struct s2n_connection *conn)
      * Negotiate protocol version, cipher suite, ALPN, select a cert, etc. */
     struct s2n_client_hello *client_hello = &conn->client_hello;
 
-    const struct s2n_security_policy *security_policy = NULL;
-    POSIX_GUARD(s2n_connection_get_security_policy(conn, &security_policy));
+    const struct s2n_security_policy *conn_security_policy = NULL;
+    POSIX_GUARD(s2n_connection_get_security_policy(conn, &conn_security_policy));
 
-    if (!s2n_connection_supports_tls13(conn) || !s2n_security_policy_supports_tls13(security_policy)) {
+    if (!s2n_connection_supports_tls13(conn) || !s2n_security_policy_supports_tls13(conn_security_policy)) {
         conn->server_protocol_version = MIN(conn->server_protocol_version, S2N_TLS12);
         conn->actual_protocol_version = MIN(conn->server_protocol_version, S2N_TLS12);
     }
@@ -583,7 +635,7 @@ int s2n_process_client_hello(struct s2n_connection *conn)
         conn->actual_protocol_version = MIN(conn->server_protocol_version, conn->client_protocol_version);
     }
 
-    if (conn->client_protocol_version < security_policy->minimum_protocol_version) {
+    if (conn->client_protocol_version < conn_security_policy->minimum_protocol_version) {
         POSIX_GUARD(s2n_queue_reader_unsupported_protocol_version_alert(conn));
         POSIX_BAIL(S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
     }
@@ -812,6 +864,76 @@ int s2n_client_hello_send(struct s2n_connection *conn)
     /* If early data was not requested as part of the ClientHello, it never will be. */
     if (conn->early_data_state == S2N_UNKNOWN_EARLY_DATA_STATE) {
         POSIX_GUARD_RESULT(s2n_connection_set_early_data_state(conn, S2N_EARLY_DATA_NOT_REQUESTED));
+    }
+
+    /* Log client hello sent event */
+    {
+        char event_log_buffer[1024];
+        const char *version_str = "UNKNOWN";
+        uint8_t protocol_version = conn->client_protocol_version;
+        
+        if (protocol_version == S2N_TLS10) {
+            version_str = "TLS1.0";
+        } else if (protocol_version == S2N_TLS11) {
+            version_str = "TLS1.1";
+        } else if (protocol_version == S2N_TLS12) {
+            version_str = "TLS1.2";
+        } else if (protocol_version == S2N_TLS13) {
+            version_str = "TLS1.3";
+        } else if (protocol_version == S2N_SSLv3) {
+            version_str = "SSLv3";
+        }
+        
+        /* Format random bytes as hex */
+        char random_hex[S2N_TLS_RANDOM_DATA_LEN * 2 + 1] = {0};
+        for (int i = 0; i < S2N_TLS_RANDOM_DATA_LEN; i++) {
+            sprintf(random_hex + (i * 2), "%02x", conn->handshake_params.client_random[i]);
+        }
+        
+        /* Format session ID as hex if present */
+        char session_id_hex[S2N_TLS_SESSION_ID_MAX_LEN * 2 + 1] = {0};
+        if (conn->session_id_len > 0) {
+            for (int i = 0; i < conn->session_id_len; i++) {
+                sprintf(session_id_hex + (i * 2), "%02x", conn->session_id[i]);
+            }
+        } else {
+            strcpy(session_id_hex, "empty");
+        }
+        
+        /* Format first few cipher suites from security policy */
+        char cipher_suites_str[256] = {0};
+        const struct s2n_security_policy *log_security_policy = NULL;
+        s2n_connection_get_security_policy(conn, &log_security_policy);
+        
+        if (log_security_policy && log_security_policy->cipher_preferences) {
+            uint16_t cipher_count = log_security_policy->cipher_preferences->count;
+            uint16_t display_count = cipher_count > 4 ? 4 : cipher_count;
+            
+            strcpy(cipher_suites_str, "[");
+            for (int i = 0; i < display_count; i++) {
+                struct s2n_cipher_suite *log_cipher = log_security_policy->cipher_preferences->suites[i];
+                if (log_cipher) {
+                    char cipher_hex[8];
+                    sprintf(cipher_hex, "0x%02x%02x", log_cipher->iana_value[0], log_cipher->iana_value[1]);
+                    
+                    strcat(cipher_suites_str, cipher_hex);
+                    if (i < display_count - 1) {
+                        strcat(cipher_suites_str, ", ");
+                    }
+                }
+            }
+            
+            if (display_count < cipher_count) {
+                strcat(cipher_suites_str, ", ...");
+            }
+            strcat(cipher_suites_str, "]");
+        } else {
+            strcpy(cipher_suites_str, "[unknown]");
+        }
+        
+        sprintf(event_log_buffer, "Sent ClientHello: version=%s, random=%s, session_id=%s, cipher_suites=%s", 
+                version_str, random_hex, session_id_hex, cipher_suites_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
     }
 
     return S2N_SUCCESS;

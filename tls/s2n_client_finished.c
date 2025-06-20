@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "error/s2n_errno.h"
+#include "utils/s2n_event.h"
 #include "stuffer/s2n_stuffer.h"
 #include "tls/s2n_connection.h"
 #include "tls/s2n_tls.h"
@@ -29,16 +30,38 @@ int s2n_client_finished_recv(struct s2n_connection *conn)
 {
     POSIX_ENSURE_REF(conn);
 
+    /* Log client finished message reception event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Processing client finished message: verify_data_length=%d", S2N_TLS_FINISHED_LEN);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     POSIX_GUARD(s2n_prf_client_finished(conn));
     uint8_t *verify_data = conn->handshake.client_finished;
     POSIX_GUARD_RESULT(s2n_finished_recv(conn, verify_data));
     POSIX_ENSURE(!conn->handshake.rsa_failed, S2N_ERR_BAD_MESSAGE);
+    
+    /* Log client finished verification result */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Client finished verification: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     return S2N_SUCCESS;
 }
 
 int s2n_client_finished_send(struct s2n_connection *conn)
 {
     POSIX_ENSURE_REF(conn);
+
+    /* Log client finished message sending event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Sending client finished message: verify_data_length=%d", S2N_TLS_FINISHED_LEN);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     POSIX_GUARD(s2n_prf_client_finished(conn));
     uint8_t *verify_data = conn->handshake.client_finished;
@@ -51,6 +74,13 @@ int s2n_client_finished_send(struct s2n_connection *conn)
 int s2n_tls13_client_finished_recv(struct s2n_connection *conn)
 {
     POSIX_ENSURE_EQ(conn->actual_protocol_version, S2N_TLS13);
+
+    /* Log TLS1.3 client finished message reception event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Processing TLS1.3 client finished message");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     uint8_t length = s2n_stuffer_data_available(&conn->handshake.io);
     S2N_ERROR_IF(length == 0, S2N_ERR_BAD_MESSAGE);
@@ -75,12 +105,26 @@ int s2n_tls13_client_finished_recv(struct s2n_connection *conn)
 
     POSIX_GUARD(s2n_tls13_mac_verify(&keys, &client_finished_mac, &wire_finished_mac));
 
+    /* Log TLS1.3 client finished verification result */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "TLS1.3 client finished verification: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+
     return 0;
 }
 
 int s2n_tls13_client_finished_send(struct s2n_connection *conn)
 {
     POSIX_ENSURE_EQ(conn->actual_protocol_version, S2N_TLS13);
+
+    /* Log TLS1.3 client finished message sending event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "Sending TLS1.3 client finished message");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     /* get tls13 keys */
     s2n_tls13_connection_keys(keys, conn);

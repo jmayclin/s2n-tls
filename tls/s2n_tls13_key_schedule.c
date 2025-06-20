@@ -15,6 +15,7 @@
 
 #include "tls/s2n_prf.h"
 #include "tls/s2n_tls13_handshake.h"
+#include "utils/s2n_event.h"
 #include "utils/s2n_result.h"
 
 /* The state machine refers to the "master" secret as the "application" secret.
@@ -163,6 +164,32 @@ S2N_RESULT s2n_tls13_key_schedule_set_key(struct s2n_connection *conn, s2n_extra
      *# MUST use sequence number 0.
      */
     RESULT_GUARD(s2n_zero_sequence_number(conn, mode));
+    
+    /* Log key schedule update event */
+    {
+        char event_log_buffer[256];
+        const char *secret_type_str = "UNKNOWN";
+        const char *mode_str = (mode == S2N_CLIENT) ? "CLIENT" : "SERVER";
+        
+        switch (secret_type) {
+            case S2N_EARLY_SECRET:
+                secret_type_str = "EARLY_SECRET";
+                break;
+            case S2N_HANDSHAKE_SECRET:
+                secret_type_str = "HANDSHAKE_SECRET";
+                break;
+            case S2N_MASTER_SECRET:
+                secret_type_str = "APPLICATION_SECRET";
+                break;
+            default:
+                secret_type_str = "UNKNOWN";
+                break;
+        }
+        
+        sprintf(event_log_buffer, "TLS 1.3 key schedule updated: secret_type=%s, mode=%s", 
+                secret_type_str, mode_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_RESULT_OK;
 }
@@ -367,5 +394,15 @@ S2N_RESULT s2n_tls13_key_schedule_generate_key_material(struct s2n_connection *c
         RESULT_GUARD(s2n_tls13_key_schedule_get_keying_material(conn, S2N_MASTER_SECRET,
                 sender, &key_material->server_iv, &key_material->server_key));
     }
+    
+    /* Log key material generation event */
+    {
+        char event_log_buffer[256];
+        const char *sender_str = (sender == S2N_CLIENT) ? "CLIENT" : "SERVER";
+        sprintf(event_log_buffer, "TLS 1.3 key material generated: secret_type=APPLICATION_SECRET, mode=%s", 
+                sender_str);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
+    
     return S2N_RESULT_OK;
 }

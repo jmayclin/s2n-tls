@@ -16,6 +16,7 @@
 #include <sys/param.h>
 
 #include "crypto/s2n_tls13_keys.h"
+#include "utils/s2n_event.h"
 #include "tls/extensions/s2n_extension_type.h"
 #include "tls/s2n_handshake.h"
 #include "tls/s2n_tls.h"
@@ -343,6 +344,28 @@ int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, struc
     POSIX_GUARD_RESULT(s2n_validate_ticket_lifetime(psk_list->conn, psk->obfuscated_ticket_age, chosen_psk->ticket_age_add));
     psk_params->chosen_psk = chosen_psk;
     psk_params->chosen_psk_wire_index = psk->wire_index;
+    
+    /* Log PSK selection event */
+    {
+        char event_log_buffer[256];
+        const char *psk_type = chosen_psk->type == S2N_PSK_TYPE_EXTERNAL ? "external" : "resumption";
+        const char *hmac_alg = "UNKNOWN";
+        
+        switch (chosen_psk->hmac_alg) {
+            case S2N_HMAC_SHA256:
+                hmac_alg = "SHA256";
+                break;
+            case S2N_HMAC_SHA384:
+                hmac_alg = "SHA384";
+                break;
+            default:
+                break;
+        }
+        
+        sprintf(event_log_buffer, "Selected PSK: %s, hmac=%s, identity_size=%u", 
+                psk_type, hmac_alg, (uint32_t)chosen_psk->identity.size);
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_SUCCESS;
 }
@@ -459,6 +482,13 @@ int s2n_psk_verify_binder(struct s2n_connection *conn, struct s2n_psk *psk,
     /* Verify the expected binder matches the given binder.
      * This operation must be constant time. */
     POSIX_GUARD(s2n_tls13_mac_verify(&psk_keys, &expected_binder, binder_to_verify));
+    
+    /* Log PSK binder verification success event */
+    {
+        char event_log_buffer[256];
+        sprintf(event_log_buffer, "PSK binder verification: SUCCESS");
+        s2n_event_log_cb("INFO", event_log_buffer);
+    }
 
     return S2N_SUCCESS;
 }

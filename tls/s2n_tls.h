@@ -23,6 +23,9 @@
 extern uint8_t s2n_unknown_protocol_version;
 extern uint8_t s2n_highest_protocol_version;
 
+/* Convert TLS handshake message type to string representation */
+const char *s2n_tls_message_type_to_str(uint8_t message_type);
+
 int s2n_flush(struct s2n_connection *conn, s2n_blocked_status *more);
 S2N_RESULT s2n_client_hello_request_validate(struct s2n_connection *conn);
 S2N_RESULT s2n_client_hello_request_recv(struct s2n_connection *conn);
