@@ -320,6 +320,7 @@ int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, struc
 {
     POSIX_ENSURE_REF(psk_list);
     POSIX_ENSURE_REF(psk_list->conn);
+    psk_list->finished = true;
 
     struct s2n_psk_parameters *psk_params = &psk_list->conn->psk_params;
     struct s2n_stuffer ticket_stuffer = { 0 };

@@ -77,6 +77,8 @@ struct s2n_offered_psk_list {
     struct s2n_connection *conn;
     struct s2n_stuffer wire_data;
     uint16_t wire_index;
+    bool invoked: 1;
+    bool finished: 1;
 };
 
 S2N_RESULT s2n_finish_psk_extension(struct s2n_connection *conn);

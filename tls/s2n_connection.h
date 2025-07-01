@@ -233,6 +233,7 @@ struct s2n_connection {
 
     /* Our PSK parameters */
     struct s2n_psk_parameters psk_params;
+    struct s2n_offered_psk_list offered_psk_list;
 
     /* The PRF needs some storage elements to work with */
     struct s2n_prf_working_space *prf_space;

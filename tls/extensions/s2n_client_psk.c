@@ -260,17 +260,24 @@ static S2N_RESULT s2n_client_psk_recv_identity_list(struct s2n_connection *conn,
     RESULT_ENSURE_REF(conn->config);
     RESULT_ENSURE_REF(wire_identities_in);
 
+    if (conn->offered_psk_list.invoked && !conn->offered_psk_list.finished) {
+        RESULT_BAIL(S2N_ERR_ASYNC_BLOCKED);
+    }
+
     struct s2n_offered_psk_list identity_list = {
         .conn = conn,
         .wire_data = *wire_identities_in,
     };
 
+    conn->offered_psk_list = identity_list;
+
     if (conn->config->psk_selection_cb) {
-        RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &identity_list));
+        conn->offered_psk_list.invoked = true;
+        RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &conn->offered_psk_list));
     } else if (conn->psk_params.type == S2N_PSK_TYPE_EXTERNAL) {
-        RESULT_GUARD(s2n_select_external_psk(conn, &identity_list));
+        RESULT_GUARD(s2n_select_external_psk(conn, &conn->offered_psk_list));
     } else if (conn->psk_params.type == S2N_PSK_TYPE_RESUMPTION) {
-        RESULT_GUARD(s2n_select_resumption_psk(conn, &identity_list));
+        RESULT_GUARD(s2n_select_resumption_psk(conn, &conn->offered_psk_list));
     }
 
     RESULT_ENSURE_REF(conn->psk_params.chosen_psk);
