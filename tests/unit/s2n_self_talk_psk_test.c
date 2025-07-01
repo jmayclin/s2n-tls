@@ -142,18 +142,33 @@ static int s2n_test_select_psk_identity_callback(struct s2n_connection *conn, vo
     return S2N_SUCCESS;
 }
 
+struct async_psk_cb_state {
+    /* the number of times the cb was polled */
+    uint8_t invoked_count;
+    /* indicates whether the cb should finish on the next poll */
+    bool async_work_finished;
+    /* indicates whether the cb has selected a psk */
+    bool selection_finished;
+};
+
 static int async_psk_cb(struct s2n_connection *conn, void *context,
         struct s2n_offered_psk_list *psk_identity_list)
 {
-    bool async_complete = *(bool *) context;
+    printf("async cb: invoked\n");
+    struct async_psk_cb_state* state = (struct async_psk_cb_state *) context;
+    state->invoked_count++;
 
-    if (!async_complete) {
-        // async work is not yet complete, we have not yet chosen a psk
-        return S2N_SUCCESS;
+    if (state->async_work_finished) {
+        printf("async cb: finishing \n");
+        struct s2n_offered_psk offered_psk = { 0 };
+        EXPECT_TRUE(s2n_offered_psk_list_has_next(psk_identity_list));
+        POSIX_GUARD(s2n_offered_psk_list_next(psk_identity_list, &offered_psk));
+        POSIX_GUARD(s2n_offered_psk_list_choose_psk(psk_identity_list, &offered_psk));
+        state->selection_finished = true;
     } else {
-        s2n_test_select_psk_identity_callback(conn, NULL, psk_identity_list);
+        printf("async cb: pending\n");
     }
-
+    printf("async cb: returning \n");
     return S2N_SUCCESS;
 }
 
@@ -454,19 +469,21 @@ int main(int argc, char **argv)
 
     /* async PSK selection callback */
     {
-        bool async_work_done = false;
+        struct async_psk_cb_state cb_state = {0};
+
         DEFER_CLEANUP(struct s2n_config *client_config_async = s2n_config_new(), s2n_config_ptr_free);
         DEFER_CLEANUP(struct s2n_config *server_config_async = s2n_config_new(), s2n_config_ptr_free);
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(client_config_async, "default_tls13"));
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(server_config_async, "default_tls13"));
-
                 
         DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
         DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
+        EXPECT_SUCCESS(s2n_connection_set_blinding(client, S2N_SELF_SERVICE_BLINDING));
+        EXPECT_SUCCESS(s2n_connection_set_blinding(server, S2N_SELF_SERVICE_BLINDING));
         EXPECT_SUCCESS(s2n_connection_set_config(client, client_config_async));
         EXPECT_SUCCESS(s2n_connection_set_config(server, server_config_async));
 
-        //EXPECT_SUCCESS(s2n_config_set_psk_selection_callback(server_config_async, async_psk_cb, &async_work_done));
+        EXPECT_SUCCESS(s2n_config_set_psk_selection_callback(server_config_async, async_psk_cb, &cb_state));
 
         uint8_t test_psk_identity[] = "why hello there my name is bobby";
         uint8_t test_psk_secret[] = "shhh, we must be very shneaky";
@@ -479,10 +496,30 @@ int main(int argc, char **argv)
 
         /* Negotiate handshake */
         printf("NEGOTIATING!\n");
-        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+        // the server should by blocked pending async stuff
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server, client), S2N_ERR_ASYNC_BLOCKED);
+
+        /* unit test: polling repeatedly continue to return blocked */
+        s2n_blocked_status status = S2N_NOT_BLOCKED;
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_ASYNC_BLOCKED);
+        EXPECT_EQUAL(status, S2N_BLOCKED_ON_APPLICATION_INPUT);
+
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_ASYNC_BLOCKED);
+        EXPECT_EQUAL(status, S2N_BLOCKED_ON_APPLICATION_INPUT);
+
+        setup_psk(server, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
+        cb_state.async_work_finished = true;
 
         /* Validate that a PSK is not chosen */
-        EXPECT_NULL(server_conn->psk_params.chosen_psk);
+        EXPECT_NULL(server->psk_params.chosen_psk);
+
+        /* no longer blocked on async */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_IO_BLOCKED);
+
+        EXPECT_TRUE(server->offered_psk_list.finished);
+        EXPECT_NOT_NULL(server->psk_params.chosen_psk);
+
+        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
 
         // /* Validate handshake type is not FULL_HANDSHAKE */
         // EXPECT_FALSE(ARE_FULL_HANDSHAKES(client_conn, server_conn));

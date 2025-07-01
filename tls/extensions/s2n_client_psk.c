@@ -260,8 +260,17 @@ static S2N_RESULT s2n_client_psk_recv_identity_list(struct s2n_connection *conn,
     RESULT_ENSURE_REF(conn->config);
     RESULT_ENSURE_REF(wire_identities_in);
 
-    if (conn->offered_psk_list.invoked && !conn->offered_psk_list.finished) {
-        RESULT_BAIL(S2N_ERR_ASYNC_BLOCKED);
+    if (conn->offered_psk_list.invoked) {
+        // ensure not finished
+        RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &conn->offered_psk_list));
+        if (!conn->offered_psk_list.finished) {
+            printf("bailing with async blocked!\n");
+            RESULT_BAIL(S2N_ERR_ASYNC_BLOCKED);
+        } else {
+            RESULT_ENSURE_REF(conn->psk_params.chosen_psk);
+            s2n_errno = 0;
+            return S2N_RESULT_OK;
+        }
     }
 
     struct s2n_offered_psk_list identity_list = {
@@ -274,6 +283,10 @@ static S2N_RESULT s2n_client_psk_recv_identity_list(struct s2n_connection *conn,
     if (conn->config->psk_selection_cb) {
         conn->offered_psk_list.invoked = true;
         RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &conn->offered_psk_list));
+        if (!conn->offered_psk_list.finished) {
+            printf("bailing with async blocked!\n");
+            RESULT_BAIL(S2N_ERR_ASYNC_BLOCKED);
+        }
     } else if (conn->psk_params.type == S2N_PSK_TYPE_EXTERNAL) {
         RESULT_GUARD(s2n_select_external_psk(conn, &conn->offered_psk_list));
     } else if (conn->psk_params.type == S2N_PSK_TYPE_RESUMPTION) {
@@ -405,6 +418,10 @@ int s2n_client_psk_recv(struct s2n_connection *conn, struct s2n_stuffer *extensi
     }
 
     if (s2n_result_is_error(s2n_client_psk_recv_identities(conn, extension))) {
+        if (s2n_errno == S2N_ERR_ASYNC_BLOCKED) {
+            POSIX_BAIL(S2N_ERR_ASYNC_BLOCKED);
+        }
+
         /**
          *= https://www.rfc-editor.org/rfc/rfc8446#section-4.2.11
          *# If no acceptable PSKs are found, the server SHOULD perform a non-PSK
