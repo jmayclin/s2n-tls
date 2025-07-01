@@ -155,7 +155,7 @@ static int async_psk_cb(struct s2n_connection *conn, void *context,
         struct s2n_offered_psk_list *psk_identity_list)
 {
     printf("async cb: invoked\n");
-    struct async_psk_cb_state* state = (struct async_psk_cb_state *) context;
+    struct async_psk_cb_state *state = (struct async_psk_cb_state *) context;
     state->invoked_count++;
 
     if (state->async_work_finished) {
@@ -469,13 +469,13 @@ int main(int argc, char **argv)
 
     /* async PSK selection callback */
     {
-        struct async_psk_cb_state cb_state = {0};
+        struct async_psk_cb_state cb_state = { 0 };
 
         DEFER_CLEANUP(struct s2n_config *client_config_async = s2n_config_new(), s2n_config_ptr_free);
         DEFER_CLEANUP(struct s2n_config *server_config_async = s2n_config_new(), s2n_config_ptr_free);
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(client_config_async, "default_tls13"));
         EXPECT_SUCCESS(s2n_config_set_cipher_preferences(server_config_async, "default_tls13"));
-                
+
         DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
         DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
         EXPECT_SUCCESS(s2n_connection_set_blinding(client, S2N_SELF_SERVICE_BLINDING));
@@ -488,9 +488,9 @@ int main(int argc, char **argv)
         uint8_t test_psk_identity[] = "why hello there my name is bobby";
         uint8_t test_psk_secret[] = "shhh, we must be very shneaky";
         setup_psk(client, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
-        setup_psk(server, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
+        //setup_psk(server, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
 
-        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair stuffer_io = {0}, s2n_io_stuffer_pair_free);
+        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair stuffer_io = { 0 }, s2n_io_stuffer_pair_free);
         EXPECT_OK(s2n_io_stuffer_pair_init(&stuffer_io));
         EXPECT_OK(s2n_connections_set_io_stuffer_pair_debug(client, server, &stuffer_io));
 
@@ -520,12 +520,68 @@ int main(int argc, char **argv)
         EXPECT_NOT_NULL(server->psk_params.chosen_psk);
 
         EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
-
-        // /* Validate handshake type is not FULL_HANDSHAKE */
-        // EXPECT_FALSE(ARE_FULL_HANDSHAKES(client_conn, server_conn));
-
-        // setup server and server config
     };
+
+    /* async PSK selection callback with async ClientHello callback */
+    {
+        struct async_psk_cb_state cb_state = { 0 };
+        s2n_blocked_status status = S2N_NOT_BLOCKED;
+
+        DEFER_CLEANUP(struct s2n_config *client_config_async = s2n_config_new(), s2n_config_ptr_free);
+        DEFER_CLEANUP(struct s2n_config *server_config_async = s2n_config_new(), s2n_config_ptr_free);
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(client_config_async, "default_tls13"));
+        EXPECT_SUCCESS(s2n_config_set_cipher_preferences(server_config_async, "default_tls13"));
+
+        EXPECT_SUCCESS(s2n_config_set_client_hello_cb(server_config_async, s2n_client_hello_no_op_cb, NULL));
+        EXPECT_SUCCESS(s2n_config_set_client_hello_cb_mode(server_config_async, S2N_CLIENT_HELLO_CB_NONBLOCKING));
+        EXPECT_SUCCESS(s2n_config_set_psk_selection_callback(server_config_async, async_psk_cb, &cb_state));
+
+        DEFER_CLEANUP(struct s2n_connection *client = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
+        DEFER_CLEANUP(struct s2n_connection *server = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
+
+        EXPECT_SUCCESS(s2n_connection_set_blinding(client, S2N_SELF_SERVICE_BLINDING));
+        EXPECT_SUCCESS(s2n_connection_set_blinding(server, S2N_SELF_SERVICE_BLINDING));
+        EXPECT_SUCCESS(s2n_connection_set_config(client, client_config_async));
+        EXPECT_SUCCESS(s2n_connection_set_config(server, server_config_async));
+
+        uint8_t test_psk_identity[] = "why hello there my name is bobby";
+        uint8_t test_psk_secret[] = "shhh, we must be very shneaky";
+        setup_psk(client, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
+        setup_psk(server, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
+
+        DEFER_CLEANUP(struct s2n_test_io_stuffer_pair stuffer_io = { 0 }, s2n_io_stuffer_pair_free);
+        EXPECT_OK(s2n_io_stuffer_pair_init(&stuffer_io));
+        EXPECT_OK(s2n_connections_set_io_stuffer_pair_debug(client, server, &stuffer_io));
+
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server, client), S2N_ERR_ASYNC_BLOCKED);
+
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_ASYNC_BLOCKED);
+
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_ASYNC_BLOCKED);
+        
+        EXPECT_EQUAL(server->client_hello.callback_invoked, 1);
+        EXPECT_FALSE(server->offered_psk_list.invoked);
+        s2n_client_hello_cb_done(server);
+
+
+
+        // should now by async blocked by client hello
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server, client), S2N_ERR_ASYNC_BLOCKED);
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate_test_server_and_client(server, client), S2N_ERR_ASYNC_BLOCKED);
+        
+
+        setup_psk(server, test_psk_identity, sizeof(test_psk_identity), test_psk_secret, sizeof(test_psk_secret), S2N_PSK_HMAC_SHA384);
+        cb_state.async_work_finished = true;
+        EXPECT_NULL(server->psk_params.chosen_psk);
+
+        /* no longer async blocked */
+        EXPECT_FAILURE_WITH_ERRNO(s2n_negotiate(server, &status), S2N_ERR_IO_BLOCKED);
+
+        EXPECT_TRUE(server->offered_psk_list.finished);
+        EXPECT_NOT_NULL(server->psk_params.chosen_psk);
+
+        EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server, client));
+    }
 
     /* Clean-up */
     EXPECT_SUCCESS(s2n_connection_free(server_conn));
