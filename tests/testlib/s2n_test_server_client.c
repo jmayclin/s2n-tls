@@ -17,6 +17,7 @@
 
 static S2N_RESULT s2n_validate_negotiate_result(bool success, bool peer_is_done, bool *is_done)
 {
+    printf("success %d, peer %d\n", success, peer_is_done);
     /* If we succeeded, we're done. */
     if (success) {
         *is_done = true;
@@ -47,9 +48,11 @@ int s2n_negotiate_test_server_and_client(struct s2n_connection *server_conn, str
     s2n_blocked_status blocked = S2N_NOT_BLOCKED;
 
     do {
+        printf("calling s2n_negotiate for client\n");
         bool rc = (s2n_negotiate(client_conn, &blocked) >= S2N_SUCCESS);
         POSIX_GUARD_RESULT(s2n_validate_negotiate_result(rc, server_done, &client_done));
 
+        printf("calling s2n_negotiate for server\n");
         rc = (s2n_negotiate(server_conn, &blocked) >= S2N_SUCCESS);
         POSIX_GUARD_RESULT(s2n_validate_negotiate_result(rc, client_done, &server_done));
     } while (!client_done || !server_done);

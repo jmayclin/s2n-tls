@@ -85,6 +85,18 @@ static int buffer_write(void *io_context, const uint8_t *buf, uint32_t len)
     return len;
 }
 
+static int debug_buffer_read(void *io_context, uint8_t *buf, uint32_t len) {
+    int read = buffer_read(io_context, buf, len);
+    printf("read %d\n", read);
+    return read;
+}
+
+static int debug_buffer_write(void *io_context, const uint8_t *buf, uint32_t len) {
+    int write = buffer_write(io_context, buf, len);
+    printf("write: %d\n", write);
+    return write;
+}
+
 /* The connection will read/write to/from a stuffer, instead of sockets */
 int s2n_connection_set_io_stuffers(struct s2n_stuffer *input, struct s2n_stuffer *output, struct s2n_connection *conn)
 {
@@ -132,6 +144,27 @@ S2N_RESULT s2n_connections_set_io_stuffer_pair(struct s2n_connection *client, st
     RESULT_ENSURE_REF(io_pair);
     RESULT_GUARD_POSIX(s2n_connection_set_io_stuffers(&io_pair->client_in, &io_pair->server_in, client));
     RESULT_GUARD_POSIX(s2n_connection_set_io_stuffers(&io_pair->server_in, &io_pair->client_in, server));
+    return S2N_RESULT_OK;
+}
+
+S2N_RESULT s2n_connections_set_io_stuffer_pair_debug(struct s2n_connection *client, struct s2n_connection *server,
+        struct s2n_test_io_stuffer_pair *io_pair)
+{
+    RESULT_ENSURE_REF(io_pair);
+    /* set client IO */
+    s2n_connection_set_recv_cb(client, &debug_buffer_read);
+    s2n_connection_set_recv_ctx(client, &io_pair->client_in);
+
+    s2n_connection_set_send_cb(client, &debug_buffer_write);
+    s2n_connection_set_send_ctx(client, &io_pair->server_in);
+    
+    /* set server IO */
+    s2n_connection_set_recv_cb(server, &debug_buffer_read);
+    s2n_connection_set_recv_ctx(server,  &io_pair->server_in);
+
+    s2n_connection_set_send_cb(server, &debug_buffer_write);
+    s2n_connection_set_send_ctx(server,&io_pair->client_in);
+
     return S2N_RESULT_OK;
 }
 

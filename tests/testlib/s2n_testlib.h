@@ -45,6 +45,8 @@ S2N_RESULT s2n_io_stuffer_pair_init(struct s2n_test_io_stuffer_pair *io_pair);
 S2N_CLEANUP_RESULT s2n_io_stuffer_pair_free(struct s2n_test_io_stuffer_pair *io_pair);
 S2N_RESULT s2n_connections_set_io_stuffer_pair(struct s2n_connection *client, struct s2n_connection *server,
         struct s2n_test_io_stuffer_pair *io_pair);
+S2N_RESULT s2n_connections_set_io_stuffer_pair_debug(struct s2n_connection *client, struct s2n_connection *server,
+        struct s2n_test_io_stuffer_pair *io_pair);
 
 struct s2n_test_io_pair {
     int client;
