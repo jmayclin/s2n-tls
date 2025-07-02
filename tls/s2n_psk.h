@@ -78,6 +78,10 @@ struct s2n_offered_psk_list {
     struct s2n_stuffer wire_data;
     uint16_t wire_index;
     bool invoked: 1;
+    /* `finished` must always be set to true before the psk_selector callback is
+     * invoked. This is necessary to support the legacy behavior where not calling
+     * s2n_offered_list_list_choose_psk was treated as rejecting all PSKs 
+     */
     bool finished: 1;
 };
 

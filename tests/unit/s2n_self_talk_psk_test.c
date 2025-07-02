@@ -166,6 +166,7 @@ static int async_psk_cb(struct s2n_connection *conn, void *context,
         POSIX_GUARD(s2n_offered_psk_list_choose_psk(psk_identity_list, &offered_psk));
         state->selection_finished = true;
     } else {
+        POSIX_GUARD(s2n_offered_psk_list_choose_psk(psk_identity_list, &S2N_PSK_ASYNC_IN_PROGRESS));
         printf("async cb: pending\n");
     }
     printf("async cb: returning \n");

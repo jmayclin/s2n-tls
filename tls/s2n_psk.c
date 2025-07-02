@@ -25,6 +25,9 @@
 #include "utils/s2n_mem.h"
 #include "utils/s2n_safety.h"
 
+struct s2n_offered_psk S2N_PSK_ASYNC_IN_PROGRESS = { 0 };
+struct s2n_offered_psk S2N_PSK_REJECT_ALL = { 0 };
+
 S2N_RESULT s2n_psk_init(struct s2n_psk *psk, s2n_psk_type type)
 {
     RESULT_ENSURE_MUT(psk);
@@ -320,16 +323,22 @@ int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, struc
 {
     POSIX_ENSURE_REF(psk_list);
     POSIX_ENSURE_REF(psk_list->conn);
+
     psk_list->finished = true;
-    printf("psk list finished is now set to true");
+
+    if (psk == &S2N_PSK_ASYNC_IN_PROGRESS) {
+        printf("psk list finished is now set to true");
+        psk_list->finished = false;
+        return S2N_SUCCESS;
+    }
 
     struct s2n_psk_parameters *psk_params = &psk_list->conn->psk_params;
     struct s2n_stuffer ticket_stuffer = { 0 };
-
-    if (!psk) {
+    if (!psk || psk == &S2N_PSK_REJECT_ALL) {
         psk_params->chosen_psk = NULL;
         return S2N_SUCCESS;
     }
+
 
     if (psk_params->type == S2N_PSK_TYPE_RESUMPTION && psk_list->conn->config->use_tickets) {
         POSIX_GUARD(s2n_stuffer_init(&ticket_stuffer, &psk->identity));

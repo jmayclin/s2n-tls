@@ -262,6 +262,7 @@ static S2N_RESULT s2n_client_psk_recv_identity_list(struct s2n_connection *conn,
 
     if (conn->offered_psk_list.invoked) {
         // ensure not finished
+        conn->offered_psk_list.finished = true;
         RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &conn->offered_psk_list));
         if (!conn->offered_psk_list.finished) {
             printf("bailing with async blocked!\n");
@@ -282,6 +283,7 @@ static S2N_RESULT s2n_client_psk_recv_identity_list(struct s2n_connection *conn,
 
     if (conn->config->psk_selection_cb) {
         conn->offered_psk_list.invoked = true;
+        conn->offered_psk_list.finished = true;
         RESULT_GUARD_POSIX(conn->config->psk_selection_cb(conn, conn->config->psk_selection_ctx, &conn->offered_psk_list));
         if (!conn->offered_psk_list.finished) {
             printf("bailing with async blocked!\n");

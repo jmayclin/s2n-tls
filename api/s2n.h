@@ -2988,6 +2988,9 @@ S2N_API int s2n_connection_get_negotiated_psk_identity(struct s2n_connection *co
 
 struct s2n_offered_psk;
 
+extern struct s2n_offered_psk S2N_PSK_ASYNC_IN_PROGRESS;
+extern struct s2n_offered_psk S2N_PSK_REJECT_ALL;
+
 /**
  * Creates a new s2n offered PSK object. 
  * An offered PSK object represents a single PSK sent by the client.
