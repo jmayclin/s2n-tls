@@ -3,12 +3,14 @@
 
 use std::{
     marker::PhantomData,
-    ptr::{self, NonNull},
+    pin::Pin,
+    ptr::{self, addr_of_mut, NonNull},
 };
 
 use s2n_tls_sys::*;
 
 use crate::{
+    callbacks::ConnectionFuture,
     connection::Connection,
     error::{Error, ErrorType, Fallible},
     foreign_types::{Opaque, S2NRef},
@@ -131,7 +133,19 @@ impl<'callback> OfferedPskListRef<'callback> {
     /// Corresponds to [s2n_offered_psk_list_choose_psk].
     fn choose_psk(&mut self, psk: &OfferedPsk) -> Result<(), crate::error::Error> {
         let mut_psk = psk.ptr.as_ptr();
-        unsafe { s2n_offered_psk_list_choose_psk(self.as_s2n_ptr_mut(), mut_psk).into_result()? };
+        unsafe { s2n_offered_psk_list_choose_psk(self.as_s2n_ptr_mut(), mut_psk).into_result() }?;
+        Ok(())
+    }
+
+    fn reject_all(&mut self) -> Result<(), crate::error::Error> {
+        unsafe {
+            s2n_offered_psk_list_choose_psk(
+                self.as_s2n_ptr_mut(),
+                // TODO use &raw mut once that's an option
+                addr_of_mut!(s2n_tls_sys::S2N_PSK_REJECT_ALL),
+            )
+            .into_result()
+        }?;
         Ok(())
     }
 
@@ -158,6 +172,10 @@ impl IdentitySelector<'_, '_> {
     /// without calling this function to reject the connection.
     pub fn choose_current_psk(&mut self) -> Result<(), crate::error::Error> {
         self.list.choose_psk(&self.psk)
+    }
+
+    pub fn reject_all(&mut self) -> Result<(), crate::error::Error> {
+        self.list.reject_all()
     }
 }
 
@@ -224,7 +242,11 @@ pub trait PskSelectionCallback: 'static + Send + Sync {
     /// Before calling [`IdentitySelector::choose_current_psk`], implementors must
     /// first append the corresponding [`crate::psk::Psk`] to the
     /// connection using [`Connection::append_psk`].
-    fn select_psk(&self, connection: &mut Connection, psk_list: &mut OfferedPskListRef);
+    fn select_psk(
+        &self,
+        connection: &mut Connection,
+        psk_list: &mut OfferedPskListRef,
+    ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, crate::error::Error>;
 }
 
 #[cfg(test)]
@@ -236,6 +258,8 @@ mod tests {
             Arc,
         },
     };
+
+    use futures_test::task::noop_waker_ref;
 
     use crate::error::Error as S2NError;
 
@@ -291,7 +315,11 @@ mod tests {
     }
 
     impl PskSelectionCallback for TestPskStore {
-        fn select_psk(&self, connection: &mut Connection, psk_list: &mut OfferedPskListRef) {
+        fn select_psk(
+            &self,
+            connection: &mut Connection,
+            psk_list: &mut OfferedPskListRef,
+        ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, crate::error::Error> {
             self.invoked.store(true, atomic::Ordering::Relaxed);
 
             let identities: Vec<&[u8]> = psk_list
@@ -322,6 +350,7 @@ mod tests {
             let chosen_external = self.get_by_identity(chosen).unwrap();
             connection.append_psk(chosen_external).unwrap();
             identity_selector.choose_current_psk().unwrap();
+            Ok(None)
         }
     }
 
@@ -336,17 +365,19 @@ mod tests {
 
         let config = config.build()?;
         let mut test_pair = TestPair::from_config(&config);
+        test_pair.server.set_waker(Some(noop_waker_ref()))?;
         for psk in client_psks.store.iter() {
             test_pair.client.append_psk(psk)?;
         }
+
         assert!(test_pair.handshake().is_ok());
         assert!(client_psks.invoked.load(atomic::Ordering::Relaxed));
         Ok(())
     }
 
-    #[test]
     // If choose_current_psk is called when there isn't a current psk, s2n-tls
     // should return a well formed error.
+    #[test]
     fn choose_without_current_psk() -> Result<(), crate::error::Error> {
         #[derive(Clone, Default)]
         struct ImmediateSelect {
@@ -354,7 +385,11 @@ mod tests {
         }
 
         impl PskSelectionCallback for ImmediateSelect {
-            fn select_psk(&self, _connection: &mut Connection, psk_list: &mut OfferedPskListRef) {
+            fn select_psk(
+                &self,
+                _connection: &mut Connection,
+                psk_list: &mut OfferedPskListRef,
+            ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, crate::error::Error> {
                 self.invoked.store(true, atomic::Ordering::Relaxed);
 
                 let err = psk_list
@@ -364,6 +399,7 @@ mod tests {
                     .unwrap_err();
                 assert_eq!(err.kind(), ErrorType::InternalError);
                 assert_eq!(err.source(), ErrorSource::Library);
+                Ok(None)
             }
         }
 
@@ -380,8 +416,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
     // If choose_current_psk isn't called, then the handshake should fail gracefully.
+    #[test]
     fn no_chosen_psk() -> Result<(), crate::error::Error> {
         #[derive(Clone, Default)]
         struct NeverSelect(Arc<AtomicBool>);
@@ -391,9 +427,10 @@ mod tests {
                 &self,
                 _connection: &mut Connection,
                 _psk_cursor: &mut OfferedPskListRef,
-            ) {
+            ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, crate::error::Error> {
                 self.0.store(true, atomic::Ordering::Relaxed);
                 // return without calling cursor.choose_current_psk
+                Ok(None)
             }
         }
 
@@ -425,7 +462,11 @@ mod tests {
         }
 
         impl PskSelectionCallback for UseOfferedPskSelector {
-            fn select_psk(&self, connection: &mut Connection, psk_list: &mut OfferedPskListRef) {
+            fn select_psk(
+                &self,
+                connection: &mut Connection,
+                psk_list: &mut OfferedPskListRef,
+            ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, crate::error::Error> {
                 self.invoked.store(true, atomic::Ordering::Relaxed);
 
                 let identities: Vec<&[u8]> = psk_list
@@ -450,6 +491,7 @@ mod tests {
                 let psk = self.get_by_identity(identity).unwrap();
                 connection.append_psk(psk).unwrap();
                 offered_psks.choose_current_psk().unwrap();
+                Ok(None)
             }
         }
 
@@ -459,9 +501,14 @@ mod tests {
         config.set_psk_selection_callback(selector)?;
 
         let mut test_pair = TestPair::from_config(&config.build()?);
+        test_pair.server.set_waker(Some(noop_waker_ref()))?;
         test_pair.client.append_psk(&TestPskStore::test_psk(1)?)?;
         assert!(test_pair.handshake().is_ok());
 
         Ok(())
     }
+
+
+    // async PSK selection
+
 }

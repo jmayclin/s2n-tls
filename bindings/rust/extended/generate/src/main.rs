@@ -35,6 +35,7 @@ fn main() {
     .allowlist_type("s2n_.*")
     .allowlist_function("s2n_.*")
     .allowlist_var("s2n_.*")
+    .allowlist_var("S2N_.*")
     .generate()
     .unwrap()
     .write_to_file(out_dir.join("src/api.rs"))

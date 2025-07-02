@@ -636,9 +636,9 @@ impl Builder {
             _context: *mut core::ffi::c_void,
         ) -> libc::c_int {
             with_context(connection_ptr, |conn, context| {
-                let callback = context.client_hello_callback.as_ref();
-                let future = callback
-                    .map(|c| c.on_client_hello(conn))
+                let maybe_callback = context.client_hello_callback.as_ref();
+                let future = maybe_callback
+                    .map(|callback| callback.on_client_hello(conn))
                     .unwrap_or(Ok(None));
                 AsyncCallback::trigger_client_hello_cb(future, conn)
             })
@@ -732,6 +732,19 @@ impl Builder {
         &mut self,
         handler: T,
     ) -> Result<&mut Self, Error> {
+        // unsafe extern "C" fn psk_selection_cb(
+        //     conn_ptr: *mut s2n_connection,
+        //     _context: *mut ::libc::c_void,
+        //     psk_list_ptr: *mut s2n_offered_psk_list,
+        // ) -> libc::c_int {
+        //     let psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
+        //     with_context(conn_ptr, |conn, context| {
+        //         let callback = context.psk_selection_callback.as_ref();
+        //         callback.map(|c| c.select_psk(conn, psk_list))
+        //     });
+        //     CallbackResult::Success.into()
+        // }
+
         unsafe extern "C" fn psk_selection_cb(
             conn_ptr: *mut s2n_connection,
             _context: *mut ::libc::c_void,
@@ -739,10 +752,13 @@ impl Builder {
         ) -> libc::c_int {
             let psk_list = OfferedPskListRef::from_s2n_ptr_mut(psk_list_ptr);
             with_context(conn_ptr, |conn, context| {
-                let callback = context.psk_selection_callback.as_ref();
-                callback.map(|c| c.select_psk(conn, psk_list))
-            });
-            CallbackResult::Success.into()
+                let maybe_callback = context.psk_selection_callback.as_ref();
+                let future = maybe_callback
+                    .map(|c| c.select_psk(conn, psk_list))
+                    .unwrap_or(Ok(None));
+                AsyncCallback::trigger(future, conn)
+            })
+            .into()
         }
 
         let handler = Box::new(handler);
