@@ -1,18 +1,39 @@
+mod client_hello_parser;
+mod codec;
+mod prefixed_list;
+
 use std::{
     collections::HashMap,
     hash::Hash,
+    io::ErrorKind,
     pin::Pin,
     sync::{Mutex, RwLock},
 };
 
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_kms::{config::Region, error::{DisplayErrorContext, SdkError}, meta::PKG_VERSION, operation::decrypt::DecryptError, primitives::Blob, Client, Error};
-use s2n_tls::error::Error as S2NError;
+use aws_sdk_kms::{
+    config::Region,
+    error::{DisplayErrorContext, SdkError},
+    meta::PKG_VERSION,
+    operation::decrypt::DecryptError,
+    primitives::Blob,
+    Client, Error,
+};
+use s2n_tls::{callbacks::ClientHelloCallback, error::Error as S2NError};
 use s2n_tls::{
     callbacks::{ConnectionFuture, PskSelectionCallback},
     config::ConnectionInitializer,
 };
 use tokio::runtime::Handle;
+
+use crate::{
+    client_hello_parser::{
+        ClientHello, ExtensionType, HandshakeMessageHeader, PresharedKeyClientHello, PskIdentity,
+        SupportedVersionClientHello,
+    },
+    codec::DecodeValue,
+    prefixed_list::PrefixedList,
+};
 
 async fn make_key(client: &Client) -> Result<(), Error> {
     let resp = client.create_key().send().await?;
@@ -27,8 +48,6 @@ async fn make_key(client: &Client) -> Result<(), Error> {
 enum KmsPskFormat {
     V1,
 }
-
-
 
 const PSK_SIZE: usize = 32;
 
@@ -60,6 +79,92 @@ impl KmsPskReceiver {
 
     // given some Psk Identity
     // async fn decrypt_psk_identity(psk_identity: Vec<u8>) -> Vec<u8>
+}
+
+fn retrieve_identities(
+    client_hello: &s2n_tls::client_hello::ClientHello,
+) -> std::io::Result<PrefixedList<PskIdentity, u16>> {
+    let bytes = client_hello.raw_message()?;
+    let buffer = bytes.as_slice();
+    let (handshake_header, buffer) = HandshakeMessageHeader::decode_from(buffer)?;
+    let (client_hello, buffer) = ClientHello::decode_from(buffer)?;
+
+    let psks = client_hello
+        .extensions
+        .list()
+        .iter()
+        .find(|e| e.extension_type == ExtensionType::PreSharedKey);
+
+    match psks {
+        Some(extension) => {
+            let (identities, buffer) =
+                PresharedKeyClientHello::decode_from(extension.extension_data.blob())?;
+            Ok(identities.identities)
+        }
+        None => Err(std::io::Error::new(
+            ErrorKind::Unsupported,
+            "client hello did not contain PSKs".to_owned(),
+        )),
+    }
+}
+
+impl ClientHelloCallback for KmsPskReceiver {
+    fn on_client_hello(
+        // this method takes an immutable reference to self to prevent the
+        // Config from being mutated by one connection and then used in another
+        // connection, leading to undefined behavior
+        &self,
+        connection: &mut s2n_tls::connection::Connection,
+    ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
+        let client_hello = connection.client_hello()?;
+        let identities = match retrieve_identities(client_hello) {
+            Ok(identities) => identities,
+            Err(e) => return Err(s2n_tls::error::Error::application(Box::new(e))),
+        };
+
+        // we only look at the first identity
+        let ciphertext_identity = match identities.list().first() {
+            Some(id) => id.identity.blob(),
+            None => {
+                return Err(s2n_tls::error::Error::application(
+                    "identities list was zero-length".into(),
+                ))
+            }
+        };
+
+        let plaintext = tokio::task::block_in_place(|| {
+            Handle::current().block_on(async move { self.decrypt(ciphertext_identity).await })
+        });
+        let plaintext = match plaintext {
+            Ok(p) => p,
+            Err(decryt_error) => {
+                // The DisplayErrorContext is required to get a useful error
+                // message: https://docs.aws.amazon.com/sdk-for-rust/latest/dg/error-handling.html
+                tracing::error!(
+                    "decryption failed, rejecting connection {:?}",
+                    DisplayErrorContext(&decryt_error)
+                );
+                return Err(s2n_tls::error::Error::application(Box::new(decryt_error)));
+            }
+        };
+        // cache the identity in the decrypted map
+        // TODO: limit 
+        self.key_cache
+            .write()
+            .unwrap()
+            .insert(ciphertext_identity.to_vec(), plaintext.clone());
+
+        let psk = {
+            let mut psk = s2n_tls::psk::Psk::builder().unwrap();
+            psk.set_hmac(s2n_tls::enums::PskHmac::SHA384).unwrap();
+            psk.set_identity(ciphertext_identity).unwrap();
+            psk.set_secret(&plaintext).unwrap();
+            psk.build().unwrap()
+        };
+        connection.append_psk(&psk).unwrap();
+
+        Ok(None)
+    }
 }
 
 impl PskSelectionCallback for KmsPskReceiver {
@@ -97,9 +202,12 @@ impl PskSelectionCallback for KmsPskReceiver {
                     Err(decryt_error) => {
                         // The DisplayErrorContext is required to get a useful error
                         // message: https://docs.aws.amazon.com/sdk-for-rust/latest/dg/error-handling.html
-                        tracing::error!("decryption failed, rejecting connection {:?}", DisplayErrorContext(&decryt_error));
+                        tracing::error!(
+                            "decryption failed, rejecting connection {:?}",
+                            DisplayErrorContext(&decryt_error)
+                        );
                         return;
-                    },
+                    }
                 };
                 // cache the identity in the decrypted map
                 self.key_cache
@@ -247,7 +355,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn handshake() -> Result<(), S2NError> {
+    async fn psk_selection_handshake() -> Result<(), S2NError> {
         tracing_subscriber::fmt()
             .with_max_level(tracing::level_filters::LevelFilter::DEBUG)
             .init();
@@ -265,6 +373,94 @@ mod tests {
 
         let mut server_config = s2n_tls::config::Builder::new();
         server_config.set_psk_selection_callback(server_psk_recevier)?;
+        server_config.set_security_policy(&s2n_tls::security::DEFAULT_TLS13)?;
+
+        let mut client_config = s2n_tls::config::Builder::new();
+        client_config.set_connection_initializer(client_psk_provider)?;
+        client_config.set_security_policy(&s2n_tls::security::DEFAULT_TLS13)?;
+
+        let client = s2n_tls_tokio::TlsConnector::new(client_config.build()?);
+        let server = s2n_tls_tokio::TlsAcceptor::new(server_config.build()?);
+
+        // Bind to an address and listen for connections.
+        // ":0" can be used to automatically assign a port.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        println!("Listening on {:?}", addr);
+
+        let server = tokio::task::spawn(async move {
+            loop {
+                // Wait for a client to connect.
+                let (stream, peer_addr) = listener.accept().await.unwrap();
+                println!("Connection from {:?}", peer_addr);
+
+                // Spawn a new task to handle the connection.
+                // We probably want to spawn the task BEFORE calling TcpAcceptor::accept,
+                // because the TLS handshake can be slow.
+                let server = server.clone();
+                tokio::spawn(async move {
+                    let mut tls = server.accept(stream).await?;
+                    println!("{:#?}", tls);
+
+                    tls.shutdown().await?;
+                    println!("Connection from {:?} closed", peer_addr);
+
+                    Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                });
+            }
+        });
+
+        // request 1
+        {
+            let stream = TcpStream::connect(addr).await.unwrap();
+            // request a TLS connection on the TCP stream while setting the sni
+            let mut tls = match client.connect("localhost", stream).await {
+                Ok(tls) => tls,
+                Err(e) => {
+                    println!("error during handshake: {:?}", e);
+                    return Ok(());
+                }
+            };
+            println!("{:#?}", tls);
+        }
+
+        // request 2: cached key
+        {
+            let stream = TcpStream::connect(addr).await.unwrap();
+            // request a TLS connection on the TCP stream while setting the sni
+            let mut tls = match client.connect("localhost", stream).await {
+                Ok(tls) => tls,
+                Err(e) => {
+                    println!("error during handshake: {:?}", e);
+                    return Ok(());
+                }
+            };
+            println!("{:#?}", tls);
+        }
+
+        Ok(())
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn client_hello_cb_handshake() -> Result<(), S2NError> {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::level_filters::LevelFilter::DEBUG)
+            .init();
+
+        let shared_config = aws_config::from_env()
+            .region(Region::new("us-west-2"))
+            .load()
+            .await;
+        let client = Client::new(&shared_config);
+
+        let key_id = get_kms_key(&client).await;
+
+        let client_psk_provider = KmsPskProvider::create(&client, key_id.clone()).await;
+        let server_psk_recevier = KmsPskReceiver::new(client.clone());
+
+        let mut server_config = s2n_tls::config::Builder::new();
+        server_config.set_client_hello_callback(server_psk_recevier)?;
         server_config.set_security_policy(&s2n_tls::security::DEFAULT_TLS13)?;
 
         let mut client_config = s2n_tls::config::Builder::new();
