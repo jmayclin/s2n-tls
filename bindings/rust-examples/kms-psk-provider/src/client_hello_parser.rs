@@ -25,7 +25,6 @@ impl DecodeValue for HandshakeType {
 #[repr(u16)]
 pub enum ExtensionType {
     PreSharedKey = 41,
-    SupportedVersions = 43,
     Unknown(u16),
 }
 
@@ -34,7 +33,6 @@ impl DecodeValue for ExtensionType {
         let (value, remaining) = u16::decode_from(buffer)?;
         let protocol = match value {
             41 => Self::PreSharedKey,
-            43 => Self::SupportedVersions,
             x => Self::Unknown(x),
         };
         Ok((protocol, remaining))
@@ -121,23 +119,6 @@ impl DecodeValue for PresharedKeyClientHello {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SupportedVersionClientHello {
-    pub versions: PrefixedList<Protocol, u8>,
-}
-
-impl DecodeValue for SupportedVersionClientHello {
-    fn decode_from(buffer: &[u8]) -> std::io::Result<(Self, &[u8])> {
-        let (versions, buffer) = buffer.decode_value()?;
-
-        let value = Self {
-            versions,
-        };
-
-        Ok((value, buffer))
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandshakeMessageHeader {
     pub handshake_type: HandshakeType,
@@ -190,10 +171,8 @@ impl DecodeValue for ClientHello {
     }
 }
 
-/// This is the "basic" extension struct. Any extension will be able to be parsed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Extension {
-    // TODO: emit metrics whenever we see an extension type that isn't recognized
     pub extension_type: ExtensionType,
     pub extension_data: PrefixedBlob<u16>,
 }

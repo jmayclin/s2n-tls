@@ -2,7 +2,7 @@ use std::{fmt::Debug, io::ErrorKind};
 
 use anyhow::anyhow;
 
-use crate::codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue};
+use crate::codec::{DecodeByteSource, DecodeValue};
 
 /// An opaque list of bytes, where the size of the list is prefixed on the wire as `L`.
 ///
@@ -49,16 +49,6 @@ where
     }
 }
 
-impl<L> EncodeValue for PrefixedBlob<L>
-where
-    L: EncodeValue,
-{
-    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
-        buffer.encode_value(&self.0)?;
-        Ok(())
-    }
-}
-
 /// A list of `T`, where the size of the list is prefixed on the wire as `L`.
 ///
 /// Note that size != count. A list of 100 u16's, has count 100 and size 200.
@@ -90,27 +80,6 @@ where
     #[cfg(test)]
     pub fn into_inner(self) -> Vec<T> {
         self.items
-    }
-}
-
-impl<T, L> PrefixedList<T, L>
-where
-    L: Copy + TryFrom<usize>,
-    T: EncodeValue,
-{
-    pub fn set_list(&mut self, list: Vec<T>) -> anyhow::Result<()> {
-        if let Some(element) = list.first() {
-            let encode_size = element.encode_to_vec()?.len();
-            self.length = (encode_size * list.len())
-                .try_into()
-                .map_err(|_e| anyhow!("invalid length"))?;
-            self.items = list;
-        } else {
-            // list is empty
-            self.length = 0.try_into().ok().unwrap();
-            self.items = Vec::new();
-        }
-        Ok(())
     }
 }
 
@@ -150,19 +119,5 @@ where
             },
             buffer,
         ))
-    }
-}
-
-impl<T, L> EncodeValue for PrefixedList<T, L>
-where
-    T: EncodeValue,
-    L: EncodeValue,
-{
-    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
-        buffer.encode_value(&self.length)?;
-        for item in &self.items {
-            buffer.encode_value(item)?;
-        }
-        Ok(())
     }
 }

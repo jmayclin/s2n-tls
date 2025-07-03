@@ -148,7 +148,7 @@ impl ClientHelloCallback for KmsPskReceiver {
             }
         };
         // cache the identity in the decrypted map
-        // TODO: limit 
+        // TODO: limit
         self.key_cache
             .write()
             .unwrap()
@@ -440,7 +440,6 @@ mod tests {
 
         Ok(())
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn client_hello_cb_handshake() -> Result<(), S2NError> {
