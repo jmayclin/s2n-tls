@@ -736,4 +736,10 @@ mod tests {
 
         Ok(())
     }
+
+    // TODO 
+    // - obfuscation test (obfuscate, and deobfuscation, and make sure not equal)
+    // - round trip parsing
+    // - parsing a checked in format
+    // - also it should be possible to staple multiple of these things together.
 }
