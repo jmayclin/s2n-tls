@@ -3,14 +3,15 @@ mod codec;
 mod prefixed_list;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::Hash,
     io::ErrorKind,
     pin::Pin,
-    sync::{Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use aws_config::meta::region::RegionProviderChain;
+use aws_lc_rs::aead::{Aad, Nonce, RandomizedNonceKey, AES_256_GCM};
 use aws_sdk_kms::{
     config::Region,
     error::{DisplayErrorContext, SdkError},
@@ -29,11 +30,106 @@ use tokio::runtime::Handle;
 use crate::{
     client_hello_parser::{
         ClientHello, ExtensionType, HandshakeMessageHeader, PresharedKeyClientHello, PskIdentity,
-        SupportedVersionClientHello,
     },
-    codec::DecodeValue,
-    prefixed_list::PrefixedList,
+    codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
+    prefixed_list::{PrefixedBlob, PrefixedList},
 };
+
+struct ObfuscationKey {
+    name: Vec<u8>,
+    material: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct KmsTlsPskIdentity {
+    version: KmsPskFormat,
+    obfuscation_key_name: PrefixedBlob<u16>,
+    nonce: [u8; 12],
+    // the KMS datakey ciphertext, encrypted under the obfuscation key
+    obfuscated_identity: PrefixedBlob<u16>,
+}
+
+impl EncodeValue for KmsTlsPskIdentity {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        buffer.encode_value(&self.version)?;
+        buffer.encode_value(&self.obfuscation_key_name)?;
+        buffer.encode_value(&self.nonce)?;
+        buffer.encode_value(&self.obfuscated_identity)?;
+        Ok(())
+    }
+}
+
+impl DecodeValue for KmsTlsPskIdentity {
+    fn decode_from(buffer: &[u8]) -> std::io::Result<(Self, &[u8])> {
+        let (version, buffer) = buffer.decode_value()?;
+        let (obfuscation_key_name, buffer) = buffer.decode_value()?;
+        let (nonce, buffer) = buffer.decode_value()?;
+        let (obfuscated_identity, buffer) = buffer.decode_value()?;
+
+        let value = Self {
+            version,
+            obfuscation_key_name,
+            nonce,
+            obfuscated_identity,
+        };
+
+        Ok((value, buffer))
+    }
+}
+
+impl KmsTlsPskIdentity {
+    /// Create a KmsTlsPskIdentity
+    ///
+    /// * `ciphertext_data_key`: The ciphertext returned from the KMS generateDataKey
+    ///                          API.
+    /// * `obfuscation_key`: The key that will be used to obfuscate the ciphertext,
+    ///                      preventing any details about the ciphertext from being
+    ///                      read on the wire.
+    pub fn new(mut ciphertext_data_key: Vec<u8>, obfuscation_key: &ObfuscationKey) -> Self {
+        let key = RandomizedNonceKey::new(&AES_256_GCM, &obfuscation_key.material).unwrap();
+        let nonce = key
+            .seal_in_place_append_tag(Aad::empty(), &mut ciphertext_data_key)
+            .unwrap();
+        let nonce_bytes = nonce.as_ref();
+
+        Self {
+            version: KmsPskFormat::V1,
+            obfuscation_key_name: PrefixedBlob::new(obfuscation_key.name.clone()),
+            nonce: *nonce_bytes,
+            obfuscated_identity: PrefixedBlob::new(ciphertext_data_key),
+        }
+    }
+
+    pub fn obfuscation_key_name(&self) -> &[u8] {
+        self.obfuscation_key_name.blob()
+    }
+
+    /// de-obfuscate the Psk Identity, returning the datakey ciphertext to be decrypted
+    /// with KMS.
+    pub fn deobfuscate_datakey(
+        &self,
+        available_obfuscation_keys: &[ObfuscationKey],
+    ) -> anyhow::Result<Vec<u8>> {
+        let maybe_key = available_obfuscation_keys
+            .iter()
+            .find(|key| key.name == self.obfuscation_key_name.blob());
+        let obfuscation_key = match maybe_key {
+            Some(key) => key,
+            None => {
+                anyhow::bail!(
+                    "unable to deobfuscate: {} not available",
+                    hex::encode(self.obfuscation_key_name.blob()),
+                )
+            }
+        };
+
+        let key = RandomizedNonceKey::new(&AES_256_GCM, &obfuscation_key.material)?;
+
+        let mut in_out = Vec::from(self.obfuscated_identity.blob());
+        key.open_in_place(Nonce::from(&self.nonce), Aad::empty(), &mut in_out)?;
+        Ok(in_out)
+    }
+}
 
 async fn make_key(client: &Client) -> Result<(), Error> {
     let resp = client.create_key().send().await?;
@@ -45,27 +141,90 @@ async fn make_key(client: &Client) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[repr(u8)]
 enum KmsPskFormat {
-    V1,
+    V1 = 1,
+}
+
+impl EncodeValue for KmsPskFormat {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        let byte = *self as u8;
+        buffer.encode_value(&byte)?;
+        Ok(())
+    }
+}
+
+impl DecodeValue for KmsPskFormat {
+    fn decode_from(buffer: &[u8]) -> std::io::Result<(Self, &[u8])> {
+        let (value, buffer) = u8::decode_from(buffer)?;
+        match value {
+            1 => Ok((Self::V1, buffer)),
+            _ => Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                format!("{value} in not a valid KmsPskFormat"),
+            )),
+        }
+    }
+}
+
+fn psk_from_material(identity: &[u8], secret: &[u8]) -> Result<s2n_tls::psk::Psk, S2NError> {
+    let mut psk = s2n_tls::psk::Psk::builder()?;
+    psk.set_hmac(s2n_tls::enums::PskHmac::SHA384)?;
+    psk.set_identity(identity)?;
+    psk.set_secret(secret)?;
+    Ok(psk.build()?)
 }
 
 const PSK_SIZE: usize = 32;
 
 struct KmsPskReceiver {
     client: Client,
+    obfuscation_keys: Vec<ObfuscationKey>,
+    trusted_key_ids: Arc<Vec<KeyId>>,
     // map from ciphertext data key to plaintext data key
     // TODO: how do we evict the old keys?
     // trusted_kms_keys: HashSet<KeyId>,
-    key_cache: RwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    // https://crates.io/crates/ordermap
+    /// Map from the ciphertext datakey to the plaintext datakey
+    key_cache: Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>,
+    decrypt_count: u64,
+    cache_hit_count: u64,
 }
 
 impl KmsPskReceiver {
-    fn new(client: Client) -> Self {
+    /// Create a new KmsPskReceiver.
+    ///
+    /// This will receive the datakey ciphertext identities from a TLS client hello,
+    /// then decrypt them using KMS. This establishes a mutually authenticated TLS
+    /// handshake between parties with IAM permissions to generate and decrypt data keys
+    ///
+    /// * `client`: The KMS Client that will be used for the decrypt calls
+    /// * `obfuscation_keys`: The keys that will be used to deobfuscate the received
+    ///                       identities. The client `KmsPskProvider` must be using
+    ///                       one of the obfuscation keys in this list. If the KmsPskReciever
+    ///                       receives a Psk identity obfuscated using a key _not_
+    ///                       on this list, then the handshake will fail.
+    /// * `trusted_key_ids`: The list of KMS KeyIds that the KmsPskReceiver will
+    ///                      accept PSKs from. This is necessary because an attacker
+    ///                      could grant the server decrypt permissions on AttackerKeyId,
+    ///                      but the KmsPskReceiver should _not_ trust any Psk's
+    ///                      from AttackerKeyId.
+    fn new(
+        client: Client,
+        obfuscation_keys: Vec<ObfuscationKey>,
+        trusted_key_ids: Vec<KeyId>,
+    ) -> Self {
         Self {
             client,
-            key_cache: RwLock::new(HashMap::new()),
+            obfuscation_keys,
+            trusted_key_ids: Arc::new(trusted_key_ids),
+            key_cache: Arc::new(RwLock::new(HashMap::new())),
+            decrypt_count: 0,
+            cache_hit_count: 0,
         }
     }
+
     async fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, SdkError<DecryptError>> {
         let decrypted = self
             .client
@@ -81,12 +240,14 @@ impl KmsPskReceiver {
     // async fn decrypt_psk_identity(psk_identity: Vec<u8>) -> Vec<u8>
 }
 
+/// retrieve the PskIdentity items from the Psk extension in the ClientHello.
 fn retrieve_identities(
     client_hello: &s2n_tls::client_hello::ClientHello,
 ) -> std::io::Result<PrefixedList<PskIdentity, u16>> {
     let bytes = client_hello.raw_message()?;
     let buffer = bytes.as_slice();
-    let (handshake_header, buffer) = HandshakeMessageHeader::decode_from(buffer)?;
+    // we trust s2n-tls to have correctly parsed the ClientHello :)
+    let (_handshake_header, buffer) = HandshakeMessageHeader::decode_from(buffer)?;
     let (client_hello, buffer) = ClientHello::decode_from(buffer)?;
 
     let psks = client_hello
@@ -123,7 +284,7 @@ impl ClientHelloCallback for KmsPskReceiver {
         };
 
         // we only look at the first identity
-        let ciphertext_identity = match identities.list().first() {
+        let psk_identity = match identities.list().first() {
             Some(id) => id.identity.blob(),
             None => {
                 return Err(s2n_tls::error::Error::application(
@@ -132,8 +293,29 @@ impl ClientHelloCallback for KmsPskReceiver {
             }
         };
 
+        let (identity, remaining) = KmsTlsPskIdentity::decode_from(psk_identity).unwrap();
+        let ciphertext_datakey = identity
+            .deobfuscate_datakey(&self.obfuscation_keys)
+            .map_err(|e| s2n_tls::error::Error::application(e.into()))?;
+
+
+        let read_lock = self.key_cache.read().unwrap();
+        let maybe_plaintext = read_lock.get(&ciphertext_datakey).cloned();
+        drop(read_lock);
+
+        if let Some(plaintext_datakey) = maybe_plaintext {
+            let psk = psk_from_material(psk_identity, &plaintext_datakey)?;
+            connection.append_psk(&psk)?;
+            return Ok(None);
+        } else {
+            // decrypt the ciphertext
+
+            // cache the decryption
+            // check if there is anything to be removed
+        }
+
         let plaintext = tokio::task::block_in_place(|| {
-            Handle::current().block_on(async move { self.decrypt(ciphertext_identity).await })
+            Handle::current().block_on(async move { self.decrypt(psk_identity).await })
         });
         let plaintext = match plaintext {
             Ok(p) => p,
@@ -152,12 +334,12 @@ impl ClientHelloCallback for KmsPskReceiver {
         self.key_cache
             .write()
             .unwrap()
-            .insert(ciphertext_identity.to_vec(), plaintext.clone());
+            .insert(psk_identity.to_vec(), plaintext.clone());
 
         let psk = {
             let mut psk = s2n_tls::psk::Psk::builder().unwrap();
             psk.set_hmac(s2n_tls::enums::PskHmac::SHA384).unwrap();
-            psk.set_identity(ciphertext_identity).unwrap();
+            psk.set_identity(psk_identity).unwrap();
             psk.set_secret(&plaintext).unwrap();
             psk.build().unwrap()
         };
@@ -235,14 +417,22 @@ impl PskSelectionCallback for KmsPskReceiver {
 
 // used by the client to create the KMS PSK
 struct KmsPskProvider {
-    // I think this should probably hold a reference to the client? and then refresh
-    // itself after 24 hours have passed?
-    // does it need to spawn a tokio task, and wrap the datakey and ciphertext in a mutex?
-    // that seems like the correct thing to do
+    /// The KMS client
     client: Client,
+    /// The KMS KeyId that will be used to generate the datakey which are
+    /// used as TLS Psk's.
     kms_key_id: KeyId,
-    plaintext_datakey: Vec<u8>,
-    ciphertext_datakey: Vec<u8>,
+    /// The key used to obfuscate the ciphertext datakey from KMS.
+    ///
+    /// KMS Ciphertexts have observable regularities in their structure. Obfuscating
+    /// the identity prevents any of that from being observable over the wire.
+    obfuscation_key: ObfuscationKey,
+    /// The current Psk being set on all new connections
+    ///
+    /// The lock is necessary because this is updated every 24 hours by the
+    /// background updater.
+    psk: RwLock<s2n_tls::psk::Psk>,
+    // TODO: background updated task
 }
 
 // pub(crate) type ConnectionFutureResult = Result<Option<Pin<Box<dyn ConnectionFuture>>>, Error>;
@@ -252,15 +442,36 @@ impl ConnectionInitializer for KmsPskProvider {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
-        let psk = self.create_psk();
-        println!("created a psk with identity: {:?}", psk);
+        let psk = self.psk.read().unwrap();
         connection.append_psk(&psk).unwrap();
         Ok(None)
     }
 }
 
 impl KmsPskProvider {
-    async fn create(client: &Client, key: KeyId) -> Self {
+    pub async fn initialize(
+        client: &Client,
+        key: KeyId,
+        obfuscation_key: ObfuscationKey,
+    ) -> anyhow::Result<Self> {
+        let psk = Self::create(client, &key, &obfuscation_key).await?;
+        let value = Self {
+            client: client.clone(),
+            kms_key_id: key,
+            obfuscation_key,
+            psk: RwLock::new(psk),
+        };
+        Ok(value)
+    }
+
+    // it's inconvenient, but this method accepts arguments instead of `&self` so
+    // that the same code can be used in the constructor as well as the background
+    // updater
+    async fn create(
+        client: &Client,
+        key: &KeyId,
+        obfuscation_key: &ObfuscationKey,
+    ) -> anyhow::Result<s2n_tls::psk::Psk> {
         let data_key = client
             .generate_data_key()
             .key_id(key.clone())
@@ -271,16 +482,14 @@ impl KmsPskProvider {
 
         let plaintext = data_key.plaintext().cloned().unwrap().into_inner();
         let ciphertext = data_key.ciphertext_blob().cloned().unwrap().into_inner();
-        tracing::info!("plaintext key is {}", hex::encode(&plaintext));
-        tracing::info!("ciphertext key is {}", hex::encode(&ciphertext));
 
-        Self {
-            client: client.clone(),
-            kms_key_id: key,
-            plaintext_datakey: plaintext,
-            ciphertext_datakey: ciphertext,
-        }
+        let psk_identity = KmsTlsPskIdentity::new(ciphertext, &obfuscation_key);
+
+        let psk = psk_from_material(psk_identity, &plaintext)?;
+        Ok(psk)
     }
+
+    // need private create psk function
 
     fn create_psk(&self) -> s2n_tls::psk::Psk {
         let mut psk = s2n_tls::psk::Builder::new().unwrap();

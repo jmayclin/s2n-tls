@@ -9,6 +9,7 @@ edition.workspace = true
 [dependencies]
 anyhow = "1.0.98"
 aws-config = {version = "1.8.0", features = ["behavior-version-latest"]}
+aws-lc-rs = "1.13.1"
 aws-sdk-kms = "1.76.0"
 byteorder = "1.5.0"
 hex = "0.4.3"

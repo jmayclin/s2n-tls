@@ -23,9 +23,47 @@ pub trait DecodeByteSource<T: DecodeValue>: Sized {
     fn decode_value(&self) -> io::Result<(T, Self)>;
 }
 
+/// This trait defines a sink that values can be encoded to. Currently this is
+/// only implemented for `Vec<u8>`.
+///
+/// This is less efficient than relying on buffers, because encode calls might
+/// result in allocations. But the benefit is that it's much more ergonomic.
+pub trait EncodeBytesSink<T: EncodeValue>: Sized {
+    fn encode_value(&mut self, value: &T) -> io::Result<()>;
+}
+
 /// This trait defines a type that can be decoded from bytes.
 pub trait DecodeValue: Sized {
     fn decode_from(buffer: &[u8]) -> std::io::Result<(Self, &[u8])>;
+}
+
+/// This trait defines a type that can only be decoded with external context.
+/// 
+/// This is necessary because TLS hates you, and thinks that parsing should be 
+/// difficult. 
+/// 
+/// Example
+/// - ServerKeyExchange: you need to know the selected cipher to parse this message,
+///   because it branches on cipher auth methods, but the cipher auth method isn't
+///   included in the actual message.
+/// - Finished: the signature in the Finished message is _not_ length prefixed. 
+///   You need to know what hash the connection is using, and that isn't specified
+///   as part of the Finished message.
+pub trait DecodeValueWithContext: Sized {
+    type Context;
+
+    fn decode_from_with_context(buffer: &[u8], context: Self::Context) -> std::io::Result<(Self, &[u8])>;
+}
+
+/// This trait defines a type that can be encoded into bytes.
+pub trait EncodeValue: Sized {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()>;
+
+    fn encode_to_vec(&self) -> std::io::Result<Vec<u8>> {
+        let mut buffer = Vec::new();
+        self.encode_to(&mut buffer)?;
+        Ok(buffer)
+    }
 }
 
 //////////////////////////// Source + Sink Impls ///////////////////////////////
@@ -33,6 +71,12 @@ pub trait DecodeValue: Sized {
 impl<T: DecodeValue> DecodeByteSource<T> for &[u8] {
     fn decode_value(&self) -> io::Result<(T, Self)> {
         T::decode_from(self)
+    }
+}
+
+impl<T: EncodeValue> EncodeBytesSink<T> for Vec<u8> {
+    fn encode_value(&mut self, value: &T) -> io::Result<()> {
+        value.encode_to(self)
     }
 }
 
@@ -59,13 +103,41 @@ impl DecodeValue for u32 {
     }
 }
 
-// Implement Decode for byte arrays
+impl EncodeValue for u8 {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        buffer.write_all(&[*self])?;
+        Ok(())
+    }
+}
+
+impl EncodeValue for u16 {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        buffer.write_all(&self.to_be_bytes())?;
+        Ok(())
+    }
+}
+
+impl EncodeValue for u32 {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        buffer.write_all(&self.to_be_bytes())?;
+        Ok(())
+    }
+}
+
+// Implement Decode and Encode for byte arrays
 
 impl<const L: usize> DecodeValue for [u8; L] {
     fn decode_from(mut buffer: &[u8]) -> std::io::Result<(Self, &[u8])> {
         let mut value = [0; L];
         buffer.read_exact(&mut value)?;
         Ok((value, buffer))
+    }
+}
+
+impl<const L: usize> EncodeValue for [u8; L] {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        buffer.write_all(self)?;
+        Ok(())
     }
 }
 
@@ -79,6 +151,16 @@ impl DecodeValue for U24 {
     fn decode_from(mut buffer: &[u8]) -> std::io::Result<(Self, &[u8])> {
         let u24 = buffer.read_u24::<BigEndian>()?;
         Ok((U24(u24), buffer))
+    }
+}
+
+impl EncodeValue for U24 {
+    fn encode_to(&self, buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        let bytes = self.0.to_be_bytes();
+        // nothing should be in the most significant byte
+        assert_eq!(bytes[0], 0);
+        buffer.write_all(&bytes[1..])?;
+        Ok(())
     }
 }
 
