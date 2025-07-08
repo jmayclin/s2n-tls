@@ -1,5 +1,7 @@
 use crate::{
-    codec::DecodeValue, identity::{KmsTlsPskIdentity, ObfuscationKey}, psk_from_material, retrieve_identities, KeyArn, KEY_ROTATION_PERIOD, MAXIMUM_KEY_CACHE_SIZE
+    codec::DecodeValue,
+    identity::{KmsTlsPskIdentity, ObfuscationKey},
+    psk_from_material, retrieve_identities, KeyArn, KEY_ROTATION_PERIOD, MAXIMUM_KEY_CACHE_SIZE,
 };
 use aws_sdk_kms::{error::SdkError, operation::decrypt::DecryptError, primitives::Blob, Client};
 use moka::sync::Cache;
@@ -109,7 +111,10 @@ impl KmsPskReceiver {
         obfuscation_keys: Vec<ObfuscationKey>,
         trusted_key_arns: Vec<KeyArn>,
     ) -> Self {
-        let key_cache = moka::sync::Cache::builder().max_capacity(MAXIMUM_KEY_CACHE_SIZE as u64).time_to_live(KEY_ROTATION_PERIOD * 2).build();
+        let key_cache = moka::sync::Cache::builder()
+            .max_capacity(MAXIMUM_KEY_CACHE_SIZE as u64)
+            .time_to_live(KEY_ROTATION_PERIOD * 2)
+            .build();
         Self {
             client,
             obfuscation_keys,
@@ -136,7 +141,6 @@ impl KmsPskReceiver {
         key_cache: Cache<Vec<u8>, Vec<u8>>,
     ) -> anyhow::Result<s2n_tls::psk::Psk> {
         let ciphertext_datakey_clone = ciphertext_datakey.clone();
-        tracing::info!("querying KMS");
         let decrypted = tokio::spawn(async move {
             client
                 .decrypt()
@@ -145,8 +149,6 @@ impl KmsPskReceiver {
                 .await
         })
         .await??;
-
-        tracing::info!("result from kms: {:?}", decrypted);
 
         // although the field is called `key_id`, it is actually the key arn. This
         // is confirmed in the documentation:
@@ -158,10 +160,7 @@ impl KmsPskReceiver {
 
         let plaintext_datakey = decrypted.plaintext.unwrap().into_inner();
 
-        key_cache.insert(
-            ciphertext_datakey,
-            plaintext_datakey.clone(),
-        );
+        key_cache.insert(ciphertext_datakey, plaintext_datakey.clone());
 
         let psk = psk_from_material(&psk_identity, &plaintext_datakey).unwrap();
 
@@ -174,8 +173,8 @@ impl ClientHelloCallback for KmsPskReceiver {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
+        // parse the identity list from the client hello
         let client_hello = connection.client_hello()?;
-        tracing::info!("retrieved client hello");
         let identities = match retrieve_identities(client_hello) {
             Ok(identities) => identities,
             Err(e) => {
@@ -183,9 +182,8 @@ impl ClientHelloCallback for KmsPskReceiver {
                 return Err(s2n_tls::error::Error::application(Box::new(e)));
             }
         };
-        tracing::info!("retrieved identities");
 
-        // we only look at the first identity
+        // extract the identity bytes
         let psk_identity = match identities.list().first() {
             Some(id) => id.identity.blob(),
             None => {
@@ -194,25 +192,28 @@ impl ClientHelloCallback for KmsPskReceiver {
                 ))
             }
         };
-        tracing::info!("de-obfuscating {}", hex::encode(psk_identity));
 
+        // parse the identity bytes to a KmsTlsPskIdentity
         let (identity, remaining) = KmsTlsPskIdentity::decode_from(psk_identity).unwrap();
+        if !remaining.is_empty() {
+            return Err(s2n_tls::error::Error::application(
+                "invalid psk identity".into(),
+            ));
+        }
+
+        // deobfuscate the identity to get the ciphertext datakey
         let ciphertext_datakey = identity
             .deobfuscate_datakey(&self.obfuscation_keys)
             .map_err(|e| s2n_tls::error::Error::application(e.into()))?;
 
-        tracing::info!(
-            "deobfuscated identity: {}",
-            hex::encode(&ciphertext_datakey)
-        );
-
         let maybe_cached = self.key_cache.get(&ciphertext_datakey);
-
         if let Some(plaintext_datakey) = maybe_cached {
+            // if we already had it cached, then our work is done
             let psk = psk_from_material(psk_identity, &plaintext_datakey)?;
             connection.append_psk(&psk)?;
             Ok(None)
         } else {
+            // otherwise return a future to decrypt with KMS
             let future = Self::kms_decrypt_and_update(
                 psk_identity.to_vec(),
                 ciphertext_datakey,
@@ -228,66 +229,20 @@ impl ClientHelloCallback for KmsPskReceiver {
 
 #[cfg(test)]
 mod tests {
-    use crate::{test_utils::async_handshake, KmsPskProvider};
+    use crate::{
+        test_utils::{
+            async_handshake, configs_from_callbacks, decrypt_mocks, gdk_mocks, test_psk_provider, CIPHERTEXT_DATAKEY, KMS_KEY_ARN, OBFUSCATION_KEY, PLAINTEXT_DATAKEY
+        },
+        KmsPskProvider,
+    };
 
     use super::*;
-    use aws_sdk_kms::{operation::{
-        decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput,
-    }, types::error::InvalidKeyUsageException};
+    use aws_sdk_kms::{
+        operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
+        types::error::InvalidKeyUsageException,
+    };
     // https://docs.aws.amazon.com/sdk-for-rust/latest/dg/testing-smithy-mocks.html
     use aws_smithy_mocks::{mock, mock_client, Rule};
-
-    const CIPHERTEXT_DATAKEY: &[u8] = b"im ciphertext yes sir i am";
-    const PLAINTEXT_DATAKEY: &[u8] = b"hehe very secret, yes that's me";
-    const KMS_KEY_ARN: &str =
-        "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
-
-    fn decrypt_mocks() -> (Rule, Client) {
-        let decrypt_rule = mock!(aws_sdk_kms::Client::decrypt).then_output(|| {
-            DecryptOutput::builder()
-                .key_id(KMS_KEY_ARN)
-                .plaintext(Blob::new(PLAINTEXT_DATAKEY))
-                .build()
-        });
-        let decrypt_client = mock_client!(aws_sdk_kms, [&decrypt_rule]);
-        (decrypt_rule, decrypt_client)
-    }
-
-    fn gdk_mocks() -> (Rule, Client) {
-        let gdk_rule = mock!(aws_sdk_kms::Client::generate_data_key).then_output(|| {
-            GenerateDataKeyOutput::builder()
-                .plaintext(Blob::new(PLAINTEXT_DATAKEY))
-                .ciphertext_blob(Blob::new(CIPHERTEXT_DATAKEY))
-                .build()
-        });
-        let gdk_client = mock_client!(aws_sdk_kms, [&gdk_rule]);
-        (gdk_rule, gdk_client)
-    }
-
-    fn configs_from_callbacks(
-        client_psk_provider: KmsPskProvider,
-        server_psk_receiver: KmsPskReceiver,
-    ) -> (s2n_tls::config::Config, s2n_tls::config::Config) {
-        let mut client_config = s2n_tls::config::Builder::new();
-        client_config
-            .set_connection_initializer(client_psk_provider)
-            .unwrap();
-        client_config
-            .set_security_policy(&s2n_tls::security::DEFAULT_TLS13)
-            .unwrap();
-        let client_config = client_config.build().unwrap();
-
-        let mut server_config = s2n_tls::config::Builder::new();
-        server_config
-            .set_client_hello_callback(server_psk_receiver)
-            .unwrap();
-        server_config
-            .set_security_policy(&s2n_tls::security::DEFAULT_TLS13)
-            .unwrap();
-        let server_config = server_config.build().unwrap();
-
-        (client_config, server_config)
-    }
 
     /// When a new identity isn't in the cache, we
     /// 1. call KMS to decrypt it
@@ -296,20 +251,12 @@ mod tests {
     /// 1. no calls are made to KMS to decrypt it
     #[tokio::test]
     async fn decrypt_path() {
-        let (decrypt_rule, decrypt_client) = decrypt_mocks();
-        let (_gdk_rule, gdk_client) = gdk_mocks();
+        let psk_provider = test_psk_provider().await;
 
-        let obfuscation_key = ObfuscationKey::random_test_key();
-        let psk_provider = KmsPskProvider::initialize(
-            &gdk_client,
-            KMS_KEY_ARN.to_string(),
-            obfuscation_key.clone(),
-        )
-        .await
-        .unwrap();
+        let (decrypt_rule, decrypt_client) = decrypt_mocks();
         let psk_receiver = KmsPskReceiver::new(
             decrypt_client,
-            vec![obfuscation_key],
+            vec![OBFUSCATION_KEY.clone()],
             vec![KMS_KEY_ARN.to_owned()],
         );
 
@@ -323,10 +270,7 @@ mod tests {
             .unwrap();
         assert_eq!(decrypt_rule.num_calls(), 1);
         assert_eq!(
-            cache_handle
-                .get(CIPHERTEXT_DATAKEY)
-                .unwrap()
-                .as_slice(),
+            cache_handle.get(CIPHERTEXT_DATAKEY).unwrap().as_slice(),
             PLAINTEXT_DATAKEY
         );
 
@@ -340,23 +284,13 @@ mod tests {
     // if the key ARN isn't recognized, then the handshake fails
     #[tokio::test]
     async fn untrusted_key_arn() {
+        let psk_provider = test_psk_provider().await;
+
         let (_decrypt_rule, decrypt_client) = decrypt_mocks();
-        let (_gdk_rule, gdk_client) = gdk_mocks();
-
-        let obfuscation_key = ObfuscationKey::random_test_key();
-
-        let psk_provider = KmsPskProvider::initialize(
-            &gdk_client,
-            KMS_KEY_ARN.to_string(),
-            obfuscation_key.clone(),
-        )
-        .await
-        .unwrap();
-
-        // use an ARN different from the one KMS will return
         let psk_receiver = KmsPskReceiver::new(
             decrypt_client,
-            vec![obfuscation_key],
+            vec![OBFUSCATION_KEY.clone()],
+            // use an ARN different from the one KMS will return
             vec!["arn::wont-be-seen".to_string()],
         );
 
@@ -365,25 +299,16 @@ mod tests {
         let err = async_handshake(&client_config, &server_config)
             .await
             .unwrap_err();
+        println!("{err}");
         assert!(err.to_string().contains("untrusted KMS Key: arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab is not trusted"));
     }
 
     #[tokio::test]
     async fn obfuscation_key_unavailable() {
-        let (decrypt_rule, decrypt_client) = decrypt_mocks();
-        let (_gdk_rule, gdk_client) = gdk_mocks();
-
-        let obfuscation_key = ObfuscationKey::random_test_key();
-
-        let psk_provider = KmsPskProvider::initialize(
-            &gdk_client,
-            KMS_KEY_ARN.to_string(),
-            obfuscation_key.clone(),
-        )
-        .await
-        .unwrap();
+        let psk_provider = test_psk_provider().await;
 
         // we configured the Psk Receiver with a different obfuscation key
+        let (decrypt_rule, decrypt_client) = decrypt_mocks();
         let psk_receiver = KmsPskReceiver::new(
             decrypt_client,
             vec![ObfuscationKey::random_test_key()],
@@ -411,7 +336,7 @@ mod tests {
 
         let obfuscation_key = ObfuscationKey::random_test_key();
         let psk_provider = KmsPskProvider::initialize(
-            &gdk_client,
+            gdk_client,
             KMS_KEY_ARN.to_string(),
             obfuscation_key.clone(),
         )
@@ -441,7 +366,6 @@ mod tests {
 
         cache_handle.run_pending_tasks();
         assert_eq!(cache_handle.entry_count(), MAXIMUM_KEY_CACHE_SIZE as u64);
-
     }
 
     // when the decrypt operation fails, the handshake should also fail
@@ -451,20 +375,12 @@ mod tests {
             DecryptError::InvalidKeyUsageException(InvalidKeyUsageException::builder().build())
         });
         let decrypt_client = mock_client!(aws_sdk_kms, [&decrypt_rule]);
-        let (_gdk_rule, gdk_client) = gdk_mocks();
 
-        let obfuscation_key = ObfuscationKey::random_test_key();
-        let psk_provider = KmsPskProvider::initialize(
-            &gdk_client,
-            KMS_KEY_ARN.to_string(),
-            obfuscation_key.clone(),
-        )
-        .await
-        .unwrap();
+        let psk_provider = test_psk_provider().await;
 
         let psk_receiver = KmsPskReceiver::new(
             decrypt_client,
-            vec![obfuscation_key],
+            vec![OBFUSCATION_KEY.clone()],
             vec![KMS_KEY_ARN.to_owned()],
         );
 

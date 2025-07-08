@@ -1,13 +1,18 @@
+use std::sync::LazyLock;
 use aws_config::Region;
 use aws_lc_rs::aead::AES_256_GCM;
+use aws_sdk_kms::{
+    operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
+    primitives::Blob, Client,
+};
+use s2n_tls::error::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-
-use crate::receiver::KmsPskReceiver;
-
-use super::*;
+use crate::{identity::ObfuscationKey, receiver::KmsPskReceiver, KeyArn, KmsPskProvider};
+use aws_smithy_mocks::{mock, mock_client, Rule};
+use crate::S2NError;
 
 /// get a KMS key arn if one is available.
 ///
@@ -45,6 +50,67 @@ pub async fn test_kms_client() -> Client {
         .load()
         .await;
     Client::new(&shared_config)
+}
+
+pub const CIPHERTEXT_DATAKEY: &[u8] = b"im ciphertext yes sir i am";
+pub const PLAINTEXT_DATAKEY: &[u8] = b"hehe very secret, yes that's me";
+pub const KMS_KEY_ARN: &str =
+    "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
+pub static OBFUSCATION_KEY: LazyLock<ObfuscationKey> =
+    LazyLock::new(|| ObfuscationKey::random_test_key());
+
+pub async fn test_psk_provider() -> KmsPskProvider {
+    let (_gdk_rule, gdk_client) = gdk_mocks();
+    KmsPskProvider::initialize(gdk_client, KMS_KEY_ARN.to_string(), OBFUSCATION_KEY.clone())
+        .await
+        .unwrap()
+}
+
+pub fn decrypt_mocks() -> (Rule, Client) {
+    let decrypt_rule = mock!(aws_sdk_kms::Client::decrypt).then_output(|| {
+        DecryptOutput::builder()
+            .key_id(KMS_KEY_ARN)
+            .plaintext(Blob::new(PLAINTEXT_DATAKEY))
+            .build()
+    });
+    let decrypt_client = mock_client!(aws_sdk_kms, [&decrypt_rule]);
+    (decrypt_rule, decrypt_client)
+}
+
+pub fn gdk_mocks() -> (Rule, Client) {
+    let gdk_rule = mock!(aws_sdk_kms::Client::generate_data_key).then_output(|| {
+        GenerateDataKeyOutput::builder()
+            .plaintext(Blob::new(PLAINTEXT_DATAKEY))
+            .ciphertext_blob(Blob::new(CIPHERTEXT_DATAKEY))
+            .build()
+    });
+    let gdk_client = mock_client!(aws_sdk_kms, [&gdk_rule]);
+    (gdk_rule, gdk_client)
+}
+
+pub fn configs_from_callbacks(
+    client_psk_provider: KmsPskProvider,
+    server_psk_receiver: KmsPskReceiver,
+) -> (s2n_tls::config::Config, s2n_tls::config::Config) {
+    let mut client_config = s2n_tls::config::Builder::new();
+    client_config
+        .set_connection_initializer(client_psk_provider)
+        .unwrap();
+    client_config
+        .set_security_policy(&s2n_tls::security::DEFAULT_TLS13)
+        .unwrap();
+    let client_config = client_config.build().unwrap();
+
+    let mut server_config = s2n_tls::config::Builder::new();
+    server_config
+        .set_client_hello_callback(server_psk_receiver)
+        .unwrap();
+    server_config
+        .set_security_policy(&s2n_tls::security::DEFAULT_TLS13)
+        .unwrap();
+    let server_config = server_config.build().unwrap();
+
+    (client_config, server_config)
 }
 
 /// Handshake two configs over localhost sockets, returning any errors encountered.
