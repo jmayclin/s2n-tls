@@ -5,44 +5,34 @@ mod codec;
 mod identity;
 mod prefixed_list;
 mod receiver;
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 use crate::{
-    client_hello_parser::{
-        ClientHello, ExtensionType, HandshakeMessageHeader, PresharedKeyClientHello, PskIdentity,
-    },
-    codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
-    prefixed_list::{PrefixedBlob, PrefixedList},
+    client_hello_parser::{ClientHello, ExtensionType, PresharedKeyClientHello, PskIdentity},
+    codec::{DecodeValue, EncodeValue},
+    prefixed_list::PrefixedList,
 };
-use aws_config::meta::region::RegionProviderChain;
-use aws_lc_rs::aead::{Aad, Nonce, RandomizedNonceKey, AES_256_GCM};
-use aws_sdk_kms::{
-    config::Region,
-    error::{DisplayErrorContext, SdkError},
-    meta::PKG_VERSION,
-    operation::decrypt::DecryptError,
-    primitives::Blob,
-    Client, Error,
-};
+use aws_sdk_kms::Client;
 use identity::{KmsTlsPskIdentity, ObfuscationKey};
 use s2n_tls::{
-    callbacks::{ClientHelloCallback, ConnectionFuture, PskSelectionCallback},
-    config::ConnectionInitializer,
-    error::Error as S2NError,
+    callbacks::ConnectionFuture, config::ConnectionInitializer, error::Error as S2NError,
 };
 use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
     io::ErrorKind,
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
-use tokio::runtime::Handle;
+
+pub use receiver::KmsPskReceiver;
 
 const MAXIMUM_KEY_CACHE_SIZE: usize = 100_000;
 const PSK_SIZE: usize = 32;
 const AES_256_GCM_KEY_LEN: usize = 32;
 const AES_256_GCM_NONCE_LEN: usize = 12;
+/// The key is automatically rotated every period. Currently 24 hours.
+const KEY_ROTATION_PERIOD: Duration = Duration::from_secs(3_600 * 24);
 
 type KeyArn = String;
 
@@ -51,9 +41,8 @@ fn psk_from_material(identity: &[u8], secret: &[u8]) -> Result<s2n_tls::psk::Psk
     psk.set_hmac(s2n_tls::enums::PskHmac::SHA384)?;
     psk.set_identity(identity)?;
     psk.set_secret(secret)?;
-    Ok(psk.build()?)
+    psk.build()
 }
-
 
 /// retrieve the PskIdentity items from the Psk extension in the ClientHello.
 fn retrieve_identities(
@@ -86,18 +75,17 @@ fn retrieve_identities(
     }
 }
 
-
 // used by the client to create the KMS PSK
 #[derive(Debug, Clone)]
 pub struct KmsPskProvider {
     /// The KMS client
     client: Client,
-    /// The KMS KeyId that will be used to generate the datakey which are
+    /// The KMS key arn that will be used to generate the datakey which are
     /// used as TLS Psk's.
     kms_key_arn: Arc<KeyArn>,
     /// The key used to obfuscate the ciphertext datakey from KMS.
     ///
-    /// KMS Ciphertexts have observable regularities in their structure. Obfuscating
+    /// KMS ciphertexts have observable regularities in their structure. Obfuscating
     /// the identity prevents any of that from being observable over the wire.
     obfuscation_key: Arc<ObfuscationKey>,
     /// The current Psk being set on all new connections
@@ -110,9 +98,6 @@ pub struct KmsPskProvider {
 }
 
 impl KmsPskProvider {
-    /// The key is automatically rotated every period. Currently 24 hours.
-    const KEY_ROTATION_PERIOD: Duration = Duration::from_secs(3_600 * 24);
-
     pub async fn initialize(
         client: &Client,
         key: KeyArn,
@@ -137,7 +122,7 @@ impl KmsPskProvider {
     /// Check if a key update is needed. If it is, kick off a background task
     /// to call KMS and create a new PSK.
     fn maybe_trigger_key_update(&self) {
-        let last_update = match self.last_update.read().unwrap().clone() {
+        let last_update = match *self.last_update.read().unwrap() {
             Some(update) => update,
             None => {
                 // update already in progress
@@ -147,13 +132,12 @@ impl KmsPskProvider {
 
         let current_time = Instant::now();
         if current_time > last_update
-            && last_update.saturating_duration_since(current_time) > Self::KEY_ROTATION_PERIOD
+            && last_update.saturating_duration_since(current_time) > KEY_ROTATION_PERIOD
         {
             // because we released the lock above, we need to recheck the update
             // status after acquiring the lock.
             let mut reacquired_update = self.last_update.write().unwrap();
             if reacquired_update.is_none() {
-                return;
             } else {
                 *reacquired_update = None;
                 tokio::spawn({
@@ -199,7 +183,7 @@ impl KmsPskProvider {
         let plaintext_datakey = data_key.plaintext().cloned().unwrap().into_inner();
         let ciphertext_datakey = data_key.ciphertext_blob().cloned().unwrap().into_inner();
 
-        let psk_identity = KmsTlsPskIdentity::new(&ciphertext_datakey, &obfuscation_key);
+        let psk_identity = KmsTlsPskIdentity::new(&ciphertext_datakey, obfuscation_key);
         let psk_identity_bytes = psk_identity.encode_to_vec()?;
         let psk = psk_from_material(&psk_identity_bytes, &plaintext_datakey)?;
         Ok(psk)
@@ -219,80 +203,25 @@ impl ConnectionInitializer for KmsPskProvider {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use s2n_tls::security::Policy;
-    use tokio::{
-        io::AsyncWriteExt,
-        net::{TcpListener, TcpStream},
-    };
-
-    use crate::receiver::KmsPskReceiver;
+    use aws_lc_rs::aead::AES_256_GCM;
+    use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
 
     use super::*;
+    use crate::{identity::ObfuscationKey, test_utils::{existing_kms_key, get_kms_key, test_kms_client}, KmsPskProvider, KmsPskReceiver};
 
-    async fn make_key(client: &Client) -> Result<(), Error> {
-        let resp = client.create_key().send().await?;
 
-        let id = resp.key_metadata.as_ref().unwrap().key_id();
-
-        println!("Key: {}", id);
-
-        Ok(())
-    }
-
-    /// get a KMS key arn if one is available.
-    ///
-    /// This is just used for testing. Production use cases should be specifying a
-    /// KeyId with the permissions configured such that client and server roles have
-    /// the correct permissions.
-    async fn get_existing_kms_key(client: &Client) -> Option<KeyArn> {
-        let output = client.list_keys().send().await.unwrap();
-        let key = output.keys().first();
-        key.map(|key| key.key_arn().unwrap().to_string())
-    }
-
-    async fn create_kms_key(client: &Client) -> KeyArn {
-        panic!("it should already be here!");
-        let resp = client.create_key().send().await.unwrap();
-        resp.key_metadata.as_ref().unwrap().key_id().to_string()
-    }
-
-    async fn get_kms_key(client: &Client) -> KeyArn {
-        if let Some(key) = get_existing_kms_key(client).await {
-            key
-        } else {
-            create_kms_key(client).await
-        }
-    }
-
-    async fn test_kms_client() -> Client {
-        let shared_config = aws_config::from_env()
-            .region(Region::new("us-west-2"))
-            .load()
-            .await;
-        Client::new(&shared_config)
+    /// sanity check for our testing environment
+    #[tokio::test]
+    async fn retrieve_key() {
+        let client = test_kms_client().await;
+        let key_arn = existing_kms_key(&client).await;
+        assert!(key_arn.is_some());
     }
 
     #[tokio::test]
-    async fn create_a_key() {
-        println!("KMS client version: {}", PKG_VERSION);
-        println!();
-
-        let shared_config = aws_config::from_env()
-            .region(Region::new("us-west-2"))
-            .load()
-            .await;
-        let client = Client::new(&shared_config);
-
-        let key_id = get_kms_key(&client).await;
-
-        println!("Key: {}", key_id);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn client_hello_cb_handshake() -> Result<(), S2NError> {
+    async fn client_hello_cb_handshake() -> Result<(), s2n_tls::error::Error> {
         let obfuscation_key = ObfuscationKey::random_test_key();
 
         tracing_subscriber::fmt()

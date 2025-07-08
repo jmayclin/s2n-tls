@@ -13,6 +13,8 @@ aws-lc-rs = "1.13.1"
 aws-sdk-kms = "1.76.0"
 byteorder = "1.5.0"
 hex = "0.4.3"
+moka = {version = "0.12.10", features = ["sync"]}
+ordermap = "0.5.8"
 pin-project = "1.1.10"
 s2n-tls = { path = "../../rust/extended/s2n-tls" }
 s2n-tls-tokio = { path = "../../rust/extended/s2n-tls-tokio" }
@@ -20,3 +22,7 @@ s2n-tls-tokio = { path = "../../rust/extended/s2n-tls-tokio" }
 tokio = {version = "1.45.1", features = ["rt", "macros", "rt-multi-thread"]}
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
+
+[dev-dependencies]
+aws-smithy-mocks = "0.1.1"
+aws-sdk-kms = {version = "1.76.0", features = ["test-util"]}

@@ -1,34 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    io::ErrorKind,
-    pin::Pin,
-    sync::{Arc, Mutex, RwLock},
-};
+use std::{hash::Hash, io::ErrorKind};
 
-use aws_config::meta::region::RegionProviderChain;
 use aws_lc_rs::aead::{Aad, Nonce, RandomizedNonceKey, AES_256_GCM};
-use aws_sdk_kms::{
-    config::Region,
-    error::{DisplayErrorContext, SdkError},
-    meta::PKG_VERSION,
-    operation::decrypt::DecryptError,
-    primitives::Blob,
-    Client, Error,
-};
-use s2n_tls::{
-    callbacks::{ClientHelloCallback, ConnectionFuture, PskSelectionCallback},
-    config::ConnectionInitializer,
-    error::Error as S2NError,
-};
-use tokio::runtime::Handle;
 
 use crate::{
-    client_hello_parser::{
-        ClientHello, ExtensionType, HandshakeMessageHeader, PresharedKeyClientHello, PskIdentity,
-    },
     codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
-    prefixed_list::{PrefixedBlob, PrefixedList},
+    prefixed_list::PrefixedBlob,
     AES_256_GCM_KEY_LEN, AES_256_GCM_NONCE_LEN,
 };
 
@@ -226,29 +202,39 @@ mod tests {
             assert_eq!(deobfuscated.as_slice(), ciphertext_datakey.as_slice());
         }
 
-        // success with correct key
+        // success with correct key and others
         {
             let one_correct_key = vec![
                 ObfuscationKey::random_test_key(),
-                obfuscation_key,
+                obfuscation_key.clone(),
                 ObfuscationKey::random_test_key(),
             ];
             let deobfuscated = identity.deobfuscate_datakey(&one_correct_key).unwrap();
             assert_eq!(deobfuscated.as_slice(), ciphertext_datakey.as_slice());
         }
 
-        // failure
+        // failure with wrong name
         {
             let incorrect_key = vec![ObfuscationKey::random_test_key()];
             let failed_deobfuscate = identity.deobfuscate_datakey(&incorrect_key).unwrap_err();
             let explanation = format!("{failed_deobfuscate:?}");
             assert!(explanation.contains("unable to deobfuscate"));
         }
+
+        // failure with right name but wrong material
+        {
+            let mut modified_key = obfuscation_key.clone();
+            // modify random piece of key
+            modified_key.material[2] = modified_key.material[2].wrapping_add(1);
+            let failed_deobfuscate = identity.deobfuscate_datakey(&[modified_key]).unwrap_err();
+            // this is the direct error message that aws-lc returns
+            assert!(failed_deobfuscate.to_string().contains("Unspecified"));
+        }
     }
 
     /// The encoded PSK Identity from the 0.0.1 version of the library was checked
-    /// in. If we ever _fail_ to deserialize this STOP! You are about to make a
-    /// breaking change. You should find a way to make your change backwards
+    /// in. If we ever fail to deserialize this STOP! You are about to make a
+    /// breaking change. You must find a way to make your change backwards
     /// compatible.
     #[test]
     fn backwards_compatibility() {
