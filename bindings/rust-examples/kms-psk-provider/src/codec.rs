@@ -38,21 +38,24 @@ pub trait DecodeValue: Sized {
 }
 
 /// This trait defines a type that can only be decoded with external context.
-/// 
-/// This is necessary because TLS hates you, and thinks that parsing should be 
-/// difficult. 
-/// 
+///
+/// This is necessary because TLS hates you, and thinks that parsing should be
+/// difficult.
+///
 /// Example
 /// - ServerKeyExchange: you need to know the selected cipher to parse this message,
 ///   because it branches on cipher auth methods, but the cipher auth method isn't
 ///   included in the actual message.
-/// - Finished: the signature in the Finished message is _not_ length prefixed. 
+/// - Finished: the signature in the Finished message is _not_ length prefixed.
 ///   You need to know what hash the connection is using, and that isn't specified
 ///   as part of the Finished message.
 pub trait DecodeValueWithContext: Sized {
     type Context;
 
-    fn decode_from_with_context(buffer: &[u8], context: Self::Context) -> std::io::Result<(Self, &[u8])>;
+    fn decode_from_with_context(
+        buffer: &[u8],
+        context: Self::Context,
+    ) -> std::io::Result<(Self, &[u8])>;
 }
 
 /// This trait defines a type that can be encoded into bytes.

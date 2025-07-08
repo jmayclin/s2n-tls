@@ -7,7 +7,7 @@ use crate::codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue};
 /// An opaque list of bytes, where the size of the list is prefixed on the wire as `L`.
 ///
 /// This is just a convenience wrapper for `PrefixedList<u8, L>`.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct PrefixedBlob<L>(pub PrefixedList<u8, L>);
 
 impl<L: TryFrom<usize>> PrefixedBlob<L> {
@@ -141,6 +141,7 @@ where
         }
 
         // We should never read more than the prefixed length
+        // TODO: REMOVE THIS OR IT WILL SCREAM AND BE BAD
         assert!(buffer.len() == target_buffer_size);
 
         Ok((
