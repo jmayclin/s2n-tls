@@ -231,7 +231,7 @@ mod tests {
 
     use super::*;
     use aws_sdk_kms::{
-        operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
+        operation::{decrypt::{DecryptError, DecryptOutput}, generate_data_key::GenerateDataKeyOutput},
         types::error::InvalidKeyUsageException,
     };
     // https://docs.aws.amazon.com/sdk-for-rust/latest/dg/testing-smithy-mocks.html

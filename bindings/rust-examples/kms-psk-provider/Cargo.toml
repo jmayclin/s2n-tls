@@ -9,20 +9,22 @@ edition.workspace = true
 [dependencies]
 anyhow = "1.0.98"
 aws-config = {version = "1.8.0", features = ["behavior-version-latest"]}
-aws-lc-rs = "1.13.1"
 aws-sdk-kms = "1.76.0"
+aws-lc-rs = "1.13.1"
+
 byteorder = "1.5.0"
 hex = "0.4.3"
+
 moka = {version = "0.12.10", features = ["sync"]}
-ordermap = "0.5.8"
 pin-project = "1.1.10"
+
 s2n-tls = { path = "../../rust/extended/s2n-tls" }
 s2n-tls-tokio = { path = "../../rust/extended/s2n-tls-tokio" }
-# multithread stuff needed because of block-in-place
-tokio = {version = "1.45.1", features = ["rt", "macros", "rt-multi-thread"]}
+
+tokio = {version = "1.45.1", features = ["rt", "macros"]}
 tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
 
 [dev-dependencies]
+tracing-subscriber = "0.3.19"
 aws-smithy-mocks = "0.1.1"
 aws-sdk-kms = {version = "1.76.0", features = ["test-util"]}
