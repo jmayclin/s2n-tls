@@ -1,18 +1,19 @@
-use std::sync::LazyLock;
+use crate::S2NError;
+use crate::{identity::ObfuscationKey, receiver::KmsPskReceiver, KeyArn, KmsPskProvider};
 use aws_config::Region;
 use aws_lc_rs::aead::AES_256_GCM;
 use aws_sdk_kms::{
     operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
-    primitives::Blob, Client,
+    primitives::Blob,
+    Client,
 };
+use aws_smithy_mocks::{mock, mock_client, Rule};
 use s2n_tls::error::Error;
+use std::sync::LazyLock;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use crate::{identity::ObfuscationKey, receiver::KmsPskReceiver, KeyArn, KmsPskProvider};
-use aws_smithy_mocks::{mock, mock_client, Rule};
-use crate::S2NError;
 
 /// get a KMS key arn if one is available.
 ///

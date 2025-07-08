@@ -1,18 +1,17 @@
 use crate::{
-    client_hello_parser::{ClientHello, ExtensionType, PresharedKeyClientHello, PskIdentity}, codec::{DecodeValue, EncodeValue}, identity::{KmsTlsPskIdentity, ObfuscationKey}, prefixed_list::PrefixedList, psk_from_material, KeyArn, KEY_ROTATION_PERIOD, PSK_SIZE
+    codec::EncodeValue,
+    identity::{KmsTlsPskIdentity, ObfuscationKey},
+    psk_from_material, KeyArn, KEY_ROTATION_PERIOD, PSK_SIZE,
 };
 use aws_sdk_kms::Client;
-use s2n_tls::{
-    callbacks::ConnectionFuture, config::ConnectionInitializer, error::Error as S2NError,
-};
+use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
 use std::{
-    io::ErrorKind,
     pin::Pin,
     sync::{Arc, RwLock},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
-// The KmsPskProvider can be used to 
+// The KmsPskProvider can be used to
 #[derive(Debug, Clone)]
 pub struct KmsPskProvider {
     /// The KMS client
@@ -148,7 +147,7 @@ mod tests {
         // set the last update time to something more than KEY_ROTATION_PERIOD ago
 
         // then we observe another call to generate data key.
-        // this is kicked off in a background thread that we don't have any way 
+        // this is kicked off in a background thread that we don't have any way
         // of tracking so, so we might have to sleep a little bit
     }
 

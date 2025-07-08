@@ -4,30 +4,21 @@ mod client_hello_parser;
 mod codec;
 mod identity;
 mod prefixed_list;
-mod receiver;
 mod provider;
+mod receiver;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
 use crate::{
     client_hello_parser::{ClientHello, ExtensionType, PresharedKeyClientHello, PskIdentity},
-    codec::{DecodeValue, EncodeValue},
+    codec::DecodeValue,
     prefixed_list::PrefixedList,
 };
-use aws_sdk_kms::Client;
-use identity::{KmsTlsPskIdentity, ObfuscationKey};
-use s2n_tls::{
-    callbacks::ConnectionFuture, config::ConnectionInitializer, error::Error as S2NError,
-};
-use std::{
-    io::ErrorKind,
-    pin::Pin,
-    sync::{Arc, RwLock},
-    time::{Duration, Instant},
-};
+use s2n_tls::error::Error as S2NError;
+use std::{io::ErrorKind, time::Duration};
 
-pub use receiver::KmsPskReceiver;
 pub use provider::KmsPskProvider;
+pub use receiver::KmsPskReceiver;
 
 const MAXIMUM_KEY_CACHE_SIZE: usize = 100_000;
 const PSK_SIZE: usize = 32;
@@ -57,7 +48,10 @@ fn retrieve_identities(
     // tracing::info!("parsed handshake header {handshake_header:?}");
     let (client_hello, buffer) = ClientHello::decode_from(buffer)?;
     if !buffer.is_empty() {
-        return Err(std::io::Error::new(ErrorKind::InvalidData, "malformed client hello"));
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "malformed client hello",
+        ));
     }
 
     let psks = client_hello
@@ -79,15 +73,22 @@ fn retrieve_identities(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use aws_lc_rs::aead::AES_256_GCM;
-    use tokio::{io::AsyncWriteExt, net::{TcpListener, TcpStream}};
+    use tokio::{
+        io::AsyncWriteExt,
+        net::{TcpListener, TcpStream},
+    };
 
     use super::*;
-    use crate::{identity::ObfuscationKey, test_utils::{async_handshake, configs_from_callbacks, existing_kms_key, get_kms_key, test_kms_client}, KmsPskProvider, KmsPskReceiver};
-
+    use crate::{
+        identity::ObfuscationKey,
+        test_utils::{
+            async_handshake, configs_from_callbacks, existing_kms_key, get_kms_key, test_kms_client,
+        },
+        KmsPskProvider, KmsPskReceiver,
+    };
 
     /// sanity check for our testing environment
     #[tokio::test]
@@ -115,12 +116,17 @@ mod tests {
         let server_psk_receiver =
             KmsPskReceiver::new(client.clone(), vec![obfuscation_key], vec![key_arn]);
 
-        let (client_config, server_config)  = configs_from_callbacks(client_psk_provider, server_psk_receiver);
+        let (client_config, server_config) =
+            configs_from_callbacks(client_psk_provider, server_psk_receiver);
 
         // one handshake for the decrypt code path, another for the
         // cached code path
-        async_handshake(&client_config, &server_config).await.unwrap();
-        async_handshake(&client_config, &server_config).await.unwrap();
+        async_handshake(&client_config, &server_config)
+            .await
+            .unwrap();
+        async_handshake(&client_config, &server_config)
+            .await
+            .unwrap();
 
         Ok(())
     }

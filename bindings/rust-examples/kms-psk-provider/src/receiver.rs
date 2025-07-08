@@ -3,22 +3,14 @@ use crate::{
     identity::{KmsTlsPskIdentity, ObfuscationKey},
     psk_from_material, retrieve_identities, KeyArn, KEY_ROTATION_PERIOD, MAXIMUM_KEY_CACHE_SIZE,
 };
-use aws_sdk_kms::{error::SdkError, operation::decrypt::DecryptError, primitives::Blob, Client};
+use aws_sdk_kms::{primitives::Blob, Client};
 use moka::sync::Cache;
-use ordermap::OrderMap;
 use pin_project::pin_project;
 use s2n_tls::{
     callbacks::{ClientHelloCallback, ConnectionFuture},
     error::Error as S2NError,
 };
-use std::{
-    collections::HashMap,
-    future::Future,
-    pin::Pin,
-    sync::{Arc, RwLock},
-    task::Poll,
-    time::Instant,
-};
+use std::{future::Future, pin::Pin, sync::Arc, task::Poll, time::Instant};
 
 /// KmsGenerateFuture wraps a future from the SDK into a format the s2n-tls understands
 /// and can poll.
@@ -119,7 +111,7 @@ impl KmsPskReceiver {
             client,
             obfuscation_keys,
             trusted_key_arns: Arc::new(trusted_key_arns),
-            key_cache: key_cache,
+            key_cache,
         }
     }
 
@@ -231,7 +223,8 @@ impl ClientHelloCallback for KmsPskReceiver {
 mod tests {
     use crate::{
         test_utils::{
-            async_handshake, configs_from_callbacks, decrypt_mocks, gdk_mocks, test_psk_provider, CIPHERTEXT_DATAKEY, KMS_KEY_ARN, OBFUSCATION_KEY, PLAINTEXT_DATAKEY
+            async_handshake, configs_from_callbacks, decrypt_mocks, gdk_mocks, test_psk_provider,
+            CIPHERTEXT_DATAKEY, KMS_KEY_ARN, OBFUSCATION_KEY, PLAINTEXT_DATAKEY,
         },
         KmsPskProvider,
     };
