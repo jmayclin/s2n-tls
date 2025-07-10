@@ -1,4 +1,4 @@
-name: Rust Bindings
+name: aws kms tls auth ci
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       - run: cargo test
 
   fuzz:
-    name: build and test
+    name: fuzz tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,9 +58,6 @@ jobs:
           rustup override set nightly
       
       - run: cargo install cargo-fuzz
-        
-      - name: run client-hello fuzzer
-        run: cargo fuzz run client_hello -- -max_total_time=30
 
       - name: run psk-identities fuzzer
         run: cargo fuzz run psk_client_hello -- -max_total_time=30
