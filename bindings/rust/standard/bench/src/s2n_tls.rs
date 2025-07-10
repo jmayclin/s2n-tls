@@ -4,7 +4,7 @@
 use crate::{
     harness::{
         self, read_to_bytes, CipherSuite, CryptoConfig, HandshakeType, KXGroup, LocalDataBuffer,
-        Mode, TlsConnection,
+        Mode, TlsConnection, TlsMetrics,
     },
     PemType::*,
 };
@@ -208,10 +208,6 @@ impl S2NConnection {
 impl TlsConnection for S2NConnection {
     type Config = S2NConfig;
 
-    fn name() -> String {
-        "s2n-tls".to_string()
-    }
-
     fn new_from_config(
         mode: harness::Mode,
         config: &Self::Config,
@@ -268,26 +264,6 @@ impl TlsConnection for S2NConnection {
         self.handshake_completed
     }
 
-    fn get_negotiated_cipher_suite(&self) -> CipherSuite {
-        match self.connection.cipher_suite().unwrap() {
-            "TLS_AES_128_GCM_SHA256" => CipherSuite::AES_128_GCM_SHA256,
-            "TLS_AES_256_GCM_SHA384" => CipherSuite::AES_256_GCM_SHA384,
-            _ => panic!("Unknown cipher suite"),
-        }
-    }
-
-    fn negotiated_tls13(&self) -> bool {
-        self.connection.actual_protocol_version().unwrap() == Version::TLS13
-    }
-
-    fn resumed_connection(&self) -> bool {
-        !self
-            .connection
-            .handshake_type()
-            .unwrap()
-            .contains("FULL_HANDSHAKE")
-    }
-
     fn send(&mut self, data: &[u8]) -> Result<(), Box<dyn Error>> {
         let mut write_offset = 0;
         while write_offset < data.len() {
@@ -310,5 +286,42 @@ impl TlsConnection for S2NConnection {
             }
         }
         Ok(())
+    }
+    
+    fn send_shutdown(&mut self) {
+        // This will return `Ready` if the peer already closed their connection.
+        // It will return `Pending` if the peer hasn't responded yet. 
+        let _ = self.connection.poll_shutdown();
+    }
+
+    fn shutdown_completed(&mut self) -> bool {
+        assert!(matches!(self.connection.poll_shutdown(), Poll::Ready(_)));
+        true
+    }
+}
+
+impl TlsMetrics for S2NConnection {
+    fn name() -> String {
+        "s2n-tls".to_string()
+    }
+    
+    fn get_negotiated_cipher_suite(&self) -> CipherSuite {
+        match self.connection.cipher_suite().unwrap() {
+            "TLS_AES_128_GCM_SHA256" => CipherSuite::AES_128_GCM_SHA256,
+            "TLS_AES_256_GCM_SHA384" => CipherSuite::AES_256_GCM_SHA384,
+            _ => panic!("Unknown cipher suite"),
+        }
+    }
+
+    fn negotiated_tls13(&self) -> bool {
+        self.connection.actual_protocol_version().unwrap() == Version::TLS13
+    }
+
+    fn resumed_connection(&self) -> bool {
+        !self
+            .connection
+            .handshake_type()
+            .unwrap()
+            .contains("FULL_HANDSHAKE")
     }
 }
