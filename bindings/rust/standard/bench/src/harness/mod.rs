@@ -298,32 +298,7 @@ where
         let server = S::new_from_config(Mode::Server, server_config, &mut io).unwrap();
         Self { client, server, io }
     }
-
-    // pub fn get_negotiated_cipher_suite(&self) -> CipherSuite {
-    //     assert!(self.handshake_completed());
-    //     assert!(
-    //         self.client.get_negotiated_cipher_suite() == self.server.get_negotiated_cipher_suite()
-    //     );
-    //     self.client.get_negotiated_cipher_suite()
-    // }
-
-    // pub fn negotiated_tls13(&self) -> bool {
-    //     self.client.negotiated_tls13() && self.server.negotiated_tls13()
-    // }
 }
-
-// impl<C, S> TlsConnPair<C, S>
-// where
-//     C: TlsConnIo + 'static,
-//     S: TlsConnIo + 'static,
-// {
-//     pub fn type_erase(self) -> TlsConnPair<Box<dyn TlsConnIo + 'static>, Box<dyn TlsConnIo + 'static>> {
-//         let TlsConnPair { client, server, io } = self;
-//         let boxed_client = Box::new(client);
-//         let boxed_server = Box::new(server);
-//         TlsConnPair { client: boxed_client, server: boxed_server, io: io }
-//     }
-// }
 
 impl<C, S> TlsConnPair<C, S>
 where
@@ -347,9 +322,9 @@ where
     }
 
     pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        // debug helper: all data should have been read before attempting to shutdown.
-        // You are probably making an application error if you are hitting this
-        // statement.
+        // These assertions to not _have_ to be true, but you are likely making
+        // a mistake if you are hitting it. Generally all data should have been
+        // read before attempting to shutdown
         assert!(self.io.client_tx_stream.borrow().is_empty());
         assert!(self.io.server_tx_stream.borrow().is_empty());
 
