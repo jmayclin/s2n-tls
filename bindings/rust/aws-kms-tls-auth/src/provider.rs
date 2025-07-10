@@ -127,7 +127,7 @@ impl KmsPskProvider {
         let plaintext_datakey = data_key.plaintext().cloned().unwrap().into_inner();
         let ciphertext_datakey = data_key.ciphertext_blob().cloned().unwrap().into_inner();
 
-        let psk_identity = KmsTlsPskIdentity::new(&ciphertext_datakey, obfuscation_key);
+        let psk_identity = KmsTlsPskIdentity::new(&ciphertext_datakey, obfuscation_key)?;
         let psk_identity_bytes = psk_identity.encode_to_vec()?;
         let psk = psk_from_material(&psk_identity_bytes, &plaintext_datakey)?;
         Ok(psk)

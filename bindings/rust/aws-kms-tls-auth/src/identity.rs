@@ -74,7 +74,7 @@ pub(crate) struct KmsTlsPskIdentity {
     obfuscation_key_name: PrefixedBlob<u16>,
     nonce: [u8; AES_256_GCM_NONCE_LEN],
     // the KMS datakey ciphertext, encrypted under the obfuscation key
-    obfuscated_identity: PrefixedBlob<u16>,
+    obfuscated_identity: PrefixedBlob<u32>,
 }
 
 impl EncodeValue for KmsTlsPskIdentity {
@@ -113,7 +113,7 @@ impl KmsTlsPskIdentity {
     /// * `obfuscation_key`: The key that will be used to obfuscate the ciphertext,
     ///                      preventing any details about the ciphertext from being
     ///                      read on the wire.
-    pub fn new(ciphertext_datakey: &[u8], obfuscation_key: &ObfuscationKey) -> Self {
+    pub fn new(ciphertext_datakey: &[u8], obfuscation_key: &ObfuscationKey) -> anyhow::Result<Self> {
         let mut in_out = ciphertext_datakey.to_vec();
         let key = RandomizedNonceKey::new(&AES_256_GCM, &obfuscation_key.material).unwrap();
         let nonce = key
@@ -121,12 +121,13 @@ impl KmsTlsPskIdentity {
             .unwrap();
         let nonce_bytes = nonce.as_ref();
 
-        Self {
+        let identity = Self {
             version: KmsPskFormat::V1,
-            obfuscation_key_name: PrefixedBlob::new(obfuscation_key.name.clone()),
+            obfuscation_key_name: PrefixedBlob::new(obfuscation_key.name.clone())?,
             nonce: *nonce_bytes,
-            obfuscated_identity: PrefixedBlob::new(in_out),
-        }
+            obfuscated_identity: PrefixedBlob::new(in_out)?,
+        };
+        Ok(identity)
     }
 
     /// de-obfuscate the Psk Identity, returning the ciphertext datakey to be decrypted
@@ -169,7 +170,7 @@ mod tests {
         let ciphertext_datakey = b"i am totally a KMS ciphertext";
         let obfuscation_key = ObfuscationKey::random_test_key();
 
-        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key);
+        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key).unwrap();
 
         let serialized_identity = identity.encode_to_vec().unwrap();
 
@@ -186,7 +187,7 @@ mod tests {
         let ciphertext_datakey = b"i am totally a KMS ciphertext";
         let obfuscation_key = ObfuscationKey::random_test_key();
 
-        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key);
+        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key).unwrap();
         let wire_bytes = identity.encode_to_vec().unwrap();
 
         let ciphertext_in_wire = wire_bytes
@@ -196,16 +197,16 @@ mod tests {
     }
 
     #[test]
-    fn deobfuscation() {
+    fn deobfuscation() -> anyhow::Result<()> {
         let ciphertext_datakey = b"i am totally a KMS ciphertext";
         let obfuscation_key = ObfuscationKey::random_test_key();
 
-        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key);
+        let identity = KmsTlsPskIdentity::new(ciphertext_datakey.as_slice(), &obfuscation_key)?;
 
         // success with correct key
         {
             let only_correct_key = vec![obfuscation_key.clone()];
-            let deobfuscated = identity.deobfuscate_datakey(&only_correct_key).unwrap();
+            let deobfuscated = identity.deobfuscate_datakey(&only_correct_key)?;
             assert_eq!(deobfuscated.as_slice(), ciphertext_datakey.as_slice());
         }
 
@@ -216,7 +217,7 @@ mod tests {
                 obfuscation_key.clone(),
                 ObfuscationKey::random_test_key(),
             ];
-            let deobfuscated = identity.deobfuscate_datakey(&one_correct_key).unwrap();
+            let deobfuscated = identity.deobfuscate_datakey(&one_correct_key)?;
             assert_eq!(deobfuscated.as_slice(), ciphertext_datakey.as_slice());
         }
 
@@ -237,6 +238,7 @@ mod tests {
             // this is the direct error message that aws-lc returns
             assert!(failed_deobfuscate.to_string().contains("Unspecified"));
         }
+        Ok(())
     }
 
     /// The encoded PSK Identity from the 0.0.1 version of the library was checked
@@ -248,7 +250,7 @@ mod tests {
         const ENCODED_IDENTITY: &[u8] = include_bytes!("../resources/psk_identity.bin");
         const CIPHERTEXT: &[u8] = b"this is a test KMS ciphertext";
 
-        const OBFUSCATION_KEY_NAME: &[u8] = b"obfuscation key prime";
+        const OBFUSCATION_KEY_NAME: &[u8] = b"alice the obfuscation key";
         const OBFUSCATION_KEY_MATERIAL: [u8; AES_256_GCM_KEY_LEN] = [
             91, 109, 160, 46, 132, 41, 29, 134, 11, 41, 208, 78, 101, 132, 138, 80, 88, 32, 182,
             207, 80, 45, 37, 93, 83, 11, 69, 218, 200, 203, 55, 66,

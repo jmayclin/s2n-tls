@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    client_hello_parser::retrieve_identities,
+    psk_parser::retrieve_psk_identities,
     codec::DecodeValue,
     identity::{KmsTlsPskIdentity, ObfuscationKey},
     psk_from_material, KeyArn, KEY_ROTATION_PERIOD, MAXIMUM_KEY_CACHE_SIZE,
@@ -160,10 +160,10 @@ impl ClientHelloCallback for KmsPskReceiver {
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
         // parse the identity list from the client hello
         let client_hello = connection.client_hello()?;
-        let identities = match retrieve_identities(client_hello) {
+        let identities = match retrieve_psk_identities(client_hello) {
             Ok(identities) => identities,
             Err(e) => {
-                return Err(s2n_tls::error::Error::application(Box::new(e)));
+                return Err(s2n_tls::error::Error::application(e.into()));
             }
         };
 

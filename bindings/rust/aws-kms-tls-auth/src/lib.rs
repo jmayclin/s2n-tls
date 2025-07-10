@@ -58,7 +58,7 @@
 //! 4. client ->    [B], server -> [A, B]
 //! 5. client ->    [B], server ->    [B]
 
-mod client_hello_parser;
+mod psk_parser;
 mod codec;
 mod identity;
 mod prefixed_list;
@@ -76,7 +76,7 @@ pub use provider::KmsPskProvider;
 pub use receiver::KmsPskReceiver;
 
 // We have "pub" use statement so these can be fuzz tested
-pub use client_hello_parser::{ClientHello, PresharedKeyClientHello};
+pub use psk_parser::{PresharedKeyClientHello};
 pub use codec::DecodeValue;
 
 const MAXIMUM_KEY_CACHE_SIZE: usize = 100_000;
