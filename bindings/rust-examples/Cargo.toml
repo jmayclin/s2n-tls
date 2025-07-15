@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "client-hello-config-resolution",
-    "hyper-server-client", "key-logging",
+    "hyper-server-client", "key-logging", "s2n-tls-with-std-tcpstream",
     "tokio-server-client",
 ]
 resolver = "2"
