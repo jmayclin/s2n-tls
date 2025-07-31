@@ -272,7 +272,7 @@ impl From<PskMode> for s2n_psk_mode::Type {
 }
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PskHmac {
     SHA256,
     SHA384,

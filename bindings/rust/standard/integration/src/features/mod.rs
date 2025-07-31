@@ -4,3 +4,4 @@
 #[cfg(feature = "pq")]
 mod mldsa;
 mod record_padding;
+mod external_psk;
