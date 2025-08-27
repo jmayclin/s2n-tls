@@ -1,0 +1,47 @@
+#
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+---
+version: 0.2
+env:
+  shell: bash
+  variables:
+    NIXDEV_ARGS: --max-jobs auto
+    S2N_NO_HEADBUILD: "1"
+
+batch:
+  build-graph:
+    - identifier: x86_rust_integration_tests
+      env:
+        compute-type: BUILD_GENERAL1_LARGE
+        image: public.ecr.aws/l1b2r3y5/nix-aws-codebuild:latest
+        privileged-mode: true
+        variables:
+          NIX_CACHE_BUCKET: s3://s2n-tls-nixcachebucket-x86-64?region=us-west-2
+
+    - identifier: aarch64_rust_integration_tests
+      env:
+        compute-type: BUILD_GENERAL1_LARGE
+        image: public.ecr.aws/l1b2r3y5/nix-aws-codebuild-aarch64:next
+        privileged-mode: true
+        type: ARM_CONTAINER
+        variables:
+          NIX_CACHE_BUCKET: s3://s2n-tls-nixcachebucket-aarch64?region=us-west-2
+
+phases:
+  install:
+    commands:
+      - nix copy --from $NIX_CACHE_BUCKET --all --no-check-sigs
+  pre_build:
+    commands:
+      - nix build $NIXDEV_ARGS .#devShell
+  build:
+    commands:
+      - nix develop .#awslcfips2024 --command bash -c "source ./nix/shell.sh; rust_integration"
+      - nix develop .#awslcfips2022 --command bash -c "source ./nix/shell.sh; rust_integration"
+      - nix develop .#awslc --command bash -c "source ./nix/shell.sh; rust_integration"
+      - nix develop .#openssl102 --command bash -c "source ./nix/shell.sh; rust_integration"
+      - nix develop .#openssl111 --command bash -c "source ./nix/shell.sh; rust_integration"
+      - nix develop .#openssl30 --command bash -c "source ./nix/shell.sh; rust_integration"
+
