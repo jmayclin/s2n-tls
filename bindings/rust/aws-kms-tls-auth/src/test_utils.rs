@@ -1,9 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::identity::PskVersion;
-use crate::{identity::ObfuscationKey, receiver::PskReceiver, PskProvider};
+use crate::psk_derivation::PskVersion;
+use crate::{receiver::PskReceiver, PskProvider};
 use crate::{S2NError, AES_256_GCM_SIV_KEY_LEN};
+use aws_sdk_kms::operation::generate_mac::GenerateMacOutput;
 use aws_sdk_kms::{
     operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
     primitives::Blob,
@@ -30,22 +31,11 @@ pub const PLAINTEXT_DATAKEY_B: &[u8] = b"plaintext B <9876trfgyt543wsxdfr>";
 
 pub const KMS_KEY_ARN: &str =
     "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab";
-pub static OBFUSCATION_KEY: LazyLock<ObfuscationKey> =
-    LazyLock::new(ObfuscationKey::random_test_key);
 
-/// used to obfuscate the checked in identity in `resources/psk_identity.bin`
-pub static CONSTANT_OBFUSCATION_KEY: LazyLock<ObfuscationKey> = LazyLock::new(|| {
-    const OBFUSCATION_KEY_NAME: &[u8] = b"alice the obfuscator";
-    const OBFUSCATION_KEY_MATERIAL: [u8; AES_256_GCM_SIV_KEY_LEN] = [
-        91, 109, 160, 46, 132, 41, 29, 134, 11, 41, 208, 78, 101, 132, 138, 80, 88, 32, 182, 207,
-        80, 45, 37, 93, 83, 11, 69, 218, 200, 203, 55, 66,
-    ];
-    ObfuscationKey::new(
-        OBFUSCATION_KEY_NAME.to_vec(),
-        OBFUSCATION_KEY_MATERIAL.to_vec(),
-    )
-    .unwrap()
-});
+// pub static GENERATE_MAC_OUTPUT_A: LazyLock<GenerateMacOutput> = LazyLock::new(|| {
+//     GenerateMacOutput::builder()
+//         .mac(input)
+// })
 
 pub static GDK_OUTPUT_A: LazyLock<GenerateDataKeyOutput> = LazyLock::new(|| {
     GenerateDataKeyOutput::builder()
@@ -92,18 +82,18 @@ pub fn gdk_mocks() -> (Rule, Client) {
     (gdk_rule, gdk_client)
 }
 
-pub async fn test_psk_provider() -> PskProvider {
-    let (_gdk_rule, gdk_client) = gdk_mocks();
-    PskProvider::initialize(
-        PskVersion::V1,
-        gdk_client,
-        KMS_KEY_ARN.to_string(),
-        OBFUSCATION_KEY.clone(),
-        |_| {},
-    )
-    .await
-    .unwrap()
-}
+// pub async fn test_psk_provider() -> PskProvider {
+//     let (_gdk_rule, gdk_client) = gdk_mocks();
+//     PskProvider::initialize(
+//         PskVersion::V1,
+//         gdk_client,
+//         KMS_KEY_ARN.to_string(),
+//         OBFUSCATION_KEY.clone(),
+//         |_| {},
+//     )
+//     .await
+//     .unwrap()
+// }
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////////    s2n-tls utilities   ///////////////////////////////

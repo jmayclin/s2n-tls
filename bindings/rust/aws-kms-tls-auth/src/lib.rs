@@ -94,30 +94,38 @@
 //! handshake with a `PskProvider` configured to send `PskVersion::V2`.
 
 mod codec;
-mod identity;
 mod prefixed_list;
 mod provider;
+mod psk_derivation;
 mod psk_parser;
 mod receiver;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
+use aws_lc_rs::hkdf;
 use s2n_tls::error::Error as S2NError;
-use std::time::Duration;
+use std::{
+    ptr::null,
+    time::{Duration, SystemTime},
+};
 
 pub type KeyArn = String;
-pub use identity::{ObfuscationKey, PskVersion};
 pub use provider::PskProvider;
+pub use psk_derivation::PskVersion;
 pub use receiver::PskReceiver;
 
 // We have "pub" use statement so these can be fuzz tested
 pub use codec::DecodeValue;
 pub use psk_parser::PresharedKeyClientHello;
 
+use crate::{codec::EncodeValue, psk_derivation::PskIdentity};
+
 const MAXIMUM_KEY_CACHE_SIZE: usize = 100_000;
 const PSK_SIZE: usize = 32;
 const AES_256_GCM_SIV_KEY_LEN: usize = 32;
 const AES_256_GCM_SIV_NONCE_LEN: usize = 12;
+const SHA384_DIGEST_SIZE: usize = 48;
+
 /// The key is automatically rotated every period. Currently 24 hours.
 const KEY_ROTATION_PERIOD: Duration = Duration::from_secs(3_600 * 24);
 /// The maximum allowed age of a PSK identity.
@@ -125,14 +133,6 @@ const KEY_ROTATION_PERIOD: Duration = Duration::from_secs(3_600 * 24);
 /// PSK identities include their creation time. The server will reject the PSK
 /// identity and fail the handshake if the PSK identity is older than this value.
 const PSK_IDENTITY_VALIDITY: Duration = Duration::from_secs(60);
-
-fn psk_from_material(identity: &[u8], secret: &[u8]) -> Result<s2n_tls::psk::Psk, S2NError> {
-    let mut psk = s2n_tls::psk::Psk::builder()?;
-    psk.set_hmac(s2n_tls::enums::PskHmac::SHA384)?;
-    psk.set_identity(identity)?;
-    psk.set_secret(secret)?;
-    psk.build()
-}
 
 #[cfg(test)]
 mod tests {
@@ -145,5 +145,41 @@ mod tests {
     fn constant_check() {
         assert_eq!(AES_256_GCM_SIV_KEY_LEN, AES_256_GCM_SIV.key_len());
         assert_eq!(AES_256_GCM_SIV_NONCE_LEN, AES_256_GCM_SIV.nonce_len());
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use aws_config::Region;
+    use aws_sdk_kms::Client;
+
+    use crate::test_utils::{configs_from_callbacks, handshake};
+
+    use super::*;
+
+    const KEY_ARN: &str =
+        "arn:aws:kms:us-west-2:109149295617:key/c45d0b28-52c4-489d-b926-ed85f9d97c3c";
+
+    pub async fn test_kms_client() -> Client {
+        let shared_config = aws_config::from_env()
+            .region(Region::new("us-west-2"))
+            .load()
+            .await;
+        Client::new(&shared_config)
+    }
+
+    #[tokio::test]
+    async fn test_handshake() {
+        let kms_client = test_kms_client().await;
+        let key_arn = KEY_ARN.to_owned();
+
+        let client_psk_provider =
+            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |e| {}).await.unwrap();
+        println!("client psk provider: {client_psk_provider:?}");
+        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn]).await.unwrap();
+        println!("{server_psk_receiver:?}");
+
+        let (client_config, server_config) = configs_from_callbacks(client_psk_provider, server_psk_receiver);
+        handshake(&client_config, &server_config).await.unwrap();
     }
 }
