@@ -94,6 +94,7 @@
 //! handshake with a `PskProvider` configured to send `PskVersion::V2`.
 
 mod codec;
+mod epoch_schedule;
 mod prefixed_list;
 mod provider;
 mod psk_derivation;
@@ -153,7 +154,7 @@ mod integration_tests {
     use aws_config::Region;
     use aws_sdk_kms::Client;
 
-    use crate::test_utils::{configs_from_callbacks, handshake};
+    use crate::test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B};
 
     use super::*;
 
@@ -174,12 +175,82 @@ mod integration_tests {
         let key_arn = KEY_ARN.to_owned();
 
         let client_psk_provider =
-            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |e| {}).await.unwrap();
+            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |e| {})
+                .await
+                .unwrap();
         println!("client psk provider: {client_psk_provider:?}");
-        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn]).await.unwrap();
+        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn])
+            .await
+            .unwrap();
         println!("{server_psk_receiver:?}");
 
-        let (client_config, server_config) = configs_from_callbacks(client_psk_provider, server_psk_receiver);
+        let (client_config, server_config) =
+            configs_from_callbacks(client_psk_provider, server_psk_receiver);
         handshake(&client_config, &server_config).await.unwrap();
+        handshake(&client_config, &server_config).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn basic_handshake() {
+        let psk_provider_a = PskProvider::initialize(
+            test_utils::mocked_kms_client(),
+            KMS_KEY_ARN_A.to_owned(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let psk_provider_b = PskProvider::initialize(
+            test_utils::mocked_kms_client(),
+            KMS_KEY_ARN_B.to_owned(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let psk_receiver = PskReceiver::initialize(
+            test_utils::mocked_kms_client(),
+            vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()],
+        )
+        .await.unwrap();
+
+        let client_config_a = test_utils::make_client_config(psk_provider_a);
+        let client_config_b = test_utils::make_client_config(psk_provider_b);
+        let server_config = test_utils::make_server_config(psk_receiver);
+
+        handshake(&client_config_a, &server_config).await.unwrap();
+        handshake(&client_config_b, &server_config).await.unwrap();
+    }
+
+    /// if the server only trusts key a, then a handshake with a psk from key b
+    /// will fail
+    #[tokio::test]
+    async fn non_trusted_key() {
+        let psk_provider_a = PskProvider::initialize(
+            test_utils::mocked_kms_client(),
+            KMS_KEY_ARN_A.to_owned(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let psk_provider_b = PskProvider::initialize(
+            test_utils::mocked_kms_client(),
+            KMS_KEY_ARN_B.to_owned(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let psk_receiver = PskReceiver::initialize(
+            test_utils::mocked_kms_client(),
+            vec![KMS_KEY_ARN_A.to_owned()],
+        )
+        .await.unwrap();
+
+        let client_config_a = test_utils::make_client_config(psk_provider_a);
+        let client_config_b = test_utils::make_client_config(psk_provider_b);
+        let server_config = test_utils::make_server_config(psk_receiver);
+
+        handshake(&client_config_a, &server_config).await.unwrap();
+        let err = handshake(&client_config_b, &server_config).await.unwrap_err().to_string();
+        // e.g. "no matching kms binder found for session c69d62609826836e718a7f1509effbde"
+        assert!(err.contains("no matching kms binder found for session "));
     }
 }

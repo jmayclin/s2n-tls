@@ -70,12 +70,6 @@ impl SecretState {
 #[derive(Debug)]
 pub struct PskProvider {
     secret_state: Arc<SecretState>,
-
-    /// A number between [0, 24 * 3600) representing the delay into an epoch before
-    /// the next epoch secret will be fetched.
-    ///
-    /// This is used to prevent all hosts from trying to call KMS at the same second.
-    kms_smoothing_factor: u32,
 }
 
 impl PskProvider {
@@ -102,10 +96,9 @@ impl PskProvider {
         };
         let value = Self {
             secret_state: Arc::new(secret_state),
-            kms_smoothing_factor,
         };
 
-        tokio::task::spawn(Self::epoch_secret_rotater(
+        tokio::task::spawn(Self::epoch_secret_rotator(
             Arc::clone(&value.secret_state),
             kms_client,
             key_arn,
@@ -124,7 +117,7 @@ impl PskProvider {
     /// to the next epoch.
     ///
     /// key fetch: this is a network call to KMS to derive the next epoch secret
-    async fn epoch_secret_rotater(
+    async fn epoch_secret_rotator(
         client_epoch_secrets: Arc<SecretState>,
         kms_client: Client,
         key_arn: KeyArn,
@@ -250,6 +243,29 @@ impl ConnectionInitializer for PskProvider {
         let psk = self.current_epoch_secret().new_connection_psk()?;
         connection.append_psk(&psk)?;
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use s2n_tls::callbacks::ClientHelloCallback;
+
+    use crate::{psk_derivation::PskIdentity, test_utils::{self, configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver, KMS_KEY_ARN_A}, PskProvider};
+
+
+    #[tokio::test]
+    async fn random_session_id() {
+        let psk_provider = PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_|{}).await.unwrap();
+        let psk_capturer = PskIdentityObserver::default();
+        let observer_handle = psk_capturer.clone();
+        let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_capturer);
+
+        handshake(&client_config, &server_config).await.unwrap_err();
+        handshake(&client_config, &server_config).await.unwrap_err();
+        
+        let observed_psks = observer_handle.0.lock().unwrap().clone();
+        assert!(observed_psks[1].key_epoch - observed_psks[0].key_epoch <= 1);
+        assert!(observed_psks[1].session_name != observed_psks[0].session_name);
     }
 }
 

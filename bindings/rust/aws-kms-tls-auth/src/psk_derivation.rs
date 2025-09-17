@@ -53,7 +53,7 @@ impl DecodeValue for PskVersion {
 }
 
 const SESSION_NAME_LENGTH: usize = 16;
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EpochSecret {
     /// the key epoch, which is the number of days elapsed since the unix epoch
     pub key_arn: KeyArn,
@@ -92,6 +92,8 @@ impl EpochSecret {
             // https://docs.aws.amazon.com/kms/latest/APIReference/API_GenerateMac.html#API_GenerateMac_ResponseSyntax
             None => anyhow::bail!("failed to retrieve the Mac from the GenerateMac operation"),
         };
+
+        println!("fetched epoch secret: {}, {}, {}", key_arn, key_epoch, hex::encode(&secret));
 
         Ok(Self {
             key_arn: key_arn.clone(),
