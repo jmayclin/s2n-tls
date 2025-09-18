@@ -159,7 +159,7 @@ mod integration_tests {
         let key_arn = KEY_ARN.to_owned();
 
         let client_psk_provider =
-            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |e| {})
+            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |_| {})
                 .await
                 .unwrap();
         let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn], |_| {})

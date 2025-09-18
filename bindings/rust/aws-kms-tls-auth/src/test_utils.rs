@@ -14,8 +14,8 @@ use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
 use s2n_tls::{
     callbacks::{ClientHelloCallback, ConnectionFuture},
     config::ConnectionInitializer,
+    error::Error as S2NError,
 };
-use s2n_tls::error::Error as S2NError;
 use s2n_tls_tokio::TlsStream;
 use std::{
     pin::Pin,

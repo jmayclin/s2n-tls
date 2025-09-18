@@ -1,3 +1,33 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! The key epochs and fetching behavior are designed to accomplish the following
+//! goals:
+//! Requirement 1: if fetching new keys fails, there should be at least 24 before
+//! handshakes actually start failing.
+//! Requirement 2: traffic to KMS should be smooth, avoiding any spikes at e.g.
+//! the top of the hour.
+//!
+//! Epoch
+//! 0     1     2     3     4
+//! |-----|-----|-----|-----|
+//!                   ^
+//!                   epoch 3 start
+//!
+//! To satisfy these requirements, we fetch the key for epoch `n` during epoch
+//! `n - 2`. Each peer adds [0, 24 * 3600) seconds of delay to smooth out traffic
+//! to KMS.
+//!
+//! ```text
+//! Epoch
+//! 0     1     2     3     4
+//! |-----|-----|-----|-----|
+//!       ++++++      ^
+//!          ^        epoch 3 start
+//!          |
+//!        fetch window for epoch 3   
+//! ```
+
 use std::time::{Duration, SystemTime};
 
 use crate::EPOCH_DURATION;
@@ -12,29 +42,27 @@ pub fn current_epoch() -> u64 {
     now.as_secs() / (3_600 * 24)
 }
 
-/// Return the instant in time that `key_epoch` starts
-pub fn epoch_start(key_epoch: u64) -> SystemTime {
-    SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (key_epoch as u32))
+/// Return the instant in time that `epoch` starts
+pub fn epoch_start(epoch: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (epoch as u32))
 }
 
-/// The Duration between now and the start of key_epoch
+/// The Duration between now and the start of epoch
 ///
 /// returns None if the epoch has already started
-pub fn until_epoch_start(key_epoch: u64) -> Option<Duration> {
-    epoch_start(key_epoch)
-        .duration_since(SystemTime::now())
-        .ok()
+pub fn until_epoch_start(epoch: u64) -> Option<Duration> {
+    epoch_start(epoch).duration_since(SystemTime::now()).ok()
 }
 
 /// The Duration between now and when the actor should make the network call
-/// to KMS to retrieve the secret from key_epoch.
+/// to KMS to retrieve the secret for `epoch`.
 ///
 /// returns None if the fetch should already have occurred
-pub(crate) fn until_fetch(key_epoch: u64, kms_smoothing_factor: u32) -> Option<Duration> {
+pub(crate) fn until_fetch(epoch: u64, kms_smoothing_factor: u32) -> Option<Duration> {
     // we always want to fetch the key at least one epoch (24 hours) before the
     // key is needed.
     let fetch_time = {
-        let fetch_epoch = key_epoch - 2;
+        let fetch_epoch = epoch - 2;
 
         let fetch_epoch_start = epoch_start(fetch_epoch);
 

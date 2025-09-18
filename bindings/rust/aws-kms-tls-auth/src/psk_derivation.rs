@@ -232,7 +232,7 @@ mod tests {
     use super::*;
 
     fn test_epoch_secret() -> EpochSecret {
-EpochSecret::test_constructor(
+        EpochSecret::test_constructor(
             "arn:1234:abcd".to_owned(),
             123_456,
             b"secret material bytes".to_vec(),
@@ -273,9 +273,13 @@ EpochSecret::test_constructor(
     fn psk_derivation_cost() {
         let start = Instant::now();
         for i in 0_u64..1_000_000 {
-            let identity = PskIdentity::new(&i.to_be_bytes(), &test_epoch_secret()).unwrap();
+            let _identity = PskIdentity::new(&i.to_be_bytes(), &test_epoch_secret()).unwrap();
         }
         let elapsed = start.elapsed();
-        println!("total time: {:?}, per derivation: {:?}", elapsed, elapsed / 1_000_000);
+        println!(
+            "total time: {:?}, per derivation: {:?}",
+            elapsed,
+            elapsed / 1_000_000
+        );
     }
 }
