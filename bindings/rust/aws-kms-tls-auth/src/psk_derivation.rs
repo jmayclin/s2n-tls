@@ -7,20 +7,13 @@ use crate::{
     KeyArn,
 };
 use aws_lc_rs::{
-    aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM_SIV},
-    digest::{self, digest},
+    digest::{self},
     hkdf,
-    hmac::Key,
     rand::SecureRandom,
 };
 use aws_sdk_kms::{primitives::Blob, types::MacAlgorithmSpec, Client};
 use s2n_tls::error::Error as S2NError;
-use std::{
-    fmt::Debug,
-    hash::Hash,
-    io::ErrorKind,
-    time::{Duration, SystemTime},
-};
+use std::{fmt::Debug, hash::Hash, io::ErrorKind, time::Duration};
 const SHA384_DIGEST_SIZE: usize = 48;
 const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
 
@@ -93,8 +86,6 @@ impl EpochSecret {
             None => anyhow::bail!("failed to retrieve the Mac from the GenerateMac operation"),
         };
 
-        println!("fetched epoch secret: {}, {}, {}", key_arn, key_epoch, hex::encode(&secret));
-
         Ok(Self {
             key_arn: key_arn.clone(),
             key_epoch,
@@ -111,53 +102,47 @@ impl EpochSecret {
         }
     }
 
-    pub fn current_epoch() -> u64 {
-        // SAFETY: this method will panic if the current system clock is set to
-        // a time before the unix epoch. This is not a recoverable error, so we
-        // panic
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("expected system time to be after UNIX epoch");
-        now.as_secs() / (3_600 * 24)
-    }
-
     pub fn new_connection_psk(&self) -> Result<s2n_tls::psk::Psk, S2NError> {
         let session_name = {
             let rng = aws_lc_rs::rand::SystemRandom::new();
             let mut session_name = [0; SESSION_NAME_LENGTH];
-            // TODO: no unwrap
-            rng.fill(&mut session_name).unwrap();
+            rng.fill(&mut session_name)
+                .map_err(|_| S2NError::application("failed to create session name".into()))?;
             session_name
         };
-        println!("new connection psk session: {}", hex::encode(session_name));
 
-        let identity = PskIdentity::new(&session_name, self).unwrap();
-        let secret = self.new_psk_secret(&session_name);
+        let identity =
+            PskIdentity::new(&session_name, self).map_err(|e| S2NError::application(e.into()))?;
+        let secret = self.new_psk_secret(&session_name)?;
         Self::psk_from_parts(identity, secret)
     }
 
-    pub(crate) fn new_psk_secret(&self, session_name: &[u8]) -> Vec<u8> {
+    pub fn new_psk_secret(&self, session_name: &[u8]) -> Result<Vec<u8>, S2NError> {
         let null_salt = hkdf::Salt::new(hkdf::HKDF_SHA384, &[]);
         let pseudo_random_key = null_salt.extract(&self.secret);
-        // TODO: no unwrap
         let binding = [session_name];
         let session_secret = pseudo_random_key
             .expand(&binding, hkdf::HKDF_SHA384.hmac_algorithm())
-            .unwrap();
+            .map_err(|_| S2NError::application("PSK secret HKDF failed".into()))?;
         let mut session_secret_bytes = vec![0; SHA384_DIGEST_SIZE];
-        session_secret.fill(&mut session_secret_bytes).unwrap();
-        session_secret_bytes
+        session_secret
+            .fill(&mut session_secret_bytes)
+            .map_err(|_| S2NError::application("failed to extract key material".into()))?;
+        Ok(session_secret_bytes)
     }
 
-    pub(crate) fn psk_from_parts(
+    pub fn psk_from_parts(
         identity: PskIdentity,
         secret: Vec<u8>,
     ) -> Result<s2n_tls::psk::Psk, S2NError> {
+        let identity_bytes = identity.encode_to_vec().map_err(|e| {
+            S2NError::application(format!("unable to encode PSK identity: {e:?}").into())
+        })?;
         let mut psk = s2n_tls::psk::Psk::builder()?;
         psk.set_hmac(s2n_tls::enums::PskHmac::SHA384)?;
-        psk.set_identity(&identity.encode_to_vec().unwrap())?;
+        psk.set_identity(&identity_bytes)?;
         psk.set_secret(&secret)?;
-        Ok(psk.build()?)
+        psk.build()
     }
 }
 
@@ -242,15 +227,22 @@ impl PskIdentity {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
+
+    fn test_epoch_secret() -> EpochSecret {
+EpochSecret::test_constructor(
+            "arn:1234:abcd".to_owned(),
+            123_456,
+            b"secret material bytes".to_vec(),
+        )
+    }
 
     /// serializing and deserializing a PSK Identity should result in the same struct
     #[test]
     fn round_trip() {
-        let test_epoch_secret: EpochSecret =
-            EpochSecret::test_constructor("a key arn".to_owned(), 15, vec![0, 1, 2, 3, 4]);
-
-        let identity = PskIdentity::new(b"a session name", &test_epoch_secret).unwrap();
+        let identity = PskIdentity::new(b"a session name", &test_epoch_secret()).unwrap();
         let serialized_identity = identity.encode_to_vec().unwrap();
 
         let (deserialized_identity, remaining) =
@@ -260,29 +252,30 @@ mod tests {
         assert_eq!(deserialized_identity, identity);
     }
 
-    // /// The encoded PSK Identity from the 0.0.1 version of the library was checked
-    // /// in. If we ever fail to deserialize this STOP! You are about to make a
-    // /// breaking change. You must find a way to make your change backwards
-    // /// compatible.
-    // #[test]
-    // fn backwards_compatibility() {
-    //     const ENCODED_IDENTITY: &[u8] = include_bytes!("../resources/psk_identity.bin");
-    //     const CIPHERTEXT: &[u8] = b"this is a test KMS ciphertext";
+    /// The encoded PSK Identity from the 0.0.1 version of the library was checked
+    /// in. If we ever fail to deserialize this STOP! You are about to make a
+    /// breaking change. You must find a way to make your change backwards
+    /// compatible.
+    #[test]
+    fn backwards_compatibility() {
+        const ENCODED_IDENTITY: &[u8] = include_bytes!("../resources/psk_identity.bin");
+        const SESSION_NAME: &[u8] = b"psk session name";
 
-    //     let (deserialized_identity, remaining) =
-    //         PskIdentity::decode_from(ENCODED_IDENTITY).unwrap();
-    //     assert!(remaining.is_empty());
+        let identity = PskIdentity::new(SESSION_NAME, &test_epoch_secret()).unwrap();
 
-    //     // The API is deliberately designed to make it difficult to avoid checking
-    //     // the age of the PSK. This is still a useful test because age validation
-    //     // happens after parsing everything. As long as we are seeing the age
-    //     // error, then there is a high degree of confidence that there are no
-    //     // backwards incompatible changes.
-    //     let too_old_err = deserialized_identity
-    //         .deobfuscate_datakey(&[CONSTANT_OBFUSCATION_KEY.clone()])
-    //         .unwrap_err();
+        let deserialized_identity = PskIdentity::decode_from_exact(ENCODED_IDENTITY).unwrap();
+        assert_eq!(deserialized_identity, identity);
+    }
 
-    //     // e.g. "too old: PSK age was 1762.201972884s, but must be less than 60s"
-    //     assert!(too_old_err.to_string().contains("too old: PSK age was"));
-    // }
+    /// This is a very simple benchmark checking the cost of PSK Identity derivation
+    /// We use this setup because it allows us to keep the EpochSecret struct private
+    #[test]
+    fn psk_derivation_cost() {
+        let start = Instant::now();
+        for i in 0_u64..1_000_000 {
+            let identity = PskIdentity::new(&i.to_be_bytes(), &test_epoch_secret()).unwrap();
+        }
+        let elapsed = start.elapsed();
+        println!("total time: {:?}, per derivation: {:?}", elapsed, elapsed / 1_000_000);
+    }
 }

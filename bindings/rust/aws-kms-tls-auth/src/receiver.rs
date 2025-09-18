@@ -6,16 +6,16 @@ use crate::{
     epoch_schedule,
     psk_derivation::{EpochSecret, PskIdentity},
     psk_parser::retrieve_psk_identities,
-    KeyArn, EPOCH_DURATION,
+    KeyArn,
 };
-use aws_sdk_kms::{primitives::Blob, Client};
+use aws_sdk_kms::Client;
 use rand::Rng;
 use s2n_tls::{
     callbacks::{ClientHelloCallback, ConnectionFuture},
     error::Error as S2NError,
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     pin::Pin,
     sync::{Arc, RwLock},
     time::Duration,
@@ -35,6 +35,9 @@ impl ReceiverSecrets {
         }
     }
 
+    /// Given a decoded client_identity, try to find an EpochSecret that was used
+    /// to produce it. This requires generating the corresponding PskIdentity for
+    /// all of the trusted KMS keys.
     fn find_match(&self, client_identity: PskIdentity) -> anyhow::Result<s2n_tls::psk::Psk> {
         println!("finding server match for {client_identity:?}");
         let read_lock = self.daily_secrets.read().unwrap();
@@ -48,12 +51,9 @@ impl ReceiverSecrets {
 
         for epoch_secret in key_map.values() {
             let psk_identity = PskIdentity::new(client_identity.session_name.blob(), epoch_secret)?;
-            println!(
-                "constructed psk identity from {}: {psk_identity:?}",
-                epoch_secret.key_arn
-            );
             if psk_identity == client_identity {
-                let psk_secret = epoch_secret.new_psk_secret(client_identity.session_name.blob());
+                let psk_secret =
+                    epoch_secret.new_psk_secret(client_identity.session_name.blob())?;
                 return EpochSecret::psk_from_parts(psk_identity, psk_secret)
                     .map_err(|e| anyhow::anyhow!("failed to construct psk {e}"));
             }
@@ -74,13 +74,13 @@ impl ReceiverSecrets {
             .insert(epoch_secret.key_arn.clone(), epoch_secret);
     }
 
+    /// Return a list of all the (epoch, key_arn) EpochSecrets that are available
     fn available_secrets(&self) -> Vec<(u64, KeyArn)> {
         self.daily_secrets
             .read()
             .unwrap()
             .iter()
-            .map(|(epoch, arn_map)| arn_map.keys().map(|key_arn| (*epoch, key_arn.clone())))
-            .flatten()
+            .flat_map(|(epoch, arn_map)| arn_map.keys().map(|key_arn| (*epoch, key_arn.clone())))
             .collect()
     }
 
@@ -88,6 +88,10 @@ impl ReceiverSecrets {
         self.daily_secrets.read().unwrap().keys().max().cloned()
     }
 
+    /// Drop all of the unneeded secrets.
+    ///
+    /// If the current epoch is `n`, any key from epoch `n - 2` or earlier will
+    /// be dropped.
     fn drop_old_secrets(&self, current_epoch: u64) {
         self.daily_secrets
             .write()
@@ -95,14 +99,18 @@ impl ReceiverSecrets {
             .retain(|epoch, _arn_map| *epoch >= current_epoch - 1);
     }
 
-    async fn update_loop(
+    /// update the ReceiverSecrets
+    ///
+    /// This method is responsible for fetching new EpochSecrets from KMS. The
+    /// returned duration indicates how long the application should wait before
+    /// polling again.
+    async fn poll_update(
         &self,
         kms_client: &Client,
         current_epoch: u64,
         kms_smoothing_factor: u32,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
-        let this_epoch = current_epoch;
         let mut fetch_failed = false;
 
         // fetch the new keys
@@ -110,21 +118,26 @@ impl ReceiverSecrets {
             // fetch all keys that aren't already available
             // The will almost always just fetch `this_epoch + 2`, unless key
             // generation has failed for several days
-            let mut to_fetch: Vec<(u64, KeyArn)> = vec![this_epoch, this_epoch + 1, this_epoch + 2]
-                .iter()
-                .flat_map(|epoch| {
-                    self.trusted_key_arns
-                        .iter()
-                        .cloned()
-                        .map(|arn| (*epoch, arn))
-                })
-                .collect();
+            let mut to_fetch: Vec<(u64, KeyArn)> = [
+                current_epoch - 1,
+                current_epoch,
+                current_epoch + 1,
+                current_epoch + 2,
+            ]
+            .iter()
+            .flat_map(|epoch| {
+                self.trusted_key_arns
+                    .iter()
+                    .cloned()
+                    .map(|arn| (*epoch, arn))
+            })
+            .collect();
 
             let available: Vec<(u64, KeyArn)> = self.available_secrets();
             to_fetch.retain(|epoch| !available.contains(epoch));
 
             for (epoch, key_arn) in to_fetch {
-                match EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, epoch).await {
+                match EpochSecret::fetch_epoch_secret(kms_client, &key_arn, epoch).await {
                     Ok(epoch_secret) => {
                         self.insert_secret(epoch_secret);
                     }
@@ -139,12 +152,12 @@ impl ReceiverSecrets {
         }
 
         // drop any keys 2 epochs or more old.
-        self.drop_old_secrets(this_epoch);
+        self.drop_old_secrets(current_epoch);
 
         let next_fetched_epoch = self
             .newest_available_epoch()
             .map(|epoch| epoch + 1)
-            .unwrap_or(this_epoch);
+            .unwrap_or(current_epoch - 1);
 
         if fetch_failed {
             Err(Duration::from_secs(3_600))
@@ -184,25 +197,26 @@ impl PskReceiver {
     /// * `kms_client`: The KMS Client that will be used for the decrypt calls
     ///
     /// * `trusted_key_arns`: The list of KMS KeyArns that the PskReceiver will
-    ///   accept PSKs from. This is necessary because an attacker could grant the
-    ///   server decrypt permissions on AttackerKeyArn, but the PskReceiver should
-    ///   _not_ trust any Psk's from AttackerKeyArn.
-    ///
-    /// * `obfuscation_keys`: The keys that will be used to deobfuscate the received
-    ///   identities. The client `PskProvider` must be using one of the obfuscation
-    ///   keys in this list. If the PskReceiver receives a Psk identity obfuscated
-    ///   using a key _not_ on this list, then the handshake will fail.
+    ///   accept PSKs from. Applications should avoid trusting large (1000+) numbers
+    ///   of KMS keys, because the PskReceiver has to do brute force linear matching
+    ///   to find the KMS key that was used for a client identity. This costs ~ 300ns
+    ///   per trusted key, and thus is negligible for small amounts of trusted keys.
     pub async fn initialize(
         kms_client: Client,
         trusted_key_arns: Vec<KeyArn>,
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        // generate the needed keys
         let secret_state = Arc::new(ReceiverSecrets::new(trusted_key_arns.clone()));
+        // TODO: fix the smoothing here.
         let kms_smoothing_factor = 5;
-        let current_epoch = EpochSecret::current_epoch();
+        let current_epoch = epoch_schedule::current_epoch();
         if let Err(_) = secret_state
-            .update_loop(&kms_client, current_epoch, kms_smoothing_factor, &|e| {})
+            .poll_update(
+                &kms_client,
+                current_epoch,
+                kms_smoothing_factor,
+                &failure_notification,
+            )
             .await
         {
             anyhow::bail!("failed to fetch keys during startup");
@@ -213,9 +227,9 @@ impl PskReceiver {
         tokio::spawn(async move {
             let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
             loop {
-                let this_epoch = EpochSecret::current_epoch();
+                let this_epoch = epoch_schedule::current_epoch();
                 let sleep_duration = match secret_handle
-                    .update_loop(
+                    .poll_update(
                         &kms_client,
                         this_epoch,
                         kms_smoothing_factor,
@@ -243,9 +257,9 @@ impl PskReceiver {
     ) {
         let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
         loop {
-            let this_epoch = EpochSecret::current_epoch();
+            let this_epoch = epoch_schedule::current_epoch();
             let sleep_duration = match daily_secrets
-                .update_loop(
+                .poll_update(
                     &kms_client,
                     this_epoch,
                     kms_smoothing_factor,
@@ -417,7 +431,7 @@ mod secret_state_tests {
         assert_eq!(secret_state.available_secrets().len(), 0);
         // the first update fetches 3 secrets
         secret_state
-            .update_loop(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .poll_update(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
         let initial_keys = secret_state.available_secrets();
@@ -425,28 +439,45 @@ mod secret_state_tests {
 
         // calling it again without any elapsed time results in no activity
         secret_state
-            .update_loop(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .poll_update(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
 
         // calling it in a new epoch results in a new key being fetched, but no keys
         // are evicted yet
         secret_state
-            .update_loop(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
+            .poll_update(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
         assert_eq!(secret_state.available_secrets().len(), 4);
-        assert!(secret_state.available_secrets().iter().any(|(epoch, _arn)| *epoch == current_epoch + 1));
-        assert!(secret_state.available_secrets().iter().any(|(epoch, _arn)| *epoch == current_epoch));
+        assert!(secret_state
+            .available_secrets()
+            .iter()
+            .any(|(epoch, _arn)| *epoch == current_epoch + 1));
+        assert!(secret_state
+            .available_secrets()
+            .iter()
+            .any(|(epoch, _arn)| *epoch == current_epoch));
 
         // advancing time again results in a new key being fetched, and an old key
         // getting removed
         secret_state
-            .update_loop(&kms_client, current_epoch + 2, KMS_SMOOTHING, &|_| {})
+            .poll_update(&kms_client, current_epoch + 2, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
         assert_eq!(secret_state.available_secrets().len(), 4);
-        assert!(secret_state.available_secrets().iter().all(|(epoch, _arn)| *epoch != current_epoch));
+        assert!(secret_state
+            .available_secrets()
+            .iter()
+            .all(|(epoch, _arn)| *epoch != current_epoch));
+    }
+
+    #[tokio::test]
+    async fn failure_notification() {
+        // call the secret store with a failing thing.
+        // first succeed
+
+        // then fail
     }
 
     // initialize fails if any of the KMS calls fail
@@ -520,122 +551,3 @@ mod secret_state_tests {
 //         let err = handshake(&client_config, &server_config).await.unwrap_err();
 //         assert!(err.to_string().contains("untrusted KMS Key: arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab is not trusted"));
 //     }
-
-//     #[tokio::test]
-//     async fn obfuscation_key_unavailable() {
-//         let psk_provider = test_psk_provider().await;
-
-//         // we configured the Psk Receiver with a different obfuscation key
-//         let (decrypt_rule, decrypt_client) = decrypt_mocks();
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             vec![KMS_KEY_ARN.to_owned()],
-//             vec![ObfuscationKey::random_test_key()],
-//         );
-
-//         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_receiver);
-
-//         let err = handshake(&client_config, &server_config).await.unwrap_err();
-//         // unable to deobfuscate: f6c9d1107f9b86a7bfbf836458d0483e not available
-//         assert!(err.to_string().starts_with("unable to deobfuscate: "));
-//         assert!(err.to_string().ends_with("not available"));
-
-//         // we should not have attempted to decrypt the key
-//         assert_eq!(decrypt_rule.num_calls(), 0)
-//     }
-
-//     // when the map is at capacity, old items are evicted when new ones are added
-//     #[tokio::test]
-//     async fn cache_max_capacity() {
-//         let (decrypt_rule, decrypt_client) = decrypt_mocks();
-//         let (_gdk_rule, gdk_client) = gdk_mocks();
-
-//         let obfuscation_key = ObfuscationKey::random_test_key();
-//         let psk_provider = PskProvider::initialize(
-//             PskVersion::V1,
-//             gdk_client,
-//             KMS_KEY_ARN.to_string(),
-//             obfuscation_key.clone(),
-//             |_| {},
-//         )
-//         .await
-//         .unwrap();
-
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             vec![KMS_KEY_ARN.to_owned()],
-//             vec![obfuscation_key],
-//         );
-
-//         let cache_handle = psk_receiver.key_cache.clone();
-//         for i in 0..MAXIMUM_KEY_CACHE_SIZE {
-//             cache_handle.insert(i.to_be_bytes().to_vec(), i.to_be_bytes().to_vec());
-//         }
-//         cache_handle.run_pending_tasks();
-//         assert_eq!(cache_handle.entry_count(), MAXIMUM_KEY_CACHE_SIZE as u64);
-
-//         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_receiver);
-
-//         assert_eq!(decrypt_rule.num_calls(), 0);
-//         handshake(&client_config, &server_config).await.unwrap();
-//         assert_eq!(decrypt_rule.num_calls(), 1);
-
-//         cache_handle.run_pending_tasks();
-//         assert_eq!(cache_handle.entry_count(), MAXIMUM_KEY_CACHE_SIZE as u64);
-//     }
-
-//     // when the decrypt operation fails, the handshake should also fail
-//     #[tokio::test]
-//     async fn decrypt_error() {
-//         let decrypt_rule = mock!(aws_sdk_kms::Client::decrypt).then_error(|| {
-//             DecryptError::InvalidKeyUsageException(InvalidKeyUsageException::builder().build())
-//         });
-//         let decrypt_client = mock_client!(aws_sdk_kms, [&decrypt_rule]);
-
-//         let psk_provider = test_psk_provider().await;
-
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             vec![KMS_KEY_ARN.to_owned()],
-//             vec![OBFUSCATION_KEY.clone()],
-//         );
-
-//         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_receiver);
-
-//         let decrypt_error = handshake(&client_config, &server_config).await.unwrap_err();
-//         assert!(decrypt_error.to_string().contains("service error"));
-//     }
-
-//     /// When an old PskIdentity is received, the handshake should fail, and no
-//     /// decrypt calls should be made.
-//     #[tokio::test]
-//     async fn receiver_rejects_old_identity() {
-//         const OLD_IDENTITY: &[u8] = include_bytes!("../resources/psk_identity.bin");
-//         struct OldIdentityInitializer;
-//         impl ConnectionInitializer for OldIdentityInitializer {
-//             fn initialize_connection(
-//                 &self,
-//                 connection: &mut s2n_tls::connection::Connection,
-//             ) -> Result<Option<Pin<Box<(dyn ConnectionFuture)>>>, s2n_tls::error::Error>
-//             {
-//                 let psk =
-//                     psk_from_material(OLD_IDENTITY, b"doesn't matter, should fail before using")?;
-//                 connection.append_psk(&psk)?;
-//                 Ok(None)
-//             }
-//         }
-
-//         let (decrypt_rule, decrypt_client) = decrypt_mocks();
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             vec![KMS_KEY_ARN.to_owned()],
-//             vec![CONSTANT_OBFUSCATION_KEY.clone()],
-//         );
-
-//         let (client_config, server_config) =
-//             configs_from_callbacks(OldIdentityInitializer, psk_receiver);
-//         let too_old_error = handshake(&client_config, &server_config).await.unwrap_err();
-//         assert_eq!(decrypt_rule.num_calls(), 0);
-//         assert!(too_old_error.to_string().contains("too old"));
-//     }
-// }

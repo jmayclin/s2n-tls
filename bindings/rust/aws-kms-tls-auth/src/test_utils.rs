@@ -1,23 +1,26 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::psk_derivation::{EpochSecret, PskIdentity, PskVersion};
-use crate::psk_parser::retrieve_psk_identities;
-use crate::{epoch_schedule, DecodeValue, S2NError};
-use crate::{receiver::PskReceiver, PskProvider};
-use aws_lc_rs::{digest, hmac, rand};
-use aws_sdk_kms::operation::generate_mac::GenerateMacOutput;
-use aws_sdk_kms::{
-    operation::{decrypt::DecryptOutput, generate_data_key::GenerateDataKeyOutput},
-    primitives::Blob,
-    Client,
+use crate::{
+    epoch_schedule,
+    psk_derivation::{EpochSecret, PskIdentity},
+    psk_parser::retrieve_psk_identities,
+    receiver::PskReceiver,
+    DecodeValue, PskProvider,
 };
+use aws_lc_rs::hmac;
+use aws_sdk_kms::{operation::generate_mac::GenerateMacOutput, primitives::Blob, Client};
 use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
-use s2n_tls::callbacks::{ClientHelloCallback, ConnectionFuture};
-use s2n_tls::config::ConnectionInitializer;
+use s2n_tls::{
+    callbacks::{ClientHelloCallback, ConnectionFuture},
+    config::ConnectionInitializer,
+};
+use s2n_tls::error::Error as S2NError;
 use s2n_tls_tokio::TlsStream;
-use std::pin::Pin;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::{
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},

@@ -1,25 +1,18 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{
-    codec::EncodeValue,
-    psk_derivation::{EpochSecret, PskIdentity, PskVersion},
-    KeyArn, EPOCH_DURATION, PSK_SIZE,
-};
-use aws_lc_rs::rand::SecureRandom;
-use aws_sdk_kms::{primitives::Blob, types::MacAlgorithmSpec, Client};
+use crate::{epoch_schedule, psk_derivation::EpochSecret, KeyArn, EPOCH_DURATION};
+use aws_sdk_kms::Client;
 use rand::Rng;
 use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
 use std::{
     cmp::min,
     collections::VecDeque,
     fmt::Debug,
-    ops::Deref,
     pin::Pin,
     sync::{Arc, Mutex, RwLock},
     time::{Duration, SystemTime},
 };
-use tokio::time::Instant;
 
 #[derive(Debug)]
 struct ProviderSecrets {
@@ -45,33 +38,6 @@ impl ProviderSecrets {
         epochs.push(self.current_epoch_secret().key_epoch);
         epochs
     }
-
-    /// The Duration between now and the start of key_epoch
-    ///
-    /// returns None if the epoch has already started
-    fn until_epoch_start(key_epoch: u64) -> Option<Duration> {
-        let epoch_start = SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (key_epoch as u32));
-        epoch_start.duration_since(SystemTime::now()).ok()
-    }
-
-    /// The Duration between now and when the actor should make the network call
-    /// to KMS to retrieve the secret from key_epoch.
-    ///
-    /// returns None if the fetch should already have occurred
-    fn until_fetch(key_epoch: u64, kms_smoothing_factor: u32) -> Option<Duration> {
-        // we always want to fetch the key at least one epoch (24 hours) before the
-        // key is needed.
-        let fetch_time = {
-            let fetch_epoch = key_epoch - 2;
-
-            let fetch_epoch_start =
-                SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (fetch_epoch as u32));
-            let fetch_time = fetch_epoch_start + Duration::from_secs(kms_smoothing_factor as u64);
-            fetch_time
-        };
-
-        fetch_time.duration_since(SystemTime::now()).ok()
-    }
 }
 #[derive(Debug)]
 pub struct PskProvider {
@@ -84,7 +50,7 @@ impl PskProvider {
         key_arn: KeyArn,
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let current_key_epoch = EpochSecret::current_epoch();
+        let current_key_epoch = epoch_schedule::current_epoch();
         let current_secret =
             EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_key_epoch).await?;
         let mut next_secrets = VecDeque::new();
@@ -129,7 +95,7 @@ impl PskProvider {
     ) {
         let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
         loop {
-            let this_epoch = EpochSecret::current_epoch();
+            let this_epoch = epoch_schedule::current_epoch();
 
             // fetch the new keys
             {
@@ -193,7 +159,7 @@ impl PskProvider {
                         .unwrap()
                         .iter()
                         .any(|secret| secret.key_epoch == next_epoch);
-                    match ProviderSecrets::until_epoch_start(next_epoch) {
+                    match epoch_schedule::until_epoch_start(next_epoch) {
                         Some(duration) => Some(duration),
                         None => {
                             if rotation_available {
@@ -216,7 +182,7 @@ impl PskProvider {
                         .map(|epoch| epoch + 1);
                     if let Some(next_fetched_epoch) = next_fetched_epoch {
                         if let Some(duration) =
-                            ProviderSecrets::until_fetch(next_fetched_epoch, kms_smoothing_factor)
+                            epoch_schedule::until_fetch(next_fetched_epoch, kms_smoothing_factor)
                         {
                             duration
                         } else {
@@ -251,12 +217,10 @@ impl ConnectionInitializer for PskProvider {
 
 #[cfg(test)]
 mod tests {
-    use s2n_tls::callbacks::ClientHelloCallback;
 
     use crate::{
-        psk_derivation::PskIdentity,
         test_utils::{
-            self, configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,
+            configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,
             KMS_KEY_ARN_A,
         },
         PskProvider,
@@ -280,176 +244,6 @@ mod tests {
         assert!(observed_psks[1].session_name != observed_psks[0].session_name);
     }
 }
-
-// /// The `PskProvider` is used along with the [`PskReceiver`] to perform TLS
-// /// 1.3 out-of-band PSK authentication, using PSK's generated from KMS.
-// ///
-// /// This struct can be enabled on a config with [`s2n_tls::config::Builder::set_connection_initializer`].
-// ///
-// /// The datakey is automatically rotated every 24 hours. Any errors in this rotation
-// /// are reported through the configured `failure_notification` callback.
-// ///
-// /// Note that the "rotation check" only happens when a new connection is created.
-// /// So if a new connection is only created every 2 hours, rotation might not be
-// /// attempted until 26 hours have elapsed. This results in a 26 hour old PSK being
-// /// used for the connection.
-// ///
-// /// ### ⚠️ WARNING ⚠️
-// /// Because of the above behavior, this solution is not a good fit for
-// /// extremely low tps scenarios. When performing ~ 1 connection per week or less,
-// /// the low tps significantly slows key rotation. This does not cause any specific
-// /// system failure, but long lived secrets do not align with cryptographic best
-// /// practices.
-// #[derive(Clone)]
-// pub struct PskProvider {
-//     /// The KMS client
-//     kms_client: Client,
-//     /// The KMS key arn that will be used to generate the datakey which are
-//     /// used as TLS Psk's.
-//     kms_key_arn: Arc<KeyArn>,
-//     client_epoch_secrets: Arc<ClientEpochSecrets>,
-//     failure_notification: Arc<dyn Fn(anyhow::Error) + Send + Sync>,
-// }
-
-// impl PskProvider {
-//     /// Initialize a `PskProvider`.
-//     ///
-//     /// * `psk_version`: The PSK version that the PSK provider will use.
-//     ///   Versions are backwards compatible but will not necessarily be forwards
-//     ///   compatible. For further information see the "Versioning" section in the
-//     ///   main module documentation.
-//     /// * `kms_client`: The KMS client that will be used to make generateDataKey calls.
-//     /// * `key`: The KeyArn which will be used in the API calls
-//     /// * `obfuscation_key`: The key used to obfuscate any ciphertext details over the wire.
-//     /// * `failure_notification`: A callback invoked if there is ever a failure
-//     ///   when rotating the key.
-//     ///
-//     /// This method will call the KMS generate-data-key API to create the initial
-//     /// PSK that will be used for TLS connections.
-//     ///
-//     /// Customers should emit metrics and alarm if there is a failure to rotate
-//     /// the key. If the key fails to rotate, then the PskProvider will continue
-//     /// using the existing key, and attempt rotation again after [`KEY_ROTATION_PERIOD`]
-//     /// has elapsed.
-//     ///
-//     /// The `failure_notification` implementation will depend on a customer's specific
-//     /// metrics/alarming configuration. As an example, if a customer is already
-//     /// alarming on tracing `error` events then the following might be sufficient:
-//     /// ```ignore
-//     /// PskProvider::initialize(client, key, obfuscation_key, |error| {
-//     ///     tracing::error!("failed to rotate key: {error}");
-//     /// });
-//     /// ```
-//     ///
-//     /// ### ⚠️ WARNING ⚠️
-//     /// Failing to take action on the `failure_notification` will result in the
-//     /// Provider continuing to use the same data key indefinitely. While this doesn't
-//     /// cause any specific system failure, long lived secrets do not align with
-//     /// cryptographic best practices. Longer lived secrets have a higher change
-//     /// of exposure, so customers should ensure that they alarm and troubleshoot
-//     /// rotation failures.
-//     pub async fn initialize(
-//         psk_version: PskVersion,
-//         kms_client: Client,
-//         key_arn: KeyArn,
-//         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
-//     ) -> anyhow::Result<Self> {
-//         debug_assert_eq!(psk_version, PskVersion::V2);
-//         let secrets = ClientEpochSecrets::initialize(kms_client, key_arn, failure_notification).await?;
-//         let value = Self {
-
-//             last_update_attempt: Arc::new(RwLock::new(Some(Instant::now()))),
-//             failure_notification: Arc::new(failure_notification),
-//         };
-//         Ok(value)
-//     }
-
-//     /// Check if a key update is needed. If it is, kick off a background task
-//     /// to call KMS and create a new PSK.
-//     fn maybe_trigger_key_update(&self) {
-//         let last_update = match *self.last_update_attempt.read().unwrap() {
-//             Some(update) => update,
-//             None => {
-//                 // update already in progress
-//                 return;
-//             }
-//         };
-
-//         if last_update.elapsed() >= KEY_ROTATION_PERIOD {
-//             // because we released the lock above, we need to recheck the update
-//             // status after acquiring the lock.
-//             let mut reacquired_update = self.last_update_attempt.write().unwrap();
-//             if reacquired_update.is_some() {
-//                 *reacquired_update = None;
-//                 tokio::spawn({
-//                     let psk_provider = self.clone();
-//                     async move {
-//                         psk_provider.rotate_key().await;
-//                     }
-//                 });
-//             }
-//         }
-//     }
-
-//     // async fn rotate_key(&self) {
-//     //     match Self::generate_datakey(&self.kms_client, &self.kms_key_arn).await {
-//     //         Ok(psk) => {
-//     //             *self.datakey.write().unwrap() = psk;
-//     //         }
-//     //         Err(e) => {
-//     //             (self.failure_notification)(e);
-//     //         }
-//     //     }
-//     //     *self.last_update_attempt.write().unwrap() = Some(Instant::now());
-//     // }
-
-//     // This method accepts owned arguments instead of `&self` so that the same
-//     // code can be used in the constructor as well as the background updater.
-//     /// Call the KMS `generate datakey` API to gather materials to be used as a TLS PSK.
-//     async fn generate_datakey(client: &Client, key: &KeyArn, key_epoch: u64) -> anyhow::Result<Vec<u8>> {
-//         let key_epoch = Self::current_key_epoch();
-//         let data_key = client
-//             .generate_mac()
-//             .key_id(key.clone())
-//             .mac_algorithm(MacAlgorithmSpec::HmacSha384)
-//             .message(Blob::new(key_epoch.to_be_bytes()))
-//             .send()
-//             .await?;
-
-//         match data_key.mac {
-//             Some(mac) => Ok(mac.into_inner()),
-//             // the KMS documentation implies that the ciphertext and plaintext
-//             // fields are required, although the SDK does not model them as such
-//             // https://docs.aws.amazon.com/kms/latest/APIReference/API_GenerateMac.html#API_GenerateMac_ResponseSyntax
-//             None => anyhow::bail!("failed to retrieve the Mac from the GenerateMac operation"),
-//         }
-//     }
-// }
-
-// impl ConnectionInitializer for PskProvider {
-//     fn initialize_connection(
-//         &self,
-//         connection: &mut s2n_tls::connection::Connection,
-//     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
-//         let psk = self.daily_secret.read().unwrap().new_connection_psk()?;
-//         connection.append_psk(&psk)?;
-//         Ok(None)
-//     }
-// }
-
-// impl Debug for PskProvider {
-//     // we use a custom Debug implementation because the failure notification doesn't
-//     // implement debug
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("PskProvider")
-//             .field("kms_client", &self.kms_client)
-//             .field("kms_key_arn", &self.kms_key_arn)
-//             .field("obfuscation_key", &self.obfuscation_key)
-//             .field("psk", &self.datakey)
-//             .field("last_update_attempt", &self.last_update_attempt)
-//             .finish()
-//     }
-// }
 
 // #[cfg(test)]
 // mod tests {

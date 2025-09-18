@@ -103,11 +103,7 @@ mod receiver;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
-use aws_lc_rs::hkdf;
-use s2n_tls::error::Error as S2NError;
-use std::{
-    time::{Duration},
-};
+use std::time::Duration;
 
 pub type KeyArn = String;
 pub use provider::PskProvider;
@@ -126,8 +122,8 @@ const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
 
 #[cfg(test)]
 mod tests {
-    use crate::{SHA384_DIGEST_SIZE};
-    use aws_lc_rs::{digest::SHA384};
+    use crate::SHA384_DIGEST_SIZE;
+    use aws_lc_rs::digest::SHA384;
 
     /// `key_len()` and `nonce_len()` aren't const functions, so we define
     /// our own constants to let us use those values in things like array sizes.
@@ -166,7 +162,6 @@ mod integration_tests {
             PskProvider::initialize(kms_client.clone(), key_arn.clone(), |e| {})
                 .await
                 .unwrap();
-        println!("client psk provider: {client_psk_provider:?}");
         let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn], |_| {})
             .await
             .unwrap();

@@ -13,14 +13,14 @@ pub fn current_epoch() -> u64 {
 }
 
 /// Return the instant in time that `key_epoch` starts
-fn epoch_start(key_epoch: u64) -> SystemTime {
+pub fn epoch_start(key_epoch: u64) -> SystemTime {
     SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (key_epoch as u32))
 }
 
 /// The Duration between now and the start of key_epoch
 ///
 /// returns None if the epoch has already started
-fn until_epoch_start(key_epoch: u64) -> Option<Duration> {
+pub fn until_epoch_start(key_epoch: u64) -> Option<Duration> {
     epoch_start(key_epoch)
         .duration_since(SystemTime::now())
         .ok()
@@ -37,13 +37,12 @@ pub(crate) fn until_fetch(key_epoch: u64, kms_smoothing_factor: u32) -> Option<D
         let fetch_epoch = key_epoch - 2;
 
         let fetch_epoch_start = epoch_start(fetch_epoch);
-        let fetch_time = fetch_epoch_start + Duration::from_secs(kms_smoothing_factor as u64);
-        fetch_time
+
+        fetch_epoch_start + Duration::from_secs(kms_smoothing_factor as u64)
     };
 
     fetch_time.duration_since(SystemTime::now()).ok()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -76,7 +75,7 @@ mod tests {
         //     test runtime: 27.48 us -> window of "flaky"
         //     probability = 27.48 us / 24 hr
         //     approximately 1 / 3_200_000_000
-        // So if we ran the test 1,000 times a day it would fail about once every 
+        // So if we ran the test 1,000 times a day it would fail about once every
         // 1,000 years
         assert!(until_fetch(current_epoch + 2, 0).is_none());
         assert!(until_fetch(current_epoch + 2, 24 * 3_600).is_some());
