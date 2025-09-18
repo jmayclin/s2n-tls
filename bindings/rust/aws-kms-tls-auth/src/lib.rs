@@ -106,8 +106,7 @@ pub(crate) mod test_utils;
 use aws_lc_rs::hkdf;
 use s2n_tls::error::Error as S2NError;
 use std::{
-    ptr::null,
-    time::{Duration, SystemTime},
+    time::{Duration},
 };
 
 pub type KeyArn = String;
@@ -119,33 +118,22 @@ pub use receiver::PskReceiver;
 pub use codec::DecodeValue;
 pub use psk_parser::PresharedKeyClientHello;
 
-use crate::{codec::EncodeValue, psk_derivation::PskIdentity};
-
-const MAXIMUM_KEY_CACHE_SIZE: usize = 100_000;
 const PSK_SIZE: usize = 32;
-const AES_256_GCM_SIV_KEY_LEN: usize = 32;
-const AES_256_GCM_SIV_NONCE_LEN: usize = 12;
 const SHA384_DIGEST_SIZE: usize = 48;
 
 /// The key is automatically rotated every period. Currently 24 hours.
-const KEY_ROTATION_PERIOD: Duration = Duration::from_secs(3_600 * 24);
-/// The maximum allowed age of a PSK identity.
-///
-/// PSK identities include their creation time. The server will reject the PSK
-/// identity and fail the handshake if the PSK identity is older than this value.
-const PSK_IDENTITY_VALIDITY: Duration = Duration::from_secs(60);
+const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
 
 #[cfg(test)]
 mod tests {
-    use crate::{AES_256_GCM_SIV_KEY_LEN, AES_256_GCM_SIV_NONCE_LEN};
-    use aws_lc_rs::aead::AES_256_GCM_SIV;
+    use crate::{SHA384_DIGEST_SIZE};
+    use aws_lc_rs::{digest::SHA384};
 
     /// `key_len()` and `nonce_len()` aren't const functions, so we define
     /// our own constants to let us use those values in things like array sizes.
     #[test]
     fn constant_check() {
-        assert_eq!(AES_256_GCM_SIV_KEY_LEN, AES_256_GCM_SIV.key_len());
-        assert_eq!(AES_256_GCM_SIV_NONCE_LEN, AES_256_GCM_SIV.nonce_len());
+        assert_eq!(SHA384_DIGEST_SIZE, SHA384.output_len());
     }
 }
 
@@ -179,7 +167,7 @@ mod integration_tests {
                 .await
                 .unwrap();
         println!("client psk provider: {client_psk_provider:?}");
-        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn])
+        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn], |_| {})
             .await
             .unwrap();
         println!("{server_psk_receiver:?}");
@@ -209,8 +197,10 @@ mod integration_tests {
         let psk_receiver = PskReceiver::initialize(
             test_utils::mocked_kms_client(),
             vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()],
+            |_| {},
         )
-        .await.unwrap();
+        .await
+        .unwrap();
 
         let client_config_a = test_utils::make_client_config(psk_provider_a);
         let client_config_b = test_utils::make_client_config(psk_provider_b);
@@ -223,7 +213,7 @@ mod integration_tests {
     /// if the server only trusts key a, then a handshake with a psk from key b
     /// will fail
     #[tokio::test]
-    async fn non_trusted_key() {
+    async fn untrusted_key_arn() {
         let psk_provider_a = PskProvider::initialize(
             test_utils::mocked_kms_client(),
             KMS_KEY_ARN_A.to_owned(),
@@ -241,15 +231,20 @@ mod integration_tests {
         let psk_receiver = PskReceiver::initialize(
             test_utils::mocked_kms_client(),
             vec![KMS_KEY_ARN_A.to_owned()],
+            |_| {},
         )
-        .await.unwrap();
+        .await
+        .unwrap();
 
         let client_config_a = test_utils::make_client_config(psk_provider_a);
         let client_config_b = test_utils::make_client_config(psk_provider_b);
         let server_config = test_utils::make_server_config(psk_receiver);
 
         handshake(&client_config_a, &server_config).await.unwrap();
-        let err = handshake(&client_config_b, &server_config).await.unwrap_err().to_string();
+        let err = handshake(&client_config_b, &server_config)
+            .await
+            .unwrap_err()
+            .to_string();
         // e.g. "no matching kms binder found for session c69d62609826836e718a7f1509effbde"
         assert!(err.contains("no matching kms binder found for session "));
     }

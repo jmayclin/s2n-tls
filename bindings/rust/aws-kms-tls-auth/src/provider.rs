@@ -4,26 +4,32 @@
 use crate::{
     codec::EncodeValue,
     psk_derivation::{EpochSecret, PskIdentity, PskVersion},
-    KeyArn, KEY_ROTATION_PERIOD, PSK_SIZE,
+    KeyArn, EPOCH_DURATION, PSK_SIZE,
 };
 use aws_lc_rs::rand::SecureRandom;
 use aws_sdk_kms::{primitives::Blob, types::MacAlgorithmSpec, Client};
+use rand::Rng;
 use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
 use std::{
-    cmp::min, collections::VecDeque, fmt::Debug, ops::Deref, pin::Pin, sync::{Arc, Mutex, RwLock}, time::{Duration, SystemTime}
+    cmp::min,
+    collections::VecDeque,
+    fmt::Debug,
+    ops::Deref,
+    pin::Pin,
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, SystemTime},
 };
 use tokio::time::Instant;
 
-
 #[derive(Debug)]
-struct SecretState {
+struct ProviderSecrets {
     /// secret for the current epoch `n`
     current_secret: RwLock<Arc<EpochSecret>>,
     /// secrets for epoch `n + 1` and `n + 2`
     next_secrets: Mutex<VecDeque<EpochSecret>>,
 }
 
-impl SecretState {
+impl ProviderSecrets {
     fn current_epoch_secret(&self) -> Arc<EpochSecret> {
         self.current_secret.read().unwrap().clone()
     }
@@ -44,7 +50,7 @@ impl SecretState {
     ///
     /// returns None if the epoch has already started
     fn until_epoch_start(key_epoch: u64) -> Option<Duration> {
-        let epoch_start = SystemTime::UNIX_EPOCH + (KEY_ROTATION_PERIOD * (key_epoch as u32));
+        let epoch_start = SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (key_epoch as u32));
         epoch_start.duration_since(SystemTime::now()).ok()
     }
 
@@ -59,7 +65,7 @@ impl SecretState {
             let fetch_epoch = key_epoch - 2;
 
             let fetch_epoch_start =
-                SystemTime::UNIX_EPOCH + (KEY_ROTATION_PERIOD * (fetch_epoch as u32));
+                SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (fetch_epoch as u32));
             let fetch_time = fetch_epoch_start + Duration::from_secs(kms_smoothing_factor as u64);
             fetch_time
         };
@@ -69,7 +75,7 @@ impl SecretState {
 }
 #[derive(Debug)]
 pub struct PskProvider {
-    secret_state: Arc<SecretState>,
+    secret_state: Arc<ProviderSecrets>,
 }
 
 impl PskProvider {
@@ -89,8 +95,7 @@ impl PskProvider {
             EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_key_epoch + 2).await?,
         );
 
-        let kms_smoothing_factor = 5;
-        let secret_state = SecretState {
+        let secret_state = ProviderSecrets {
             current_secret: RwLock::new(Arc::new(current_secret)),
             next_secrets: Mutex::new(next_secrets),
         };
@@ -102,7 +107,6 @@ impl PskProvider {
             Arc::clone(&value.secret_state),
             kms_client,
             key_arn,
-            kms_smoothing_factor,
             failure_notification,
         ));
         Ok(value)
@@ -118,12 +122,12 @@ impl PskProvider {
     ///
     /// key fetch: this is a network call to KMS to derive the next epoch secret
     async fn epoch_secret_rotator(
-        client_epoch_secrets: Arc<SecretState>,
+        client_epoch_secrets: Arc<ProviderSecrets>,
         kms_client: Client,
         key_arn: KeyArn,
-        kms_smoothing_factor: u32,
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) {
+        let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
         loop {
             let this_epoch = EpochSecret::current_epoch();
 
@@ -189,7 +193,7 @@ impl PskProvider {
                         .unwrap()
                         .iter()
                         .any(|secret| secret.key_epoch == next_epoch);
-                    match SecretState::until_epoch_start(next_epoch) {
+                    match ProviderSecrets::until_epoch_start(next_epoch) {
                         Some(duration) => Some(duration),
                         None => {
                             if rotation_available {
@@ -211,10 +215,9 @@ impl PskProvider {
                         .max()
                         .map(|epoch| epoch + 1);
                     if let Some(next_fetched_epoch) = next_fetched_epoch {
-                        if let Some(duration) = SecretState::until_fetch(
-                            next_fetched_epoch,
-                            kms_smoothing_factor,
-                        ) {
+                        if let Some(duration) =
+                            ProviderSecrets::until_fetch(next_fetched_epoch, kms_smoothing_factor)
+                        {
                             duration
                         } else {
                             // we failed to fetch the key, so retry in an hour
@@ -250,19 +253,28 @@ impl ConnectionInitializer for PskProvider {
 mod tests {
     use s2n_tls::callbacks::ClientHelloCallback;
 
-    use crate::{psk_derivation::PskIdentity, test_utils::{self, configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver, KMS_KEY_ARN_A}, PskProvider};
-
+    use crate::{
+        psk_derivation::PskIdentity,
+        test_utils::{
+            self, configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,
+            KMS_KEY_ARN_A,
+        },
+        PskProvider,
+    };
 
     #[tokio::test]
     async fn random_session_id() {
-        let psk_provider = PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_|{}).await.unwrap();
+        let psk_provider =
+            PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
+                .await
+                .unwrap();
         let psk_capturer = PskIdentityObserver::default();
         let observer_handle = psk_capturer.clone();
         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_capturer);
 
         handshake(&client_config, &server_config).await.unwrap_err();
         handshake(&client_config, &server_config).await.unwrap_err();
-        
+
         let observed_psks = observer_handle.0.lock().unwrap().clone();
         assert!(observed_psks[1].key_epoch - observed_psks[0].key_epoch <= 1);
         assert!(observed_psks[1].session_name != observed_psks[0].session_name);

@@ -3,7 +3,7 @@
 
 use crate::psk_derivation::{EpochSecret, PskIdentity, PskVersion};
 use crate::psk_parser::retrieve_psk_identities;
-use crate::{epoch_schedule, DecodeValue, S2NError, AES_256_GCM_SIV_KEY_LEN};
+use crate::{epoch_schedule, DecodeValue, S2NError};
 use crate::{receiver::PskReceiver, PskProvider};
 use aws_lc_rs::{digest, hmac, rand};
 use aws_sdk_kms::operation::generate_mac::GenerateMacOutput;

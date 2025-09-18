@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime};
 
-use crate::KEY_ROTATION_PERIOD;
+use crate::EPOCH_DURATION;
 
 pub fn current_epoch() -> u64 {
     // SAFETY: this method will panic if the current system clock is set to
@@ -14,7 +14,7 @@ pub fn current_epoch() -> u64 {
 
 /// Return the instant in time that `key_epoch` starts
 fn epoch_start(key_epoch: u64) -> SystemTime {
-    SystemTime::UNIX_EPOCH + (KEY_ROTATION_PERIOD * (key_epoch as u32))
+    SystemTime::UNIX_EPOCH + (EPOCH_DURATION * (key_epoch as u32))
 }
 
 /// The Duration between now and the start of key_epoch
@@ -42,4 +42,43 @@ pub(crate) fn until_fetch(key_epoch: u64, kms_smoothing_factor: u32) -> Option<D
     };
 
     fetch_time.duration_since(SystemTime::now()).ok()
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn current() {
+        let current_epoch = current_epoch();
+        let start = epoch_start(current_epoch);
+        assert!(SystemTime::now().duration_since(start).is_ok());
+        let future_start = epoch_start(current_epoch + 2);
+        assert!(future_start.duration_since(SystemTime::now()).is_ok());
+    }
+
+    #[test]
+    fn until_start() {
+        let current = current_epoch();
+        // epoch start was in the past, and should return none
+        assert!(until_epoch_start(current).is_none());
+        assert!(until_epoch_start(current + 2).is_some());
+    }
+
+    #[test]
+    fn fetch() {
+        let current_epoch = current_epoch();
+        assert!(until_fetch(current_epoch, 0).is_none());
+        assert!(until_fetch(current_epoch + 1, 0).is_none());
+        // This test could be flaky, because if called on the epoch boundary, the
+        // last line might return none.
+        // Flakiness Probability:
+        //     test runtime: 27.48 us -> window of "flaky"
+        //     probability = 27.48 us / 24 hr
+        //     approximately 1 / 3_200_000_000
+        // So if we ran the test 1,000 times a day it would fail about once every 
+        // 1,000 years
+        assert!(until_fetch(current_epoch + 2, 0).is_none());
+        assert!(until_fetch(current_epoch + 2, 24 * 3_600).is_some());
+    }
 }

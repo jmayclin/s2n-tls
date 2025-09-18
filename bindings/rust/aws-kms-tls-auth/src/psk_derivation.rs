@@ -4,7 +4,7 @@
 use crate::{
     codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
     prefixed_list::PrefixedBlob,
-    KeyArn, AES_256_GCM_SIV_KEY_LEN, AES_256_GCM_SIV_NONCE_LEN, PSK_IDENTITY_VALIDITY,
+    KeyArn,
 };
 use aws_lc_rs::{
     aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM_SIV},

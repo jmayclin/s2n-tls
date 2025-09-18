@@ -6,9 +6,10 @@ use crate::{
     epoch_schedule,
     psk_derivation::{EpochSecret, PskIdentity},
     psk_parser::retrieve_psk_identities,
-    KeyArn, KEY_ROTATION_PERIOD, MAXIMUM_KEY_CACHE_SIZE,
+    KeyArn, EPOCH_DURATION,
 };
 use aws_sdk_kms::{primitives::Blob, Client};
+use rand::Rng;
 use s2n_tls::{
     callbacks::{ClientHelloCallback, ConnectionFuture},
     error::Error as S2NError,
@@ -21,19 +22,19 @@ use std::{
 };
 
 #[derive(Debug)]
-struct SecretState {
+struct ReceiverSecrets {
     pub trusted_key_arns: Vec<KeyArn>,
     pub daily_secrets: RwLock<HashMap<u64, HashMap<KeyArn, EpochSecret>>>,
 }
 
-impl SecretState {
+impl ReceiverSecrets {
     fn new(trusted_key_arns: Vec<KeyArn>) -> Self {
         Self {
             trusted_key_arns,
             daily_secrets: Default::default(),
         }
     }
-    
+
     fn find_match(&self, client_identity: PskIdentity) -> anyhow::Result<s2n_tls::psk::Psk> {
         println!("finding server match for {client_identity:?}");
         let read_lock = self.daily_secrets.read().unwrap();
@@ -47,7 +48,10 @@ impl SecretState {
 
         for epoch_secret in key_map.values() {
             let psk_identity = PskIdentity::new(client_identity.session_name.blob(), epoch_secret)?;
-            println!("constructed psk identity from {}: {psk_identity:?}", epoch_secret.key_arn);
+            println!(
+                "constructed psk identity from {}: {psk_identity:?}",
+                epoch_secret.key_arn
+            );
             if psk_identity == client_identity {
                 let psk_secret = epoch_secret.new_psk_secret(client_identity.session_name.blob());
                 return EpochSecret::psk_from_parts(psk_identity, psk_secret)
@@ -167,7 +171,7 @@ pub struct PskReceiver {
     // daily secrets
     // key-epoch -> (KeyArn -> DailySecret)
     trusted_key_arns: Vec<KeyArn>,
-    daily_secrets: Arc<SecretState>,
+    daily_secrets: Arc<ReceiverSecrets>,
 }
 
 impl PskReceiver {
@@ -191,9 +195,10 @@ impl PskReceiver {
     pub async fn initialize(
         kms_client: Client,
         trusted_key_arns: Vec<KeyArn>,
+        failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         // generate the needed keys
-        let secret_state = SecretState::new(trusted_key_arns.clone());
+        let secret_state = Arc::new(ReceiverSecrets::new(trusted_key_arns.clone()));
         let kms_smoothing_factor = 5;
         let current_epoch = EpochSecret::current_epoch();
         if let Err(_) = secret_state
@@ -204,20 +209,39 @@ impl PskReceiver {
         }
 
         // spawn the fetcher
+        let secret_handle = Arc::clone(&secret_state);
+        tokio::spawn(async move {
+            let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
+            loop {
+                let this_epoch = EpochSecret::current_epoch();
+                let sleep_duration = match secret_handle
+                    .update_loop(
+                        &kms_client,
+                        this_epoch,
+                        kms_smoothing_factor,
+                        &failure_notification,
+                    )
+                    .await
+                {
+                    Ok(d) => d,
+                    Err(d) => d,
+                };
+                tokio::time::sleep(sleep_duration).await;
+            }
+        });
 
         Ok(Self {
-            // kms_client,
             trusted_key_arns,
-            daily_secrets: Arc::new(secret_state),
+            daily_secrets: secret_state,
         })
     }
 
     async fn fetch_keys(
         kms_client: Client,
-        daily_secrets: Arc<SecretState>,
-        kms_smoothing_factor: u32,
+        daily_secrets: Arc<ReceiverSecrets>,
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) {
+        let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
         loop {
             let this_epoch = EpochSecret::current_epoch();
             let sleep_duration = match daily_secrets
@@ -279,12 +303,16 @@ impl ClientHelloCallback for PskReceiver {
 #[cfg(test)]
 mod secret_state_tests {
     use crate::{
-        epoch_schedule, psk_derivation::EpochSecret, receiver::SecretState, test_utils::{self, KMS_KEY_ARN_A, KMS_KEY_ARN_B}, PskReceiver
+        epoch_schedule,
+        psk_derivation::EpochSecret,
+        receiver::ReceiverSecrets,
+        test_utils::{self, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
+        PskReceiver,
     };
 
     #[test]
     fn insert() {
-        let secret_state = SecretState::new(vec![]);
+        let secret_state = ReceiverSecrets::new(vec![]);
         assert!(secret_state.daily_secrets.read().unwrap().is_empty());
         let secret_a = EpochSecret {
             key_arn: "arn:1235:abc".to_owned(),
@@ -335,14 +363,14 @@ mod secret_state_tests {
     async fn matched_psk_positive() {
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
-        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns)
+        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
         assert_eq!(receiver.daily_secrets.available_secrets().len(), 3);
 
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()];
-        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns)
+        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
         assert_eq!(receiver.daily_secrets.available_secrets().len(), 6);
@@ -365,35 +393,60 @@ mod secret_state_tests {
     async fn initialization_fetches_keys() {
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
-        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns)
+        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
         assert_eq!(receiver.daily_secrets.available_secrets().len(), 3);
 
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()];
-        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns)
+        let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
         assert_eq!(receiver.daily_secrets.available_secrets().len(), 6);
     }
 
     #[tokio::test]
-    async fn scheduled_key_fetch() {
+    async fn receiver_update_loop() {
+        const KMS_SMOOTHING: u32 = 5;
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
 
         let current_epoch = epoch_schedule::current_epoch();
-        let secret_state = SecretState::new(trusted_key_arns);
+        let secret_state = ReceiverSecrets::new(trusted_key_arns);
         assert_eq!(secret_state.available_secrets().len(), 0);
         // the first update fetches 3 secrets
-        secret_state.update_loop(&kms_client, current_epoch, 5, &|e|{}).await.unwrap();
+        secret_state
+            .update_loop(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .await
+            .unwrap();
         let initial_keys = secret_state.available_secrets();
         assert_eq!(initial_keys.len(), 3);
 
         // calling it again without any elapsed time results in no activity
-        secret_state.update_loop(&kms_client, current_epoch, 5, &|e|{}).await.unwrap();
-        assert_eq!(secret_state.available_secrets(), initial_keys);
+        secret_state
+            .update_loop(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .await
+            .unwrap();
+
+        // calling it in a new epoch results in a new key being fetched, but no keys
+        // are evicted yet
+        secret_state
+            .update_loop(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(secret_state.available_secrets().len(), 4);
+        assert!(secret_state.available_secrets().iter().any(|(epoch, _arn)| *epoch == current_epoch + 1));
+        assert!(secret_state.available_secrets().iter().any(|(epoch, _arn)| *epoch == current_epoch));
+
+        // advancing time again results in a new key being fetched, and an old key
+        // getting removed
+        secret_state
+            .update_loop(&kms_client, current_epoch + 2, KMS_SMOOTHING, &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(secret_state.available_secrets().len(), 4);
+        assert!(secret_state.available_secrets().iter().all(|(epoch, _arn)| *epoch != current_epoch));
     }
 
     // initialize fails if any of the KMS calls fail
