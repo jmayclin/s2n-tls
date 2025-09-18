@@ -120,6 +120,8 @@ const SHA384_DIGEST_SIZE: usize = 48;
 /// The key is automatically rotated every period. Currently 24 hours.
 const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
 
+const ONE_HOUR: Duration = Duration::from_secs(3_600);
+
 #[cfg(test)]
 mod tests {
     use crate::SHA384_DIGEST_SIZE;

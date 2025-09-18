@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{epoch_schedule, psk_derivation::EpochSecret, KeyArn};
+use crate::{epoch_schedule, psk_derivation::EpochSecret, KeyArn, EPOCH_DURATION, ONE_HOUR};
 use aws_sdk_kms::Client;
 use rand::Rng;
 use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
@@ -49,16 +49,20 @@ impl ProviderSecrets {
             .max()
     }
 
-    /// fetch all keys that aren't already available
-    /// The will almost always just fetch `this_epoch + 2`, unless key
-    /// generation has failed for several days
+    /// Fetch the next set of secrets.
+    ///
+    /// This will almost always be fetching the secrets for `current_epoch + 2`
+    /// unless previous fetches failed. See [epoch_schedule] for more information.
+    ///
+    /// This function returns the duration until it should be called again. Generally
+    /// ~24 hours if the fetch succeeded, or ~1 hour if the fetch failed.
     async fn fetch_secrets(
         &self,
         current_epoch: u64,
         kms_client: &Client,
         kms_smoothing_factor: u32,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
-    ) -> Duration {
+    ) -> Result<Duration, Duration> {
         let mut to_fetch = vec![current_epoch, current_epoch + 1, current_epoch + 2];
         let available = self.available_epochs();
         to_fetch.retain(|epoch| !available.contains(epoch));
@@ -72,17 +76,17 @@ impl ProviderSecrets {
                     failure_notification(e);
                     // TODO: failure notification, and quit trying to fetch keys
                     // we rely on next_secrets being ordered
-                    return Duration::from_secs(3_600);
+                    return Err(ONE_HOUR);
                 }
             }
         }
 
         let sleep = self
             .newest_available_epoch()
-            .and_then(|next_fetch| epoch_schedule::until_fetch(next_fetch, kms_smoothing_factor));
+            .and_then(|next_fetch| epoch_schedule::until_fetch(next_fetch + 1, kms_smoothing_factor));
         match sleep {
-            Some(duration) => duration,
-            None => Duration::from_secs(3_600),
+            Some(duration) => Ok(duration),
+            None => Err(ONE_HOUR),
         }
     }
 
@@ -108,7 +112,7 @@ impl ProviderSecrets {
             None => {
                 // this might happen if secrets are fetched at the end of an epoch
                 // and the epoch is very slow
-                Duration::from_secs(3_600)
+                ONE_HOUR
             }
         }
     }
@@ -123,7 +127,29 @@ impl ProviderSecrets {
             .retain(|secret| secret.key_epoch > current_epoch);
     }
 
-    fn poll_update(&self) {}
+    async fn poll_update(
+        &self,
+        current_epoch: u64,
+        kms_client: &Client,
+        kms_smoothing_factor: u32,
+        failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
+    ) -> Result<Duration, Duration> {
+        let until_next_fetch = self
+            .fetch_secrets(
+                current_epoch,
+                &kms_client,
+                kms_smoothing_factor,
+                failure_notification,
+            )
+            .await;
+        let until_next_rotation = self.rotate_secrets(current_epoch);
+        self.drop_old_secrets(current_epoch);
+
+        match until_next_fetch {
+            Ok(until_fetch) => Ok(min(until_fetch, until_next_rotation)),
+            Err(until_fetch) => Err(min(until_fetch, until_next_rotation)),
+        }
+    }
 }
 #[derive(Debug)]
 pub struct PskProvider {
@@ -136,175 +162,53 @@ impl PskProvider {
         key_arn: KeyArn,
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let current_key_epoch = epoch_schedule::current_epoch();
+        let current_epoch = epoch_schedule::current_epoch();
         let current_secret =
-            EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_key_epoch).await?;
-        let mut next_secrets = VecDeque::new();
-        next_secrets.push_back(
-            EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_key_epoch + 1).await?,
-        );
-        next_secrets.push_back(
-            EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_key_epoch + 2).await?,
-        );
-
-        let secret_state = ProviderSecrets {
+            EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, current_epoch).await?;
+        let secret_state = Arc::new(ProviderSecrets {
             key_arn,
             current_secret: RwLock::new(Arc::new(current_secret)),
-            next_secrets: Mutex::new(next_secrets),
-        };
-        let value = Self {
-            secret_state: Arc::new(secret_state),
-        };
+            next_secrets: Mutex::new(VecDeque::new()),
+        });
+
+        let kms_smoothing_factor = rand::rng().random_range(0..(EPOCH_DURATION.as_secs())) as u32;
+        if let Err(_) = secret_state
+            .poll_update(
+                current_epoch,
+                &kms_client,
+                kms_smoothing_factor,
+                &failure_notification,
+            )
+            .await
+        {
+            anyhow::bail!("failed to fetch keys during startup");
+        }
 
         tokio::task::spawn({
-            let secret_state = Arc::clone(&value.secret_state);
+            let secret_state = Arc::clone(&secret_state);
             async move {
-                let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
                 loop {
                     let current_epoch = epoch_schedule::current_epoch();
 
-                    let until_next_fetch = secret_state
-                        .fetch_secrets(
+                    let sleep_duration = secret_state
+                        .poll_update(
                             current_epoch,
                             &kms_client,
                             kms_smoothing_factor,
                             &failure_notification,
                         )
                         .await;
-                    let until_next_rotation = secret_state.rotate_secrets(current_epoch);
-                    secret_state.drop_old_secrets(current_epoch);
+                    let sleep_duration = match sleep_duration {
+                        Ok(duration) => duration,
+                        Err(duration) => duration,
+                    };
 
-                    tokio::time::sleep(min(until_next_fetch, until_next_rotation)).await;
+                    tokio::time::sleep(sleep_duration).await;
                 }
             }
         });
-        Ok(value)
+        Ok(Self { secret_state })
     }
-
-    fn current_epoch_secret(&self) -> Arc<EpochSecret> {
-        self.secret_state.current_secret.read().unwrap().clone()
-    }
-
-    // /// This loop is responsible for two items
-    // /// key rotation: this is a local only action, and updates the `current_secret`
-    // /// to the next epoch.
-    // ///
-    // /// key fetch: this is a network call to KMS to derive the next epoch secret
-    // async fn epoch_secret_rotator(
-    //     client_epoch_secrets: Arc<ProviderSecrets>,
-    //     kms_client: Client,
-    //     key_arn: KeyArn,
-    //     failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
-    // ) {
-    //     let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
-    //     loop {
-    //         let this_epoch = epoch_schedule::current_epoch();
-
-    //         // fetch the new keys
-    //         {
-    //             // fetch all keys that aren't already available
-    //             // The will almost always just fetch `this_epoch + 2`, unless key
-    //             // generation has failed for several days
-    //             let mut to_fetch = vec![this_epoch, this_epoch + 1, this_epoch + 2];
-    //             let available = client_epoch_secrets.available_epochs();
-    //             to_fetch.retain(|epoch| !available.contains(epoch));
-
-    //             for epoch in to_fetch {
-    //                 match EpochSecret::fetch_epoch_secret(&kms_client, &key_arn, epoch).await {
-    //                     Ok(epoch_secret) => {
-    //                         client_epoch_secrets
-    //                             .next_secrets
-    //                             .lock()
-    //                             .unwrap()
-    //                             .push_back(epoch_secret);
-    //                     }
-    //                     Err(e) => {
-    //                         failure_notification(e);
-    //                         // TODO: failure notification, and quit trying to fetch keys
-    //                         // we rely on next_secrets being ordered
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-
-    //         // rotate the current key
-    //         {
-    //             let current_key_epoch = client_epoch_secrets.current_secret().key_epoch;
-    //             let needs_rotation = current_key_epoch < this_epoch;
-    //             let rotation_key = client_epoch_secrets
-    //                 .next_secrets
-    //                 .lock()
-    //                 .unwrap()
-    //                 .iter()
-    //                 .find(|secret| secret.key_epoch == this_epoch)
-    //                 .cloned();
-
-    //             if needs_rotation && rotation_key.is_some() {
-    //                 *client_epoch_secrets.current_secret.write().unwrap() =
-    //                     Arc::new(rotation_key.unwrap());
-    //                 // drop all old keys
-    //                 client_epoch_secrets
-    //                     .next_secrets
-    //                     .lock()
-    //                     .unwrap()
-    //                     .retain(|secret| secret.key_epoch > this_epoch);
-    //             }
-    //         }
-
-    //         // sleep until the next event, fetching a new key or updating the current key
-    //         {
-    //             let until_next_rotation = {
-    //                 let next_epoch = client_epoch_secrets.current_secret().key_epoch + 1;
-    //                 let rotation_available = client_epoch_secrets
-    //                     .next_secrets
-    //                     .lock()
-    //                     .unwrap()
-    //                     .iter()
-    //                     .any(|secret| secret.key_epoch == next_epoch);
-    //                 match epoch_schedule::until_epoch_start(next_epoch) {
-    //                     Some(duration) => Some(duration),
-    //                     None => {
-    //                         if rotation_available {
-    //                             // immediately restart the loop, we want to rotate and
-    //                             // the key is available. It's important to check that
-    //                             // the key is actually available to prevent a hot loop.
-    //                             continue;
-    //                         } else {
-    //                             None
-    //                         }
-    //                     }
-    //                 }
-    //             };
-
-    //             let until_next_fetch = {
-    //                 let next_fetched_epoch = client_epoch_secrets
-    //                     .available_epochs()
-    //                     .into_iter()
-    //                     .max()
-    //                     .map(|epoch| epoch + 1);
-    //                 if let Some(next_fetched_epoch) = next_fetched_epoch {
-    //                     if let Some(duration) =
-    //                         epoch_schedule::until_fetch(next_fetched_epoch, kms_smoothing_factor)
-    //                     {
-    //                         duration
-    //                     } else {
-    //                         // we failed to fetch the key, so retry in an hour
-    //                         Duration::from_secs(3_600)
-    //                     }
-    //                 } else {
-    //                     Duration::from_secs(3_600)
-    //                 }
-    //             };
-
-    //             let sleep_duration = match until_next_rotation {
-    //                 Some(duration) => min(duration, until_next_fetch),
-    //                 None => until_next_fetch,
-    //             };
-    //             tokio::time::sleep(sleep_duration).await;
-    //         }
-    //     }
-    // }
 }
 
 impl ConnectionInitializer for PskProvider {
@@ -312,7 +216,7 @@ impl ConnectionInitializer for PskProvider {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
-        let psk = self.current_epoch_secret().new_connection_psk()?;
+        let psk = self.secret_state.current_secret().new_connection_psk()?;
         connection.append_psk(&psk)?;
         Ok(None)
     }
@@ -320,7 +224,6 @@ impl ConnectionInitializer for PskProvider {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         test_utils::{
             configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,

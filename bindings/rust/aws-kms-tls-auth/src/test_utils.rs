@@ -30,12 +30,6 @@ use tokio::{
 //////////////////////////    test constants   /////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-pub const CIPHERTEXT_DATAKEY_A: &[u8] = b"ciphertext A <aksjdhkajhd>";
-pub const PLAINTEXT_DATAKEY_A: &[u8] = b"plaintext A <ijnhgvytgfcrdx>";
-
-pub const CIPHERTEXT_DATAKEY_B: &[u8] = b"ciphertext B <48udhygtrjbdrndiu>";
-pub const PLAINTEXT_DATAKEY_B: &[u8] = b"plaintext B <9876trfgyt543wsxdfr>";
-
 pub const KMS_KEY_ARN_A: &str =
     "arn:aws:kms:us-west-2:111122223333:key/98179871-91827391873-918279187";
 pub const KMS_KEY_ARN_B: &str =
@@ -60,6 +54,7 @@ const KMS_KEY_B: MockKmsKey = MockKmsKey {
 
 const MOCKED_EPOCH_COUNT: u64 = 100;
 
+/// Mock the "generateMAC" operation for `key` on `message`.
 fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
     let mac = {
         let s_key = hmac::Key::new(hmac::HMAC_SHA384, key.material);
@@ -75,7 +70,7 @@ fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
         .then_output(move || GenerateMacOutput::builder().mac(mac.clone()).build())
 }
 
-/// return a fake KMS client w
+/// This will return a fake KMS client supporting the 
 pub fn mocked_kms_client() -> Client {
     let mut rules = Vec::new();
 
@@ -91,39 +86,6 @@ pub fn mocked_kms_client() -> Client {
 
     mock_client!(aws_sdk_kms, RuleMode::MatchAny, rule_ref)
 }
-
-// pub static GENERATE_MAC_OUTPUT_A: LazyLock<GenerateMacOutput> = LazyLock::new(|| {
-//     GenerateMacOutput::builder()
-//         .mac(input)
-// })
-
-// pub static GDK_OUTPUT_A: LazyLock<GenerateDataKeyOutput> = LazyLock::new(|| {
-//     GenerateDataKeyOutput::builder()
-//         .plaintext(Blob::new(PLAINTEXT_DATAKEY_A))
-//         .ciphertext_blob(Blob::new(CIPHERTEXT_DATAKEY_A))
-//         .build()
-// });
-
-// pub static GDK_OUTPUT_B: LazyLock<GenerateDataKeyOutput> = LazyLock::new(|| {
-//     GenerateDataKeyOutput::builder()
-//         .plaintext(Blob::new(PLAINTEXT_DATAKEY_B))
-//         .ciphertext_blob(Blob::new(CIPHERTEXT_DATAKEY_B))
-//         .build()
-// });
-
-// pub static DECRYPT_OUTPUT_A: LazyLock<DecryptOutput> = LazyLock::new(|| {
-//     DecryptOutput::builder()
-//         .key_id(KMS_KEY_ARN)
-//         .plaintext(Blob::new(PLAINTEXT_DATAKEY_A))
-//         .build()
-// });
-
-// pub static DECRYPT_OUTPUT_B: LazyLock<DecryptOutput> = LazyLock::new(|| {
-//     DecryptOutput::builder()
-//         .key_id(KMS_KEY_ARN)
-//         .plaintext(Blob::new(PLAINTEXT_DATAKEY_B))
-//         .build()
-// });
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////////    mocks & fixtures   ////////////////////////////////

@@ -8,12 +8,14 @@
 //! Requirement 2: traffic to KMS should be smooth, avoiding any spikes at e.g.
 //! the top of the hour.
 //!
+//! ```text
 //! Epoch
 //! 0     1     2     3     4
 //! |-----|-----|-----|-----|
 //!                   ^
 //!                   epoch 3 start
-//!
+//!```
+//! 
 //! To satisfy these requirements, we fetch the key for epoch `n` during epoch
 //! `n - 2`. Each peer adds [0, 24 * 3600) seconds of delay to smooth out traffic
 //! to KMS.

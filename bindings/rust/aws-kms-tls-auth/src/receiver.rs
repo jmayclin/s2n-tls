@@ -6,7 +6,7 @@ use crate::{
     epoch_schedule,
     psk_derivation::{EpochSecret, PskIdentity},
     psk_parser::retrieve_psk_identities,
-    KeyArn,
+    KeyArn, ONE_HOUR,
 };
 use aws_sdk_kms::Client;
 use rand::Rng;
@@ -88,37 +88,19 @@ impl ReceiverSecrets {
         self.daily_secrets.read().unwrap().keys().max().cloned()
     }
 
-    /// Drop all of the unneeded secrets.
-    ///
-    /// If the current epoch is `n`, any key from epoch `n - 2` or earlier will
-    /// be dropped.
-    fn drop_old_secrets(&self, current_epoch: u64) {
-        self.daily_secrets
-            .write()
-            .unwrap()
-            .retain(|epoch, _arn_map| *epoch >= current_epoch - 1);
-    }
-
-    /// update the ReceiverSecrets
-    ///
-    /// This method is responsible for fetching new EpochSecrets from KMS. The
-    /// returned duration indicates how long the application should wait before
-    /// polling again.
-    async fn poll_update(
+    async fn fetch_secrets(
         &self,
         kms_client: &Client,
         current_epoch: u64,
         kms_smoothing_factor: u32,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
+        // fetch all keys that aren't already available
+        // The will almost always just fetch `this_epoch + 2`, unless key
+        // generation has failed for several days
         let mut fetch_failed = false;
-
-        // fetch the new keys
-        {
-            // fetch all keys that aren't already available
-            // The will almost always just fetch `this_epoch + 2`, unless key
-            // generation has failed for several days
-            let mut to_fetch: Vec<(u64, KeyArn)> = [
+        let mut to_fetch: Vec<(u64, KeyArn)> = {
+            [
                 current_epoch - 1,
                 current_epoch,
                 current_epoch + 1,
@@ -131,46 +113,66 @@ impl ReceiverSecrets {
                     .cloned()
                     .map(|arn| (*epoch, arn))
             })
-            .collect();
+            .collect()
+        };
 
-            let available: Vec<(u64, KeyArn)> = self.available_secrets();
-            to_fetch.retain(|epoch| !available.contains(epoch));
+        let available: Vec<(u64, KeyArn)> = self.available_secrets();
+        to_fetch.retain(|epoch| !available.contains(epoch));
 
-            for (epoch, key_arn) in to_fetch {
-                match EpochSecret::fetch_epoch_secret(kms_client, &key_arn, epoch).await {
-                    Ok(epoch_secret) => {
-                        self.insert_secret(epoch_secret);
-                    }
-                    Err(e) => {
-                        fetch_failed = true;
-                        failure_notification(
-                            anyhow::anyhow!("failed to fetch {key_arn}").context(e),
-                        );
-                    }
+        for (epoch, key_arn) in to_fetch {
+            match EpochSecret::fetch_epoch_secret(kms_client, &key_arn, epoch).await {
+                Ok(epoch_secret) => {
+                    self.insert_secret(epoch_secret);
+                }
+                Err(e) => {
+                    fetch_failed = true;
+                    failure_notification(anyhow::anyhow!("failed to fetch {key_arn}").context(e));
                 }
             }
         }
-
-        // drop any keys 2 epochs or more old.
-        self.drop_old_secrets(current_epoch);
-
-        let next_fetched_epoch = self
-            .newest_available_epoch()
-            .map(|epoch| epoch + 1)
-            .unwrap_or(current_epoch - 1);
 
         if fetch_failed {
-            Err(Duration::from_secs(3_600))
-        } else {
-            match epoch_schedule::until_fetch(next_fetched_epoch, kms_smoothing_factor) {
-                Some(duration) => Ok(duration),
-                None => {
-                    // Unreachable: this should only happen if fetch_failed was
-                    // true, in which case this branch isn't executed
-                    Err(Duration::from_secs(3_600))
-                }
-            }
+            println!("fetch failed");
+            return Err(ONE_HOUR);
         }
+
+        let sleep_duration = self.newest_available_epoch().and_then(|fetch_epoch| {
+            epoch_schedule::until_fetch(fetch_epoch + 1, kms_smoothing_factor)
+        });
+        match sleep_duration {
+            Some(duration) => Ok(duration),
+            None => Err(ONE_HOUR),
+        }
+    }
+
+    /// Drop all of the unneeded secrets.
+    ///
+    /// If the current epoch is `n`, any key from epoch `n - 2` or earlier will
+    /// be dropped.
+    fn cleanup_old_secrets(&self, current_epoch: u64) {
+        self.daily_secrets
+            .write()
+            .unwrap()
+            .retain(|epoch, _arn_map| *epoch >= current_epoch - 1);
+    }
+
+    async fn poll_update(
+        &self,
+        kms_client: &Client,
+        current_epoch: u64,
+        kms_smoothing_factor: u32,
+        failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
+    ) -> Result<Duration, Duration> {
+        let sleep_duration = self
+            .fetch_secrets(
+                &kms_client,
+                current_epoch,
+                kms_smoothing_factor,
+                failure_notification,
+            )
+            .await;
+        self.cleanup_old_secrets(current_epoch);
+        sleep_duration
     }
 }
 
@@ -211,7 +213,7 @@ impl PskReceiver {
         let kms_smoothing_factor = 5;
         let current_epoch = epoch_schedule::current_epoch();
         if let Err(_) = secret_state
-            .poll_update(
+            .fetch_secrets(
                 &kms_client,
                 current_epoch,
                 kms_smoothing_factor,
@@ -228,15 +230,17 @@ impl PskReceiver {
             let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
             loop {
                 let this_epoch = epoch_schedule::current_epoch();
-                let sleep_duration = match secret_handle
-                    .poll_update(
+                let sleep_duration = secret_handle
+                    .fetch_secrets(
                         &kms_client,
                         this_epoch,
                         kms_smoothing_factor,
                         &failure_notification,
                     )
-                    .await
-                {
+                    .await;
+                secret_handle.cleanup_old_secrets(this_epoch);
+
+                let sleep_duration = match sleep_duration {
                     Ok(d) => d,
                     Err(d) => d,
                 };
@@ -248,30 +252,6 @@ impl PskReceiver {
             trusted_key_arns,
             daily_secrets: secret_state,
         })
-    }
-
-    async fn fetch_keys(
-        kms_client: Client,
-        daily_secrets: Arc<ReceiverSecrets>,
-        failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
-    ) {
-        let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
-        loop {
-            let this_epoch = epoch_schedule::current_epoch();
-            let sleep_duration = match daily_secrets
-                .poll_update(
-                    &kms_client,
-                    this_epoch,
-                    kms_smoothing_factor,
-                    &failure_notification,
-                )
-                .await
-            {
-                Ok(d) => d,
-                Err(d) => d,
-            };
-            tokio::time::sleep(sleep_duration).await;
-        }
     }
 }
 
@@ -380,14 +360,14 @@ mod secret_state_tests {
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.daily_secrets.available_secrets().len(), 3);
+        assert_eq!(receiver.daily_secrets.available_secrets().len(), 4);
 
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()];
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.daily_secrets.available_secrets().len(), 6);
+        assert_eq!(receiver.daily_secrets.available_secrets().len(), 8);
     }
 
     #[test]
@@ -410,18 +390,18 @@ mod secret_state_tests {
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.daily_secrets.available_secrets().len(), 3);
+        assert_eq!(receiver.daily_secrets.available_secrets().len(), 4);
 
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()];
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.daily_secrets.available_secrets().len(), 6);
+        assert_eq!(receiver.daily_secrets.available_secrets().len(), 8);
     }
 
     #[tokio::test]
-    async fn receiver_update_loop() {
+    async fn receiver_secret_fetch() {
         const KMS_SMOOTHING: u32 = 5;
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
@@ -431,25 +411,24 @@ mod secret_state_tests {
         assert_eq!(secret_state.available_secrets().len(), 0);
         // the first update fetches 3 secrets
         secret_state
-            .poll_update(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
         let initial_keys = secret_state.available_secrets();
-        assert_eq!(initial_keys.len(), 3);
+        assert_eq!(initial_keys.len(), 4);
 
         // calling it again without any elapsed time results in no activity
         secret_state
-            .poll_update(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
 
-        // calling it in a new epoch results in a new key being fetched, but no keys
-        // are evicted yet
+        // calling it in a new epoch results in a new key being fetched
         secret_state
-            .poll_update(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
+            .fetch_secrets(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
-        assert_eq!(secret_state.available_secrets().len(), 4);
+        assert_eq!(secret_state.available_secrets().len(), 5);
         assert!(secret_state
             .available_secrets()
             .iter()
@@ -459,10 +438,9 @@ mod secret_state_tests {
             .iter()
             .any(|(epoch, _arn)| *epoch == current_epoch));
 
-        // advancing time again results in a new key being fetched, and an old key
-        // getting removed
+        // skipping time results in 2 keys being fetched
         secret_state
-            .poll_update(&kms_client, current_epoch + 2, KMS_SMOOTHING, &|_| {})
+            .fetch_secrets(&kms_client, current_epoch + 3, KMS_SMOOTHING, &|_| {})
             .await
             .unwrap();
         assert_eq!(secret_state.available_secrets().len(), 4);
@@ -470,6 +448,41 @@ mod secret_state_tests {
             .available_secrets()
             .iter()
             .all(|(epoch, _arn)| *epoch != current_epoch));
+    }
+
+    #[tokio::test]
+    async fn cleanup_old_secrets() {
+        const KMS_SMOOTHING: u32 = 5;
+        let kms_client = test_utils::mocked_kms_client();
+        let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
+
+        let current_epoch = epoch_schedule::current_epoch();
+        let secret_state = ReceiverSecrets::new(trusted_key_arns);
+        assert_eq!(secret_state.available_secrets().len(), 0);
+        // first load secrets
+        secret_state
+            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(secret_state.available_secrets().len(), 4);
+
+        // calling drop immediately doesn't have any impact
+        secret_state.cleanup_old_secrets(current_epoch);
+        assert_eq!(secret_state.available_secrets().len(), 4);
+        let oldest = secret_state
+            .available_secrets()
+            .iter()
+            .map(|(epoch, secret)| *epoch)
+            .min()
+            .unwrap();
+
+        // calling drop immediately doesn't have any impact
+        secret_state.cleanup_old_secrets(current_epoch + 1);
+        assert_eq!(secret_state.available_secrets().len(), 3);
+        assert!(secret_state
+            .available_secrets()
+            .iter()
+            .all(|(epoch, secret)| *epoch != oldest));
     }
 
     #[tokio::test]

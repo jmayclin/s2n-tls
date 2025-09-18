@@ -1,6 +1,52 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//! There are three components to the HMAC PSK Design
+//! 
+//! ## Epoch Secret
+//! 
+//! The epoch secret is generated using the KMS GenerateMac API. The "message" 
+//! being signed is the number of days elapsed since the unix epoch, represented
+//! as a `u64` in big-endian format.
+//! 
+//! The KMS key must use an HMAC-SHA384 keyspec. This is not currently library
+//! configurable.
+//! 
+//! ## PSK Secret
+//! 
+//! First the client generates a random `session_name` to be used as a nonce. This
+//! is then used with the epoch_secret in an HKDF to derive a connection-specific
+//! secret.
+//! 
+//! ```text
+//! connection_secret = HKDF(
+//!     secret: epoch_secret
+//!     info: session_name
+//!     salt: null
+//! )
+//! ```
+//! 
+//! ## PSK Identity
+//! 
+//! The PSK identity is sent in plaintext in the client hello. Note that a server
+//! ([`crate::PskReceiver`]) supports trusting multiple KMS keys, which allows for
+//! rotation/transitioning the underlying KMS key.
+//! 
+//! If a server trusts both keyA and keyB, then the client will need to 
+//! communicate which key it used to derive it’s PSK. The naive solution would be
+//! to just include keyA or keyB in plaintext in the PSK Identity. However, this
+//! would leak information about “fleet membership”, because it is sent in the 
+//! clear. Ideally, the PSK identity would not leak this information.
+//! 
+//! To do this we calculate a `kms_key_binder` to include in the PSK Identity. This
+//! incorporates
+//! - kms key arn: the key that was used to generate the daily secret
+//! - session name: this makes the kms key binder unique per connection, preventing
+//!   information from being correlated across multiple connections from a single
+//!   client.
+//! - epoch_secret: without incorporating this secret, an attacker would be able 
+//!   check if some the kms_key_binder was valid for some specific KMS key.
+
 use crate::{
     codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
     prefixed_list::PrefixedBlob,
@@ -14,10 +60,12 @@ use aws_lc_rs::{
 use aws_sdk_kms::{primitives::Blob, types::MacAlgorithmSpec, Client};
 use s2n_tls::error::Error as S2NError;
 use std::{fmt::Debug, hash::Hash, io::ErrorKind, time::Duration};
+
 const SHA384_DIGEST_SIZE: usize = 48;
 const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
+const SESSION_NAME_LENGTH: usize = 16;
 
-// V1 was used for an earlier KMS data-key based solution
+// V1 was used for an earlier KMS data-key based solution and is no longer supported
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PskVersion {
@@ -45,11 +93,11 @@ impl DecodeValue for PskVersion {
     }
 }
 
-const SESSION_NAME_LENGTH: usize = 16;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EpochSecret {
-    /// the key epoch, which is the number of days elapsed since the unix epoch
     pub key_arn: KeyArn,
+    /// the key epoch, which is the number of days elapsed since the unix epoch
     pub key_epoch: u64,
     pub secret: Vec<u8>,
 }
@@ -65,16 +113,17 @@ impl Debug for EpochSecret {
 }
 
 impl EpochSecret {
+    /// Fetch the secret for `epoch` from KMS.
     pub async fn fetch_epoch_secret(
         kms_client: &Client,
         key_arn: &KeyArn,
-        key_epoch: u64,
+        epoch: u64,
     ) -> anyhow::Result<Self> {
         let mac_output = kms_client
             .generate_mac()
             .key_id(key_arn.clone())
             .mac_algorithm(MacAlgorithmSpec::HmacSha384)
-            .message(Blob::new(key_epoch.to_be_bytes()))
+            .message(Blob::new(epoch.to_be_bytes()))
             .send()
             .await?;
 
@@ -88,7 +137,7 @@ impl EpochSecret {
 
         Ok(Self {
             key_arn: key_arn.clone(),
-            key_epoch,
+            key_epoch: epoch,
             secret,
         })
     }
@@ -116,6 +165,7 @@ impl EpochSecret {
         let secret = self.new_psk_secret(&session_name)?;
         Self::psk_from_parts(identity, secret)
     }
+
 
     pub fn new_psk_secret(&self, session_name: &[u8]) -> Result<Vec<u8>, S2NError> {
         let null_salt = hkdf::Salt::new(hkdf::HKDF_SHA384, &[]);
