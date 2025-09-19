@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    codec::DecodeValue,
-    epoch_schedule,
-    psk_derivation::{EpochSecret, PskIdentity},
-    psk_parser::retrieve_psk_identities,
-    KeyArn, ONE_HOUR,
+    codec::DecodeValue, epoch_schedule, psk_derivation::{EpochSecret, PskIdentity}, psk_parser::retrieve_psk_identities, KeyArn, EPOCH_DURATION, ONE_HOUR
 };
 use aws_sdk_kms::Client;
 use rand::Rng;
@@ -121,10 +117,12 @@ impl ReceiverSecrets {
         for (epoch, key_arn) in to_fetch {
             match EpochSecret::fetch_epoch_secret(kms_client, &key_arn, epoch).await {
                 Ok(epoch_secret) => {
+                    tracing::debug!("successfully retrieved secret for epoch {epoch} from {key_arn} ");
                     self.insert_secret(epoch_secret);
                 }
                 Err(e) => {
                     fetch_failed = true;
+                    tracing::error!("failed to retrieve secret for epoch {epoch} from {key_arn}");
                     failure_notification(anyhow::anyhow!("failed to fetch {key_arn}").context(e));
                 }
             }
@@ -222,7 +220,7 @@ impl PskReceiver {
         // spawn the fetcher
         let secret_handle = Arc::clone(&secret_state);
         tokio::spawn(async move {
-            let kms_smoothing_factor = rand::rng().random_range(0..(24 * 3_600));
+            let kms_smoothing_factor = rand::rng().random_range(0..(EPOCH_DURATION.as_secs())) as u32;
             loop {
                 let this_epoch = epoch_schedule::current_epoch();
                 let sleep_duration = secret_handle
@@ -239,6 +237,7 @@ impl PskReceiver {
                     Ok(d) => d,
                     Err(d) => d,
                 };
+                tracing::debug!("sleeping for {sleep_duration:?}");
                 tokio::time::sleep(sleep_duration).await;
             }
         });
@@ -294,11 +293,12 @@ mod secret_state_tests {
         epoch_schedule,
         psk_derivation::{EpochSecret, PskIdentity},
         receiver::ReceiverSecrets,
-        test_utils::{self, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
+        test_utils::{self, mocked_kms_client, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
         PskReceiver,
     };
-    use aws_sdk_kms::Client;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use aws_sdk_kms::{operation::generate_mac::{GenerateMacError, GenerateMacOutput}, primitives::Blob, Client};
+    use aws_smithy_mocks::{mock, mock_client};
+    use std::{sync::{atomic::{AtomicUsize, Ordering}, Arc}, time::Duration};
 
     #[test]
     fn insert() {
@@ -350,7 +350,7 @@ mod secret_state_tests {
     }
 
     #[test]
-    fn no_psk_match() {
+    fn psk_matching() {
         let secret_state = ReceiverSecrets::new(vec!["arn:1235:abc".to_owned()]);
         let epoch_secret = EpochSecret {
             key_arn: "arn:1235:abc".to_owned(),
@@ -403,180 +403,110 @@ mod secret_state_tests {
     }
 
     #[tokio::test]
-    async fn receiver_secret_fetch() {
-        const KMS_SMOOTHING: u32 = 5;
-        let kms_client = test_utils::mocked_kms_client();
-        let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
+    async fn poll_update() -> Result<(), Duration> {
+        let psk_provider =
+            PskReceiver::initialize(mocked_kms_client(), vec![KMS_KEY_ARN_A.to_owned()], |_| {})
+                .await
+                .unwrap();
+        let mut this_epoch = epoch_schedule::current_epoch();
+        let client = mocked_kms_client();
+        let secret_state = psk_provider.secrets;
 
-        let current_epoch = epoch_schedule::current_epoch();
-        let secret_state = ReceiverSecrets::new(trusted_key_arns);
-        assert_eq!(secret_state.available_secrets().len(), 0);
-        // the first update fetches 3 secrets
         secret_state
-            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
-            .await
-            .unwrap();
-        let initial_keys = secret_state.available_secrets();
-        assert_eq!(initial_keys.len(), 4);
+            .poll_update(&client, this_epoch, 5, &|_| {})
+            .await?;
+        let available = secret_state.available_secrets();
+        assert_eq!(available.len(), 4);
+        assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
 
-        // calling it again without any elapsed time results in no activity
+        // idempotent if the time hasn't changed
         secret_state
-            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
-            .await
-            .unwrap();
+            .poll_update(&client, this_epoch, 5, &|_| {})
+            .await?;
+        assert_eq!(secret_state.available_secrets(), available);
 
-        // calling it in a new epoch results in a new key being fetched
+        this_epoch += 1;
+        // when time advances, we
+        // 1. fetch a new secret
+        // 2. rotate the current one
+        // 3. drop the old one
         secret_state
-            .fetch_secrets(&kms_client, current_epoch + 1, KMS_SMOOTHING, &|_| {})
-            .await
-            .unwrap();
-        assert_eq!(secret_state.available_secrets().len(), 5);
-        assert!(secret_state
-            .available_secrets()
-            .iter()
-            .any(|(epoch, _arn)| *epoch == current_epoch + 1));
-        assert!(secret_state
-            .available_secrets()
-            .iter()
-            .any(|(epoch, _arn)| *epoch == current_epoch));
+            .poll_update(&client, this_epoch, 5, &|_| {})
+            .await?;
+        let available = secret_state.available_secrets();
+        assert_eq!(available.len(), 4);
+        assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
 
-        // skipping time results in 2 keys being fetched
+        this_epoch += 2;
+        // time skips are gracefully handled
         secret_state
-            .fetch_secrets(&kms_client, current_epoch + 3, KMS_SMOOTHING, &|_| {})
-            .await
-            .unwrap();
-        
-        // After fetching secrets for current_epoch + 3, we should have secrets for:
-        // current_epoch + 2, current_epoch + 3, current_epoch + 4, current_epoch + 5
-        // The total count should be 4
-        let secrets = secret_state.available_secrets();
-        assert_eq!(secrets.len(), 7);
-        
-        // Clean up old secrets to match the expected count
-        secret_state.cleanup_old_secrets(current_epoch + 3);
-        assert_eq!(secret_state.available_secrets().len(), 4);
-        assert!(secret_state
-            .available_secrets()
-            .iter()
-            .all(|(epoch, _arn)| *epoch >= current_epoch + 2));
+            .poll_update(&client, this_epoch, 5, &|_| {})
+            .await?;
+        let available = secret_state.available_secrets();
+        assert_eq!(available.len(), 4);
+        assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
+        Ok(())
     }
 
-    #[tokio::test]
-    async fn cleanup_old_secrets() {
-        const KMS_SMOOTHING: u32 = 5;
-        let kms_client = test_utils::mocked_kms_client();
-        let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned()];
-
-        let current_epoch = epoch_schedule::current_epoch();
-        let secret_state = ReceiverSecrets::new(trusted_key_arns);
-        assert_eq!(secret_state.available_secrets().len(), 0);
-        // first load secrets
-        secret_state
-            .fetch_secrets(&kms_client, current_epoch, KMS_SMOOTHING, &|_| {})
-            .await
-            .unwrap();
-        assert_eq!(secret_state.available_secrets().len(), 4);
-
-        // calling drop immediately doesn't have any impact
-        secret_state.cleanup_old_secrets(current_epoch);
-        assert_eq!(secret_state.available_secrets().len(), 4);
-        let oldest = secret_state
-            .available_secrets()
-            .iter()
-            .map(|(epoch, _secret)| *epoch)
-            .min()
-            .unwrap();
-
-        // calling drop immediately doesn't have any impact
-        secret_state.cleanup_old_secrets(current_epoch + 1);
-        assert_eq!(secret_state.available_secrets().len(), 3);
-        assert!(secret_state
-            .available_secrets()
-            .iter()
-            .all(|(epoch, _secret)| *epoch != oldest));
-    }
 
     #[tokio::test]
-    async fn failure_notification() {
-        use aws_sdk_kms::{operation::generate_mac::GenerateMacOutput, primitives::Blob};
-        use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
-        
-        // Create a counter to track how many times the failure notification is called
+    async fn poll_update_with_failure() {
         let error_count = Arc::new(AtomicUsize::new(0));
-        let error_count_clone = Arc::clone(&error_count);
-        
-        // Create a notification function that increments the counter
-        let notification_fn = move |_: anyhow::Error| {
-            error_count_clone.fetch_add(1, Ordering::SeqCst);
+        let notification_fn = {
+            let error_count = Arc::clone(&error_count);
+            move |_: anyhow::Error| {
+                error_count.fetch_add(1, Ordering::SeqCst);
+            }
         };
-        
-        // Create a mock KMS client that succeeds for KMS_KEY_ARN_A and fails for KMS_KEY_ARN_B
-        // We need to create rules for each epoch we'll fetch
-        let mut success_rules = Vec::new();
-        let mut fail_rules = Vec::new();
-        
+
+        let rule = mock!(Client::generate_mac)
+            .sequence()
+            .output(|| {
+                GenerateMacOutput::builder()
+                    .mac(Blob::new(b"mock_mac_output".to_vec()))
+                    .build()
+            })
+            .times(5)
+            .error(|| GenerateMacError::unhandled("MockedFailure"))
+            .output(|| {
+                GenerateMacOutput::builder()
+                    .mac(Blob::new(b"mock_mac_output".to_vec()))
+                    .build()
+            })
+            .build();
+        let kms_client = mock_client!(aws_sdk_kms, [&rule]);
+
+        let psk_receiver = PskReceiver::initialize(
+            kms_client.clone(),
+            vec![KMS_KEY_ARN_A.to_owned()],
+            notification_fn.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(rule.num_calls(), 4);
         let current_epoch = epoch_schedule::current_epoch();
-        
-        // Create rules for current_epoch - 1, current_epoch, current_epoch + 1, current_epoch + 2
-        for epoch in [current_epoch - 1, current_epoch, current_epoch + 1, current_epoch + 2] {
-            // Success rule for KMS_KEY_ARN_A
-            success_rules.push(
-                mock!(Client::generate_mac)
-                    .match_requests(move |req| {
-                        req.key_id() == Some(KMS_KEY_ARN_A) && 
-                        req.message().map_or(false, |msg| {
-                            msg.as_ref() == epoch.to_be_bytes()
-                        })
-                    })
-                    .then_output(move || {
-                        GenerateMacOutput::builder()
-                            .mac(Blob::new(b"mock_mac_output".to_vec()))
-                            .build()
-                    })
-            );
-            
-            // Fail rule for KMS_KEY_ARN_B
-            fail_rules.push(
-                mock!(Client::generate_mac)
-                    .match_requests(move |req| {
-                        req.key_id() == Some(KMS_KEY_ARN_B) && 
-                        req.message().map_or(false, |msg| {
-                            msg.as_ref() == epoch.to_be_bytes()
-                        })
-                    })
-                    .then_error(|| aws_sdk_kms::operation::generate_mac::GenerateMacError::unhandled("MockedFailure"))
-            );
-        }
-        
-        // Combine all rules
-        let mut all_rules: Vec<&Rule> = Vec::new();
-        for rule in &success_rules {
-            all_rules.push(rule);
-        }
-        for rule in &fail_rules {
-            all_rules.push(rule);
-        }
-        
-        let kms_client = mock_client!(aws_sdk_kms, RuleMode::MatchAny, all_rules);
-        
-        let secret_state = ReceiverSecrets::new(vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()]);
-        
-        // First fetch should succeed for KMS_KEY_ARN_A but fail for KMS_KEY_ARN_B
-        let result = secret_state
-            .fetch_secrets(&kms_client, current_epoch, 5, &notification_fn)
-            .await;
-            
-        // The fetch should return an error since one of the keys failed
-        assert!(result.is_err());
-        
-        // The notification function should have been called once for each epoch we're fetching
-        // We're fetching 4 epochs for KMS_KEY_ARN_B, and each one fails
-        assert_eq!(error_count.load(Ordering::SeqCst), 4);
-        
-        // Verify that the successful key was still added
-        let secrets = secret_state.available_secrets();
-        assert!(secrets.iter().any(|(_, arn)| arn == KMS_KEY_ARN_A));
-        assert!(!secrets.iter().any(|(_, arn)| arn == KMS_KEY_ARN_B));
+                
+        assert_eq!(error_count.load(Ordering::SeqCst), 0);
+        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 1, 5, &notification_fn).await.unwrap();
+        assert_eq!(rule.num_calls(), 5);
+
+        assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
+        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 2, 5, &notification_fn).await.unwrap_err();
+        assert_eq!(psk_receiver.secrets.available_secrets().len(), 3);
+        assert_eq!(rule.num_calls(), 6);
+        assert_eq!(error_count.load(Ordering::SeqCst), 1);
+
+        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 2, 5, &notification_fn).await.unwrap();
+        assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
     }
 
     #[tokio::test]
@@ -600,72 +530,3 @@ mod secret_state_tests {
         assert!(result.unwrap_err().to_string().contains("failed to fetch keys during startup"));
     }
 }
-// #[cfg(test)]
-// mod tests {
-//     use crate::{
-//         psk_derivation::PskVersion,
-//         test_utils::{
-//             configs_from_callbacks, decrypt_mocks, gdk_mocks, handshake, test_psk_provider,
-//             CIPHERTEXT_DATAKEY_A, KMS_KEY_ARN,
-//             PLAINTEXT_DATAKEY_A,
-//         },
-//         PskProvider,
-//     };
-
-//     use super::*;
-//     use aws_sdk_kms::{operation::decrypt::DecryptError, types::error::InvalidKeyUsageException};
-//     // https://docs.aws.amazon.com/sdk-for-rust/latest/dg/testing-smithy-mocks.html
-//     use aws_smithy_mocks::{mock, mock_client};
-//     use s2n_tls::config::ConnectionInitializer;
-
-//     /// When a new identity isn't in the cache, we
-//     /// 1. call KMS to decrypt it
-//     /// 2. store the result in the PSK
-//     /// When an identity is in the cache
-//     /// 1. no calls are made to KMS to decrypt it
-//     #[tokio::test]
-//     async fn decrypt_path() {
-//         let psk_provider = test_psk_provider().await;
-
-//         let (decrypt_rule, decrypt_client) = decrypt_mocks();
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             vec![KMS_KEY_ARN.to_owned()],
-//             vec![OBFUSCATION_KEY.clone()],
-//         );
-
-//         let cache_handle = psk_receiver.key_cache.clone();
-
-//         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_receiver);
-//         assert_eq!(decrypt_rule.num_calls(), 0);
-
-//         handshake(&client_config, &server_config).await.unwrap();
-//         assert_eq!(decrypt_rule.num_calls(), 1);
-//         assert_eq!(
-//             cache_handle.get(CIPHERTEXT_DATAKEY_A).unwrap().as_slice(),
-//             PLAINTEXT_DATAKEY_A
-//         );
-
-//         // no additional decrypt calls, the cached key was used
-//         handshake(&client_config, &server_config).await.unwrap();
-//         assert_eq!(decrypt_rule.num_calls(), 1);
-//     }
-
-//     // if the key ARN isn't recognized, then the handshake fails
-//     #[tokio::test]
-//     async fn untrusted_key_arn() {
-//         let psk_provider = test_psk_provider().await;
-
-//         let (_decrypt_rule, decrypt_client) = decrypt_mocks();
-//         let psk_receiver = PskReceiver::initialize(
-//             decrypt_client,
-//             // use an ARN different from the one KMS will return
-//             vec!["arn::wont-be-seen".to_string()],
-//             vec![OBFUSCATION_KEY.clone()],
-//         );
-
-//         let (client_config, server_config) = configs_from_callbacks(psk_provider, psk_receiver);
-
-//         let err = handshake(&client_config, &server_config).await.unwrap_err();
-//         assert!(err.to_string().contains("untrusted KMS Key: arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab is not trusted"));
-//     }

@@ -41,7 +41,7 @@ pub fn current_epoch() -> u64 {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("expected system time to be after UNIX epoch");
-    now.as_secs() / (3_600 * 24)
+    now.as_secs() / (EPOCH_DURATION.as_secs())
 }
 
 /// Return the instant in time that `epoch` starts
@@ -108,6 +108,6 @@ mod tests {
         // So if we ran the test 1,000 times a day it would fail about once every
         // 1,000 years
         assert!(until_fetch(current_epoch + 2, 0).is_none());
-        assert!(until_fetch(current_epoch + 2, 24 * 3_600).is_some());
+        assert!(until_fetch(current_epoch + 2, EPOCH_DURATION.as_secs() as u32).is_some());
     }
 }

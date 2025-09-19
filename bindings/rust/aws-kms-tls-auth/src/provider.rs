@@ -70,9 +70,11 @@ impl ProviderSecrets {
         for epoch in to_fetch {
             match EpochSecret::fetch_epoch_secret(&kms_client, &self.key_arn, epoch).await {
                 Ok(epoch_secret) => {
+                    tracing::debug!("successfully retrieved secret for epoch {epoch} from {}", self.key_arn);
                     self.next_secrets.lock().unwrap().push_back(epoch_secret);
                 }
                 Err(e) => {
+                    tracing::error!("failed to retrieve secret for epoch {epoch} from {}", self.key_arn);
                     failure_notification(e);
                     // TODO: failure notification, and quit trying to fetch keys
                     // we rely on next_secrets being ordered
@@ -202,7 +204,7 @@ impl PskProvider {
                         Ok(duration) => duration,
                         Err(duration) => duration,
                     };
-
+                    tracing::debug!("sleeping for {sleep_duration:?}");
                     tokio::time::sleep(sleep_duration).await;
                 }
             }
@@ -265,7 +267,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_poll_update() -> Result<(), Duration> {
+    async fn poll_update() -> Result<(), Duration> {
         let psk_provider =
             PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
                 .await

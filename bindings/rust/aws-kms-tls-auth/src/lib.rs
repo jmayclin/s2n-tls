@@ -118,7 +118,7 @@ const PSK_SIZE: usize = 32;
 const SHA384_DIGEST_SIZE: usize = 48;
 
 /// The key is automatically rotated every period. Currently 24 hours.
-const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
+const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 2);
 
 const ONE_HOUR: Duration = Duration::from_secs(3_600);
 
@@ -139,6 +139,7 @@ mod tests {
 mod integration_tests {
     use aws_config::Region;
     use aws_sdk_kms::Client;
+    use tracing_subscriber::EnvFilter;
 
     use crate::test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B};
 
@@ -157,6 +158,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_handshake() {
+    let filter = EnvFilter::new("aws_kms_tls_auth=trace");
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_env_filter(filter)
+            .init();
         let kms_client = test_kms_client().await;
         let key_arn = KEY_ARN.to_owned();
 
