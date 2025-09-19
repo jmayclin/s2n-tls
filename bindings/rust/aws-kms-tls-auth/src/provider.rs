@@ -228,16 +228,20 @@ mod tests {
         epoch_schedule,
         test_utils::{
             configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,
-            KMS_KEY_ARN_A, KMS_KEY_ARN_B,
+            KMS_KEY_ARN_A,
         },
         PskProvider,
     };
-    use aws_sdk_kms::{operation::generate_mac::GenerateMacOutput, primitives::Blob, Client};
+    use aws_sdk_kms::{
+        operation::generate_mac::{GenerateMacError, GenerateMacOutput},
+        primitives::Blob,
+        Client,
+    };
     use aws_smithy_mocks::{mock, mock_client, RuleMode};
     use std::{
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc, RwLock,
+            Arc,
         },
         time::Duration,
     };
@@ -302,10 +306,7 @@ mod tests {
             .into_iter()
             .all(|epoch| epoch != oldest));
         assert!(secret_state.available_epochs().contains(&(this_epoch + 2)));
-        assert_eq!(
-            secret_state.current_secret().key_epoch,
-            this_epoch
-        );
+        assert_eq!(secret_state.current_secret().key_epoch, this_epoch);
 
         this_epoch += 2;
         // time skips are gracefully handled
@@ -338,16 +339,51 @@ mod tests {
 
     #[tokio::test]
     async fn poll_update_with_failure() {
-        let fail_rule = mock!(Client::generate_mac).then_error(|| {
-            aws_sdk_kms::operation::generate_mac::GenerateMacError::unhandled("MockedFailure")
-        });
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let notification_fn = {
+            let error_count = Arc::clone(&error_count);
+            move |_: anyhow::Error| {
+                error_count.fetch_add(1, Ordering::SeqCst);
+            }
+        };
 
-        let kms_client = mock_client!(aws_sdk_kms, RuleMode::MatchAny, [&fail_rule]);
+        let rule = mock!(Client::generate_mac)
+            .sequence()
+            .output(|| {
+                GenerateMacOutput::builder()
+                    .mac(Blob::new(b"mock_mac_output".to_vec()))
+                    .build()
+            })
+            .times(4)
+            .error(|| GenerateMacError::unhandled("MockedFailure"))
+            .build();
+        let kms_client = mock_client!(aws_sdk_kms, [&rule]);
 
-        let error = PskProvider::initialize(kms_client, KMS_KEY_ARN_A.to_owned(), |_| {})
+        let psk_provider = PskProvider::initialize(
+            kms_client.clone(),
+            KMS_KEY_ARN_A.to_owned(),
+            notification_fn.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(rule.num_calls(), 3);
+
+        let current_epoch = epoch_schedule::current_epoch();
+
+        psk_provider
+            .secret_state
+            .poll_update(current_epoch + 1, &kms_client, 5, &notification_fn)
+            .await
+            .unwrap();
+        assert_eq!(error_count.load(Ordering::SeqCst), 0);
+
+        // Call poll_update again (this will trigger the 5th call and fail)
+        psk_provider
+            .secret_state
+            .poll_update(current_epoch + 2, &kms_client, 5, &notification_fn)
             .await
             .unwrap_err();
-
-        assert_eq!(error.to_string(), "service error");
+        assert_eq!(error_count.load(Ordering::SeqCst), 1);
+        assert_eq!(rule.num_calls(), 5);
     }
 }
