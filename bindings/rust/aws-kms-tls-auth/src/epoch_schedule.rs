@@ -82,7 +82,7 @@ mod tests {
         let current_epoch = current_epoch();
         let start = epoch_start(current_epoch);
         assert!(SystemTime::now().duration_since(start).is_ok());
-        let future_start = epoch_start(current_epoch + 2);
+        let future_start = epoch_start(current_epoch + 1);
         assert!(future_start.duration_since(SystemTime::now()).is_ok());
     }
 

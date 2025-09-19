@@ -70,11 +70,11 @@ impl ProviderSecrets {
         for epoch in to_fetch {
             match EpochSecret::fetch_epoch_secret(&kms_client, &self.key_arn, epoch).await {
                 Ok(epoch_secret) => {
-                    tracing::debug!("successfully retrieved secret for epoch {epoch} from {}", self.key_arn);
+                    tracing::debug!("fetched secret for epoch {epoch} from {}", self.key_arn);
                     self.next_secrets.lock().unwrap().push_back(epoch_secret);
                 }
                 Err(e) => {
-                    tracing::error!("failed to retrieve secret for epoch {epoch} from {}", self.key_arn);
+                    tracing::error!("failed to fetch secret for epoch {epoch} from {}", self.key_arn);
                     failure_notification(e);
                     // TODO: failure notification, and quit trying to fetch keys
                     // we rely on next_secrets being ordered
@@ -106,6 +106,7 @@ impl ProviderSecrets {
             .cloned();
 
         if needs_rotation && rotation_key.is_some() {
+            tracing::debug!("current key is now epoch {current_epoch} from {}", self.key_arn);
             *self.current_secret.write().unwrap() = Arc::new(rotation_key.unwrap());
         }
 

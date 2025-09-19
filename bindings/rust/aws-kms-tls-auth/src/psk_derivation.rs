@@ -254,7 +254,7 @@ impl PskIdentity {
     /// * `obfuscation_key`: The key that will be used to obfuscate the ciphertext,
     ///   preventing any details about the ciphertext from being on the wire.
     pub fn new(session_name: &[u8], daily_secret: &EpochSecret) -> anyhow::Result<Self> {
-        let kms_key_binder = Self::obfuscate_kms_arn(session_name, daily_secret);
+        let kms_key_binder = Self::kms_key_binder(session_name, daily_secret);
         let kms_key_binder = PrefixedBlob::new(kms_key_binder)?;
         let session_name = PrefixedBlob::new(session_name.to_vec())?;
         Ok(Self {
@@ -265,7 +265,7 @@ impl PskIdentity {
         })
     }
 
-    fn obfuscate_kms_arn(session_name: &[u8], daily_secret: &EpochSecret) -> Vec<u8> {
+    fn kms_key_binder(session_name: &[u8], daily_secret: &EpochSecret) -> Vec<u8> {
         let mut ctx = digest::Context::new(&digest::SHA384);
         ctx.update(&daily_secret.secret);
         ctx.update(session_name);
@@ -277,7 +277,7 @@ impl PskIdentity {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::{collections::HashSet, time::Instant};
 
     use super::*;
 
@@ -302,7 +302,59 @@ mod tests {
         assert_eq!(deserialized_identity, identity);
     }
 
-    /// The encoded PSK Identity from the 0.0.1 version of the library was checked
+    /// Check that the KMS key binder incorporates 
+    /// - session name
+    /// - KMS arn
+    /// - epoch secret
+    /// Changing any of these should change the KMS key binder
+    #[test]
+    fn kms_key_binder() {
+        let epoch_secret = test_epoch_secret();
+        let session_name = b"session name";
+
+        let kms_binder = PskIdentity::kms_key_binder(session_name, &epoch_secret);
+        let changed_session_name = PskIdentity::kms_key_binder(b"other session name", &epoch_secret);
+        let changed_key_name = {
+            let mut changed_key = test_epoch_secret();
+            changed_key.key_arn = "different key name".to_owned();
+            PskIdentity::kms_key_binder(session_name, &changed_key)
+        };
+        let changed_epoch_secret = {
+            let mut changed_key = test_epoch_secret();
+            changed_key.secret = b"different secret material".to_vec();
+            PskIdentity::kms_key_binder(session_name, &changed_key)
+        };
+        let unique_binders = HashSet::from([kms_binder, changed_session_name, changed_key_name, changed_epoch_secret]);
+        assert_eq!(unique_binders.len(), 4);
+
+        assert_eq!(unique_binders.len(), 4);
+    }
+
+    /// Check the the PSK connection secret incorporates
+    /// - epoch secret
+    /// - session name
+    /// Changing any of these should change the connection secret
+    #[test]
+    fn psk_secret() -> anyhow::Result<()> {
+        let epoch_secret = test_epoch_secret();
+        let session_name = b"session name";
+
+        let psk_secret = epoch_secret.new_psk_secret(session_name)?;
+        let changed_session_name = epoch_secret.new_psk_secret(b"different session name")?;
+        let changed_epoch_secret = {
+            let mut epoch_secret = test_epoch_secret();
+            epoch_secret.secret = b"different secret material".to_vec();
+            epoch_secret.new_psk_secret(session_name)?
+        };
+
+        let unique_secrets = HashSet::from([psk_secret, changed_session_name, changed_epoch_secret]);
+        assert_eq!(unique_secrets.len(), 3);
+
+        Ok(())
+
+    }
+
+    /// The encoded PSK Identity from the 0.0.2 version of the library was checked
     /// in. If we ever fail to deserialize this STOP! You are about to make a
     /// breaking change. You must find a way to make your change backwards
     /// compatible.

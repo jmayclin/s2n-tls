@@ -117,12 +117,12 @@ impl ReceiverSecrets {
         for (epoch, key_arn) in to_fetch {
             match EpochSecret::fetch_epoch_secret(kms_client, &key_arn, epoch).await {
                 Ok(epoch_secret) => {
-                    tracing::debug!("successfully retrieved secret for epoch {epoch} from {key_arn} ");
+                    tracing::debug!("fetched secret for epoch {epoch} from {key_arn} ");
                     self.insert_secret(epoch_secret);
                 }
                 Err(e) => {
                     fetch_failed = true;
-                    tracing::error!("failed to retrieve secret for epoch {epoch} from {key_arn}");
+                    tracing::error!("failed to fetch secret for epoch {epoch} from {key_arn}");
                     failure_notification(anyhow::anyhow!("failed to fetch {key_arn}").context(e));
                 }
             }

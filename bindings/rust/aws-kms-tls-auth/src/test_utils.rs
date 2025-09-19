@@ -54,6 +54,10 @@ const KMS_KEY_B: MockKmsKey = MockKmsKey {
 
 const MOCKED_EPOCH_COUNT: u64 = 100;
 
+////////////////////////////////////////////////////////////////////////////////
+/////////////////////////    mocks & fixtures   ////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 /// Mock the "generateMAC" operation for `key` on `message`.
 fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
     let mac = {
@@ -86,36 +90,6 @@ pub fn mocked_kms_client() -> Client {
 
     mock_client!(aws_sdk_kms, RuleMode::MatchAny, rule_ref)
 }
-
-////////////////////////////////////////////////////////////////////////////////
-/////////////////////////    mocks & fixtures   ////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-// pub fn decrypt_mocks() -> (Rule, Client) {
-//     let decrypt_rule = mock!(aws_sdk_kms::Client::decrypt).then_output(|| DECRYPT_OUTPUT_A.clone());
-//     let decrypt_client = mock_client!(aws_sdk_kms, [&decrypt_rule]);
-//     (decrypt_rule, decrypt_client)
-// }
-
-// pub fn gdk_mocks() -> (Rule, Client) {
-//     let gdk_rule =
-//         mock!(aws_sdk_kms::Client::generate_data_key).then_output(|| GDK_OUTPUT_A.clone());
-//     let gdk_client = mock_client!(aws_sdk_kms, [&gdk_rule]);
-//     (gdk_rule, gdk_client)
-// }
-
-// pub async fn test_psk_provider() -> PskProvider {
-//     let (_gdk_rule, gdk_client) = gdk_mocks();
-//     PskProvider::initialize(
-//         PskVersion::V1,
-//         gdk_client,
-//         KMS_KEY_ARN.to_string(),
-//         OBFUSCATION_KEY.clone(),
-//         |_| {},
-//     )
-//     .await
-//     .unwrap()
-// }
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////////    s2n-tls utilities   ///////////////////////////////
