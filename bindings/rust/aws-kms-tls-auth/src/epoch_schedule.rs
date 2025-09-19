@@ -15,7 +15,7 @@
 //!                   ^
 //!                   epoch 3 start
 //!```
-//! 
+//!
 //! To satisfy these requirements, we fetch the key for epoch `n` during epoch
 //! `n - 2`. Each peer adds [0, 24 * 3600) seconds of delay to smooth out traffic
 //! to KMS.
@@ -32,7 +32,15 @@
 
 use std::time::{Duration, SystemTime};
 
+use rand::Rng;
+
 use crate::EPOCH_DURATION;
+
+/// Return a "smoothing factor" indicating how long the actor should wait before
+/// fetching the key for some epoch
+pub fn kms_smoothing_factor() -> Duration {
+    rand::rng().random_range(Duration::from_secs(0)..EPOCH_DURATION)
+}
 
 pub fn current_epoch() -> u64 {
     // SAFETY: this method will panic if the current system clock is set to
@@ -60,7 +68,7 @@ pub fn until_epoch_start(epoch: u64) -> Option<Duration> {
 /// to KMS to retrieve the secret for `epoch`.
 ///
 /// returns None if the fetch should already have occurred
-pub(crate) fn until_fetch(epoch: u64, kms_smoothing_factor: u32) -> Option<Duration> {
+pub(crate) fn until_fetch(epoch: u64, kms_smoothing_factor: Duration) -> Option<Duration> {
     // we always want to fetch the key at least one epoch (24 hours) before the
     // key is needed.
     let fetch_time = {
@@ -68,7 +76,7 @@ pub(crate) fn until_fetch(epoch: u64, kms_smoothing_factor: u32) -> Option<Durat
 
         let fetch_epoch_start = epoch_start(fetch_epoch);
 
-        fetch_epoch_start + Duration::from_secs(kms_smoothing_factor as u64)
+        fetch_epoch_start + kms_smoothing_factor
     };
 
     fetch_time.duration_since(SystemTime::now()).ok()
@@ -96,9 +104,11 @@ mod tests {
 
     #[test]
     fn fetch() {
+        const ZERO_DURATION: Duration = Duration::from_secs(0);
+        
         let current_epoch = current_epoch();
-        assert!(until_fetch(current_epoch, 0).is_none());
-        assert!(until_fetch(current_epoch + 1, 0).is_none());
+        assert!(until_fetch(current_epoch, ZERO_DURATION).is_none());
+        assert!(until_fetch(current_epoch + 1, ZERO_DURATION).is_none());
         // This test could be flaky, because if called on the epoch boundary, the
         // last line might return none.
         // Flakiness Probability:
@@ -107,7 +117,7 @@ mod tests {
         //     approximately 1 / 3_200_000_000
         // So if we ran the test 1,000 times a day it would fail about once every
         // 1,000 years
-        assert!(until_fetch(current_epoch + 2, 0).is_none());
-        assert!(until_fetch(current_epoch + 2, EPOCH_DURATION.as_secs() as u32).is_some());
+        assert!(until_fetch(current_epoch + 2, ZERO_DURATION).is_none());
+        assert!(until_fetch(current_epoch + 2, EPOCH_DURATION).is_some());
     }
 }

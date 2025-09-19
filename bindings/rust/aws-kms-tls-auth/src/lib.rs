@@ -158,7 +158,7 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_handshake() {
-    let filter = EnvFilter::new("aws_kms_tls_auth=trace");
+        let filter = EnvFilter::new("aws_kms_tls_auth=trace");
         tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .with_env_filter(filter)

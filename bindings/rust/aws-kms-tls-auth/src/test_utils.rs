@@ -74,7 +74,7 @@ fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
         .then_output(move || GenerateMacOutput::builder().mac(mac.clone()).build())
 }
 
-/// This will return a fake KMS client supporting the 
+/// This will return a fake KMS client supporting the
 pub fn mocked_kms_client() -> Client {
     let mut rules = Vec::new();
 

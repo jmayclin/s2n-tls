@@ -2,22 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! There are three components to the HMAC PSK Design
-//! 
+//!
 //! ## Epoch Secret
-//! 
-//! The epoch secret is generated using the KMS GenerateMac API. The "message" 
+//!
+//! The epoch secret is generated using the KMS GenerateMac API. The "message"
 //! being signed is the number of days elapsed since the unix epoch, represented
 //! as a `u64` in big-endian format.
-//! 
+//!
 //! The KMS key must use an HMAC-SHA384 keyspec. This is not currently library
 //! configurable.
-//! 
+//!
 //! ## PSK Secret
-//! 
+//!
 //! First the client generates a random `session_name` to be used as a nonce. This
 //! is then used with the epoch_secret in an HKDF to derive a connection-specific
 //! secret.
-//! 
+//!
 //! ```text
 //! connection_secret = HKDF(
 //!     secret: epoch_secret
@@ -25,26 +25,26 @@
 //!     salt: null
 //! )
 //! ```
-//! 
+//!
 //! ## PSK Identity
-//! 
+//!
 //! The PSK identity is sent in plaintext in the client hello. Note that a server
 //! ([`crate::PskReceiver`]) supports trusting multiple KMS keys, which allows for
 //! rotation/transitioning the underlying KMS key.
-//! 
-//! If a server trusts both keyA and keyB, then the client will need to 
+//!
+//! If a server trusts both keyA and keyB, then the client will need to
 //! communicate which key it used to derive it’s PSK. The naive solution would be
 //! to just include keyA or keyB in plaintext in the PSK Identity. However, this
-//! would leak information about “fleet membership”, because it is sent in the 
+//! would leak information about “fleet membership”, because it is sent in the
 //! clear. Ideally, the PSK identity would not leak this information.
-//! 
+//!
 //! To do this we calculate a `kms_key_binder` to include in the PSK Identity. This
 //! incorporates
 //! - kms key arn: the key that was used to generate the daily secret
 //! - session name: this makes the kms key binder unique per connection, preventing
 //!   information from being correlated across multiple connections from a single
 //!   client.
-//! - epoch_secret: without incorporating this secret, an attacker would be able 
+//! - epoch_secret: without incorporating this secret, an attacker would be able
 //!   check if some the kms_key_binder was valid for some specific KMS key.
 
 use crate::{
@@ -92,7 +92,6 @@ impl DecodeValue for PskVersion {
         }
     }
 }
-
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EpochSecret {
@@ -165,7 +164,6 @@ impl EpochSecret {
         let secret = self.new_psk_secret(&session_name)?;
         Self::psk_from_parts(identity, secret)
     }
-
 
     pub fn new_psk_secret(&self, session_name: &[u8]) -> Result<Vec<u8>, S2NError> {
         let null_salt = hkdf::Salt::new(hkdf::HKDF_SHA384, &[]);
@@ -302,10 +300,11 @@ mod tests {
         assert_eq!(deserialized_identity, identity);
     }
 
-    /// Check that the KMS key binder incorporates 
+    /// Check that the KMS key binder incorporates
     /// - session name
     /// - KMS arn
     /// - epoch secret
+    /// 
     /// Changing any of these should change the KMS key binder
     #[test]
     fn kms_key_binder() {
@@ -313,7 +312,8 @@ mod tests {
         let session_name = b"session name";
 
         let kms_binder = PskIdentity::kms_key_binder(session_name, &epoch_secret);
-        let changed_session_name = PskIdentity::kms_key_binder(b"other session name", &epoch_secret);
+        let changed_session_name =
+            PskIdentity::kms_key_binder(b"other session name", &epoch_secret);
         let changed_key_name = {
             let mut changed_key = test_epoch_secret();
             changed_key.key_arn = "different key name".to_owned();
@@ -324,7 +324,12 @@ mod tests {
             changed_key.secret = b"different secret material".to_vec();
             PskIdentity::kms_key_binder(session_name, &changed_key)
         };
-        let unique_binders = HashSet::from([kms_binder, changed_session_name, changed_key_name, changed_epoch_secret]);
+        let unique_binders = HashSet::from([
+            kms_binder,
+            changed_session_name,
+            changed_key_name,
+            changed_epoch_secret,
+        ]);
         assert_eq!(unique_binders.len(), 4);
 
         assert_eq!(unique_binders.len(), 4);
@@ -333,6 +338,7 @@ mod tests {
     /// Check the the PSK connection secret incorporates
     /// - epoch secret
     /// - session name
+    /// 
     /// Changing any of these should change the connection secret
     #[test]
     fn psk_secret() -> anyhow::Result<()> {
@@ -347,11 +353,11 @@ mod tests {
             epoch_secret.new_psk_secret(session_name)?
         };
 
-        let unique_secrets = HashSet::from([psk_secret, changed_session_name, changed_epoch_secret]);
+        let unique_secrets =
+            HashSet::from([psk_secret, changed_session_name, changed_epoch_secret]);
         assert_eq!(unique_secrets.len(), 3);
 
         Ok(())
-
     }
 
     /// The encoded PSK Identity from the 0.0.2 version of the library was checked

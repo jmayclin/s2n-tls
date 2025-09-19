@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    codec::DecodeValue, epoch_schedule, psk_derivation::{EpochSecret, PskIdentity}, psk_parser::retrieve_psk_identities, KeyArn, EPOCH_DURATION, ONE_HOUR
+    codec::DecodeValue,
+    epoch_schedule,
+    psk_derivation::{EpochSecret, PskIdentity},
+    psk_parser::retrieve_psk_identities,
+    KeyArn, ONE_HOUR,
 };
 use aws_sdk_kms::Client;
-use rand::Rng;
 use s2n_tls::{
     callbacks::{ClientHelloCallback, ConnectionFuture},
     error::Error as S2NError,
@@ -87,7 +90,7 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        kms_smoothing_factor: u32,
+        kms_smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         // fetch all keys that aren't already available
@@ -157,12 +160,12 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        kms_smoothing_factor: u32,
+        kms_smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         let sleep_duration = self
             .fetch_secrets(
-                &kms_client,
+                kms_client,
                 current_epoch,
                 kms_smoothing_factor,
                 failure_notification,
@@ -202,25 +205,24 @@ impl PskReceiver {
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let secret_state = Arc::new(ReceiverSecrets::new(trusted_key_arns.clone()));
-        // TODO: fix the smoothing here.
-        let kms_smoothing_factor = 5;
+        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
         let current_epoch = epoch_schedule::current_epoch();
-        if let Err(_) = secret_state
+
+        let update = secret_state
             .fetch_secrets(
                 &kms_client,
                 current_epoch,
                 kms_smoothing_factor,
                 &failure_notification,
             )
-            .await
-        {
+            .await;
+        if update.is_err() {
             anyhow::bail!("failed to fetch keys during startup");
         }
 
         // spawn the fetcher
         let secret_handle = Arc::clone(&secret_state);
         tokio::spawn(async move {
-            let kms_smoothing_factor = rand::rng().random_range(0..(EPOCH_DURATION.as_secs())) as u32;
             loop {
                 let this_epoch = epoch_schedule::current_epoch();
                 let sleep_duration = secret_handle
@@ -290,15 +292,25 @@ impl ClientHelloCallback for PskReceiver {
 #[cfg(test)]
 mod secret_state_tests {
     use crate::{
-        epoch_schedule,
+        epoch_schedule::{self},
         psk_derivation::{EpochSecret, PskIdentity},
         receiver::ReceiverSecrets,
         test_utils::{self, mocked_kms_client, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
         PskReceiver,
     };
-    use aws_sdk_kms::{operation::generate_mac::{GenerateMacError, GenerateMacOutput}, primitives::Blob, Client};
+    use aws_sdk_kms::{
+        operation::generate_mac::{GenerateMacError, GenerateMacOutput},
+        primitives::Blob,
+        Client,
+    };
     use aws_smithy_mocks::{mock, mock_client};
-    use std::{sync::{atomic::{AtomicUsize, Ordering}, Arc}, time::Duration};
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        time::Duration,
+    };
 
     #[test]
     fn insert() {
@@ -358,12 +370,12 @@ mod secret_state_tests {
             secret: b"some secret".to_vec(),
         };
         secret_state.insert_secret(epoch_secret.clone());
-        
+
         // matching PSK identity
         let session_name = b"test_session".to_vec();
         let psk_identity = PskIdentity::new(&session_name, &epoch_secret).unwrap();
         secret_state.find_match(psk_identity.clone()).unwrap();
-        
+
         // non-matching PSK identity - right epoch, wrong key
         let other_secret = EpochSecret {
             key_arn: "arn:1235:different".to_owned(),
@@ -372,15 +384,18 @@ mod secret_state_tests {
         };
         let different_identity = PskIdentity::new(&session_name, &other_secret).unwrap();
         let error = secret_state.find_match(different_identity).unwrap_err();
-        assert!(error.to_string().contains("no matching kms binder found for session"));
-        
+        assert!(error
+            .to_string()
+            .contains("no matching kms binder found for session"));
+
         // non-matching PSK identity - wrong epoch
         let non_existent_epoch_secret = EpochSecret {
             key_arn: "arn:1235:abc".to_owned(),
             key_epoch: 99999,
             secret: b"some secret".to_vec(),
         };
-        let non_existent_identity = PskIdentity::new(&session_name, &non_existent_epoch_secret).unwrap();
+        let non_existent_identity =
+            PskIdentity::new(&session_name, &non_existent_epoch_secret).unwrap();
         let error = secret_state.find_match(non_existent_identity).unwrap_err();
         assert_eq!(error.to_string(), "no keys found for client epoch 99999");
     }
@@ -404,6 +419,7 @@ mod secret_state_tests {
 
     #[tokio::test]
     async fn poll_update() -> Result<(), Duration> {
+        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
         let psk_provider =
             PskReceiver::initialize(mocked_kms_client(), vec![KMS_KEY_ARN_A.to_owned()], |_| {})
                 .await
@@ -413,7 +429,7 @@ mod secret_state_tests {
         let secret_state = psk_provider.secrets;
 
         secret_state
-            .poll_update(&client, this_epoch, 5, &|_| {})
+            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -424,7 +440,7 @@ mod secret_state_tests {
 
         // idempotent if the time hasn't changed
         secret_state
-            .poll_update(&client, this_epoch, 5, &|_| {})
+            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
             .await?;
         assert_eq!(secret_state.available_secrets(), available);
 
@@ -434,7 +450,7 @@ mod secret_state_tests {
         // 2. rotate the current one
         // 3. drop the old one
         secret_state
-            .poll_update(&client, this_epoch, 5, &|_| {})
+            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -446,7 +462,7 @@ mod secret_state_tests {
         this_epoch += 2;
         // time skips are gracefully handled
         secret_state
-            .poll_update(&client, this_epoch, 5, &|_| {})
+            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -457,9 +473,9 @@ mod secret_state_tests {
         Ok(())
     }
 
-
     #[tokio::test]
     async fn poll_update_with_failure() {
+        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
         let error_count = Arc::new(AtomicUsize::new(0));
         let notification_fn = {
             let error_count = Arc::clone(&error_count);
@@ -494,39 +510,52 @@ mod secret_state_tests {
         .unwrap();
         assert_eq!(rule.num_calls(), 4);
         let current_epoch = epoch_schedule::current_epoch();
-                
+
         assert_eq!(error_count.load(Ordering::SeqCst), 0);
-        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 1, 5, &notification_fn).await.unwrap();
+        psk_receiver
+            .secrets
+            .poll_update(&kms_client, current_epoch + 1, kms_smoothing_factor, &notification_fn)
+            .await
+            .unwrap();
         assert_eq!(rule.num_calls(), 5);
 
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
-        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 2, 5, &notification_fn).await.unwrap_err();
+        psk_receiver
+            .secrets
+            .poll_update(&kms_client, current_epoch + 2, kms_smoothing_factor, &notification_fn)
+            .await
+            .unwrap_err();
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 3);
         assert_eq!(rule.num_calls(), 6);
         assert_eq!(error_count.load(Ordering::SeqCst), 1);
 
-        psk_receiver.secrets.poll_update(&kms_client, current_epoch + 2, 5, &notification_fn).await.unwrap();
+        psk_receiver
+            .secrets
+            .poll_update(&kms_client, current_epoch + 2, kms_smoothing_factor, &notification_fn)
+            .await
+            .unwrap();
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
     }
 
     #[tokio::test]
     async fn initialize_fails_with_invalid_kms() {
         use aws_smithy_mocks::{mock, mock_client, RuleMode};
-        
+
         // Create a mock KMS client that always fails
-        let fail_rule = mock!(Client::generate_mac)
-            .then_error(|| aws_sdk_kms::operation::generate_mac::GenerateMacError::unhandled("MockedFailure"));
-            
+        let fail_rule = mock!(Client::generate_mac).then_error(|| {
+            aws_sdk_kms::operation::generate_mac::GenerateMacError::unhandled("MockedFailure")
+        });
+
         let kms_client = mock_client!(aws_sdk_kms, RuleMode::MatchAny, [&fail_rule]);
-        
+
         // Initialize should fail because all KMS calls fail
-        let result = PskReceiver::initialize(
-            kms_client, 
-            vec![KMS_KEY_ARN_A.to_owned()], 
-            |_| {}
-        ).await;
-        
+        let result =
+            PskReceiver::initialize(kms_client, vec![KMS_KEY_ARN_A.to_owned()], |_| {}).await;
+
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("failed to fetch keys during startup"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("failed to fetch keys during startup"));
     }
 }
