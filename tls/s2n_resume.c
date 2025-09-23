@@ -785,7 +785,7 @@ struct s2n_ticket_key *s2n_find_ticket_key(struct s2n_config *config, const uint
 
 struct s2n_unique_ticket_key {
     struct s2n_blob initial_key;
-    uint8_t info[S2N_AES256_KEY_LEN];
+    uint8_t nonce[S2N_AES256_KEY_LEN];
     uint8_t output_key[S2N_AES256_KEY_LEN];
 };
 
@@ -796,22 +796,21 @@ struct s2n_unique_ticket_key {
  * random nonce will be generated twice and used with the same ticket key.
  * To avoid this we generate a unique session ticket encryption key for each ticket.
  **/
-static S2N_RESULT s2n_resume_generate_unique_ticket_key(struct s2n_unique_ticket_key *key)
+static S2N_RESULT s2n_resume_generate_unique_ticket_key(struct s2n_unique_ticket_key *key, struct s2n_blob* server_name)
 {
     RESULT_ENSURE_REF(key);
 
     struct s2n_blob out_key_blob = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&out_key_blob, key->output_key, sizeof(key->output_key)));
-    struct s2n_blob info_blob = { 0 };
-    RESULT_GUARD_POSIX(s2n_blob_init(&info_blob, key->info, sizeof(key->info)));
+    
     struct s2n_blob salt = { 0 };
-    RESULT_GUARD_POSIX(s2n_blob_init(&salt, NULL, 0));
+    RESULT_GUARD_POSIX(s2n_blob_init(&salt, key->nonce, sizeof(key->nonce)));
 
     DEFER_CLEANUP(struct s2n_hmac_state hmac = { 0 }, s2n_hmac_free);
     /* TODO: There may be an optimization here to reuse existing hmac memory instead of
      * creating an entirely new hmac. See: https://github.com/aws/s2n-tls/issues/3206 */
     RESULT_GUARD_POSIX(s2n_hmac_new(&hmac));
-    RESULT_GUARD_POSIX(s2n_hkdf(&hmac, S2N_HMAC_SHA256, &salt, &key->initial_key, &info_blob, &out_key_blob));
+    RESULT_GUARD_POSIX(s2n_hkdf(&hmac, S2N_HMAC_SHA256, &salt, &key->initial_key, server_name, &out_key_blob));
 
     return S2N_RESULT_OK;
 }
@@ -828,9 +827,12 @@ S2N_RESULT s2n_resume_encrypt_session_ticket(struct s2n_connection *conn,
     struct s2n_unique_ticket_key ticket_key = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&ticket_key.initial_key, key->aes_key, sizeof(key->aes_key)));
     struct s2n_blob info_blob = { 0 };
-    RESULT_GUARD_POSIX(s2n_blob_init(&info_blob, ticket_key.info, sizeof(ticket_key.info)));
+    RESULT_GUARD_POSIX(s2n_blob_init(&info_blob, ticket_key.nonce, sizeof(ticket_key.nonce)));
     RESULT_GUARD(s2n_get_public_random_data(&info_blob));
-    RESULT_GUARD(s2n_resume_generate_unique_ticket_key(&ticket_key));
+
+    struct s2n_blob server_name = { 0 };
+    RESULT_GUARD_POSIX(s2n_blob_init(&server_name,(uint8_t *) &conn->server_name, S2N_MAX_SERVER_NAME));
+    RESULT_GUARD(s2n_resume_generate_unique_ticket_key(&ticket_key, &server_name));
 
     /* Initialize AES key */
     struct s2n_blob aes_key_blob = { 0 };
@@ -861,7 +863,7 @@ S2N_RESULT s2n_resume_encrypt_session_ticket(struct s2n_connection *conn,
     RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(to, key->key_name, sizeof(key->key_name)));
 
     /* Write parameter needed to generate unique ticket key */
-    RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(to, ticket_key.info, sizeof(ticket_key.info)));
+    RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(to, ticket_key.nonce, sizeof(ticket_key.nonce)));
 
     /* Write IV */
     uint8_t iv_data[S2N_TLS_GCM_IV_LEN] = { 0 };
@@ -910,8 +912,10 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
 
     struct s2n_unique_ticket_key ticket_key = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&ticket_key.initial_key, key->aes_key, sizeof(key->aes_key)));
-    RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(from, ticket_key.info, sizeof(ticket_key.info)));
-    RESULT_GUARD(s2n_resume_generate_unique_ticket_key(&ticket_key));
+    RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(from, ticket_key.nonce, sizeof(ticket_key.nonce)));
+    struct s2n_blob server_name = { 0 };
+    RESULT_GUARD_POSIX(s2n_blob_init(&server_name, (uint8_t *) &conn->server_name, S2N_MAX_SERVER_NAME));
+    RESULT_GUARD(s2n_resume_generate_unique_ticket_key(&ticket_key, &server_name));
 
     /* Read IV */
     uint8_t iv_data[S2N_TLS_GCM_IV_LEN] = { 0 };
