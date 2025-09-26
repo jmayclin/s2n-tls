@@ -48,8 +48,7 @@
 //!   check if some the kms_key_binder was valid for some specific KMS key.
 //!   check if the kms_key_binder was valid for some specific KMS key.
 use crate::{
-    codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
-    KeyArn,
+    codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue}, prefixed_list::PrefixedBlob, KeyArn
 };
 use aws_lc_rs::{
     digest::{self},

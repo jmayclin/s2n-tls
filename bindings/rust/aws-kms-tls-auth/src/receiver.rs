@@ -90,7 +90,7 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        kms_smoothing_factor: Duration,
+        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         // fetch all keys that aren't already available
@@ -137,7 +137,7 @@ impl ReceiverSecrets {
         }
 
         let sleep_duration = self.newest_available_epoch().and_then(|fetch_epoch| {
-            epoch_schedule::until_fetch(fetch_epoch + 1, kms_smoothing_factor)
+            epoch_schedule::until_fetch(fetch_epoch + 1, smoothing_factor)
         });
         match sleep_duration {
             Some(duration) => Ok(duration),
@@ -160,14 +160,14 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        kms_smoothing_factor: Duration,
+        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         let sleep_duration = self
             .fetch_secrets(
                 kms_client,
                 current_epoch,
-                kms_smoothing_factor,
+                smoothing_factor,
                 failure_notification,
             )
             .await;
@@ -205,14 +205,14 @@ impl PskReceiver {
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let secret_state = Arc::new(ReceiverSecrets::new(trusted_key_arns.clone()));
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let current_epoch = epoch_schedule::current_epoch();
 
         let update = secret_state
             .fetch_secrets(
                 &kms_client,
                 current_epoch,
-                kms_smoothing_factor,
+                smoothing_factor,
                 &failure_notification,
             )
             .await;
@@ -229,7 +229,7 @@ impl PskReceiver {
                     .fetch_secrets(
                         &kms_client,
                         this_epoch,
-                        kms_smoothing_factor,
+                        smoothing_factor,
                         &failure_notification,
                     )
                     .await;
@@ -419,7 +419,7 @@ mod secret_state_tests {
 
     #[tokio::test]
     async fn poll_update() -> Result<(), Duration> {
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let psk_provider =
             PskReceiver::initialize(mocked_kms_client(), vec![KMS_KEY_ARN_A.to_owned()], |_| {})
                 .await
@@ -429,7 +429,7 @@ mod secret_state_tests {
         let secret_state = psk_provider.secrets;
 
         secret_state
-            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -440,7 +440,7 @@ mod secret_state_tests {
 
         // idempotent if the time hasn't changed
         secret_state
-            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         assert_eq!(secret_state.available_secrets(), available);
 
@@ -450,7 +450,7 @@ mod secret_state_tests {
         // 2. rotate the current one
         // 3. drop the old one
         secret_state
-            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -462,7 +462,7 @@ mod secret_state_tests {
         this_epoch += 2;
         // time skips are gracefully handled
         secret_state
-            .poll_update(&client, this_epoch, kms_smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), 4);
@@ -475,7 +475,7 @@ mod secret_state_tests {
 
     #[tokio::test]
     async fn poll_update_with_failure() {
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let error_count = Arc::new(AtomicUsize::new(0));
         let notification_fn = {
             let error_count = Arc::clone(&error_count);
@@ -514,7 +514,7 @@ mod secret_state_tests {
         assert_eq!(error_count.load(Ordering::SeqCst), 0);
         psk_receiver
             .secrets
-            .poll_update(&kms_client, current_epoch + 1, kms_smoothing_factor, &notification_fn)
+            .poll_update(&kms_client, current_epoch + 1, smoothing_factor, &notification_fn)
             .await
             .unwrap();
         assert_eq!(rule.num_calls(), 5);
@@ -522,7 +522,7 @@ mod secret_state_tests {
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
         psk_receiver
             .secrets
-            .poll_update(&kms_client, current_epoch + 2, kms_smoothing_factor, &notification_fn)
+            .poll_update(&kms_client, current_epoch + 2, smoothing_factor, &notification_fn)
             .await
             .unwrap_err();
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 3);
@@ -531,7 +531,7 @@ mod secret_state_tests {
 
         psk_receiver
             .secrets
-            .poll_update(&kms_client, current_epoch + 2, kms_smoothing_factor, &notification_fn)
+            .poll_update(&kms_client, current_epoch + 2, smoothing_factor, &notification_fn)
             .await
             .unwrap();
         assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);

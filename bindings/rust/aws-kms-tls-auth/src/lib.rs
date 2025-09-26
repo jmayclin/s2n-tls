@@ -99,10 +99,15 @@ mod prefixed_list;
 mod provider;
 mod psk_derivation;
 mod psk_parser;
+mod receiver;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
+use std::time::Duration;
+
 pub type KeyArn = String;
+pub use receiver::PskReceiver;
+pub use provider::PskProvider;
 pub use psk_derivation::PskVersion;
 
 // We have "pub" use statement so these can be fuzz tested
@@ -117,7 +122,7 @@ mod integration_tests {
     use aws_sdk_kms::Client;
     use tracing_subscriber::EnvFilter;
 
-    use crate::test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B};
+    use crate::{provider::PskProvider, receiver::PskReceiver, test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B}};
 
     use super::*;
 

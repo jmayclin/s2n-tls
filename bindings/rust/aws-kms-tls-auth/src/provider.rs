@@ -59,7 +59,7 @@ impl ProviderSecrets {
         &self,
         current_epoch: u64,
         kms_client: &Client,
-        kms_smoothing_factor: Duration,
+        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         let mut to_fetch = vec![current_epoch, current_epoch + 1, current_epoch + 2];
@@ -84,7 +84,7 @@ impl ProviderSecrets {
         }
 
         let sleep = self.newest_available_epoch().and_then(|next_fetch| {
-            epoch_schedule::until_fetch(next_fetch + 1, kms_smoothing_factor)
+            epoch_schedule::until_fetch(next_fetch + 1, smoothing_factor)
         });
         match sleep {
             Some(duration) => Ok(duration),
@@ -137,14 +137,14 @@ impl ProviderSecrets {
         &self,
         current_epoch: u64,
         kms_client: &Client,
-        kms_smoothing_factor: Duration,
+        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         let until_next_fetch = self
             .fetch_secrets(
                 current_epoch,
                 kms_client,
-                kms_smoothing_factor,
+                smoothing_factor,
                 failure_notification,
             )
             .await;
@@ -177,12 +177,12 @@ impl PskProvider {
             next_secrets: Mutex::new(VecDeque::new()),
         });
 
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let update = secret_state
             .poll_update(
                 current_epoch,
                 &kms_client,
-                kms_smoothing_factor,
+                smoothing_factor,
                 &failure_notification,
             )
             .await;
@@ -200,7 +200,7 @@ impl PskProvider {
                         .poll_update(
                             current_epoch,
                             &kms_client,
-                            kms_smoothing_factor,
+                            smoothing_factor,
                             &failure_notification,
                         )
                         .await;
@@ -272,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn poll_update() -> Result<(), Duration> {
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let psk_provider =
             PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
                 .await
@@ -282,7 +282,7 @@ mod tests {
         let secret_state = psk_provider.secret_state;
 
         secret_state
-            .poll_update(this_epoch, &client, kms_smoothing_factor, &|_| {})
+            .poll_update(this_epoch, &client, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_epochs();
         assert_eq!(available.len(), 3);
@@ -293,7 +293,7 @@ mod tests {
 
         // idempotent if the time hasn't changed
         secret_state
-            .poll_update(this_epoch, &client, kms_smoothing_factor, &|_| {})
+            .poll_update(this_epoch, &client, smoothing_factor, &|_| {})
             .await?;
         assert_eq!(secret_state.available_epochs(), available);
         assert_eq!(secret_state.current_secret(), current_epoch_secret);
@@ -305,7 +305,7 @@ mod tests {
         // 2. rotate the current one
         // 3. drop the old one
         secret_state
-            .poll_update(this_epoch, &client, kms_smoothing_factor, &|_| {})
+            .poll_update(this_epoch, &client, smoothing_factor, &|_| {})
             .await?;
         assert_eq!(secret_state.available_epochs().len(), available.len());
         assert!(secret_state
@@ -318,7 +318,7 @@ mod tests {
         this_epoch += 2;
         // time skips are gracefully handled
         secret_state
-            .poll_update(this_epoch, &client, kms_smoothing_factor, &|_| {})
+            .poll_update(this_epoch, &client, smoothing_factor, &|_| {})
             .await?;
         assert_eq!(secret_state.available_epochs().len(), 3);
         assert!(secret_state.available_epochs().contains(&this_epoch));
@@ -346,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn poll_update_with_failure() {
-        let kms_smoothing_factor = epoch_schedule::kms_smoothing_factor();
+        let smoothing_factor = epoch_schedule::smoothing_factor();
         let error_count = Arc::new(AtomicUsize::new(0));
         let notification_fn = {
             let error_count = Arc::clone(&error_count);
@@ -380,7 +380,7 @@ mod tests {
 
         psk_provider
             .secret_state
-            .poll_update(current_epoch + 1, &kms_client, kms_smoothing_factor, &notification_fn)
+            .poll_update(current_epoch + 1, &kms_client, smoothing_factor, &notification_fn)
             .await
             .unwrap();
         assert_eq!(error_count.load(Ordering::SeqCst), 0);
@@ -388,7 +388,7 @@ mod tests {
         // Call poll_update again (this will trigger the 5th call and fail)
         psk_provider
             .secret_state
-            .poll_update(current_epoch + 2, &kms_client, kms_smoothing_factor, &notification_fn)
+            .poll_update(current_epoch + 2, &kms_client, smoothing_factor, &notification_fn)
             .await
             .unwrap_err();
         assert_eq!(error_count.load(Ordering::SeqCst), 1);
