@@ -99,41 +99,17 @@ mod prefixed_list;
 mod provider;
 mod psk_derivation;
 mod psk_parser;
-mod receiver;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
-use std::time::Duration;
-
 pub type KeyArn = String;
-pub use provider::PskProvider;
 pub use psk_derivation::PskVersion;
-pub use receiver::PskReceiver;
 
 // We have "pub" use statement so these can be fuzz tested
 pub use codec::DecodeValue;
 pub use psk_parser::PresharedKeyClientHello;
 
-const PSK_SIZE: usize = 32;
-const SHA384_DIGEST_SIZE: usize = 48;
-
-/// The key is automatically rotated every period. Currently 24 hours.
-const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 2);
-
 const ONE_HOUR: Duration = Duration::from_secs(3_600);
-
-#[cfg(test)]
-mod tests {
-    use crate::SHA384_DIGEST_SIZE;
-    use aws_lc_rs::digest::SHA384;
-
-    /// `key_len()` and `nonce_len()` aren't const functions, so we define
-    /// our own constants to let us use those values in things like array sizes.
-    #[test]
-    fn constant_check() {
-        assert_eq!(SHA384_DIGEST_SIZE, SHA384.output_len());
-    }
-}
 
 #[cfg(test)]
 mod integration_tests {

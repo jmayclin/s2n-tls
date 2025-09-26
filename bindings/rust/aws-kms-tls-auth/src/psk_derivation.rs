@@ -33,7 +33,7 @@
 //! rotation/transitioning the underlying KMS key.
 //!
 //! If a server trusts both keyA and keyB, then the client will need to
-//! communicate which key it used to derive it’s PSK. The naive solution would be
+//! communicate which key it used to derive its PSK. The naive solution would be
 //! to just include keyA or keyB in plaintext in the PSK Identity. However, this
 //! would leak information about “fleet membership”, because it is sent in the
 //! clear. Ideally, the PSK identity would not leak this information.
@@ -46,10 +46,9 @@
 //!   client.
 //! - epoch_secret: without incorporating this secret, an attacker would be able
 //!   check if some the kms_key_binder was valid for some specific KMS key.
-
+//!   check if the kms_key_binder was valid for some specific KMS key.
 use crate::{
     codec::{DecodeByteSource, DecodeValue, EncodeBytesSink, EncodeValue},
-    prefixed_list::PrefixedBlob,
     KeyArn,
 };
 use aws_lc_rs::{
@@ -59,10 +58,9 @@ use aws_lc_rs::{
 };
 use aws_sdk_kms::{primitives::Blob, types::MacAlgorithmSpec, Client};
 use s2n_tls::error::Error as S2NError;
-use std::{fmt::Debug, hash::Hash, io::ErrorKind, time::Duration};
+use std::{fmt::Debug, hash::Hash, io::ErrorKind};
 
 const SHA384_DIGEST_SIZE: usize = 48;
-const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
 const SESSION_NAME_LENGTH: usize = 16;
 
 // V1 was used for an earlier KMS data-key based solution and is no longer supported
@@ -95,9 +93,11 @@ impl DecodeValue for PskVersion {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EpochSecret {
+    /// the ARN of the KMS HMAC key
     pub key_arn: KeyArn,
     /// the key epoch, which is the number of days elapsed since the unix epoch
     pub key_epoch: u64,
+    /// the secret material from the generateMAC API
     pub secret: Vec<u8>,
 }
 
@@ -245,12 +245,6 @@ impl DecodeValue for PskIdentity {
 }
 
 impl PskIdentity {
-    /// Create a PskIdentity
-    ///
-    /// * `ciphertext_data_key`: The ciphertext returned from the KMS generateDataKey
-    ///   API.
-    /// * `obfuscation_key`: The key that will be used to obfuscate the ciphertext,
-    ///   preventing any details about the ciphertext from being on the wire.
     pub fn new(session_name: &[u8], daily_secret: &EpochSecret) -> anyhow::Result<Self> {
         let kms_key_binder = Self::kms_key_binder(session_name, daily_secret);
         let kms_key_binder = PrefixedBlob::new(kms_key_binder)?;
@@ -275,9 +269,9 @@ impl PskIdentity {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, time::Instant};
-
     use super::*;
+    use aws_lc_rs::digest::SHA384;
+    use std::{collections::HashSet, time::Instant};
 
     fn test_epoch_secret() -> EpochSecret {
         EpochSecret::test_constructor(
@@ -304,7 +298,7 @@ mod tests {
     /// - session name
     /// - KMS arn
     /// - epoch secret
-    /// 
+    ///
     /// Changing any of these should change the KMS key binder
     #[test]
     fn kms_key_binder() {
@@ -335,10 +329,10 @@ mod tests {
         assert_eq!(unique_binders.len(), 4);
     }
 
-    /// Check the the PSK connection secret incorporates
+    /// Check that the PSK connection secret incorporates
     /// - epoch secret
     /// - session name
-    /// 
+    ///
     /// Changing any of these should change the connection secret
     #[test]
     fn psk_secret() -> anyhow::Result<()> {
@@ -377,17 +371,42 @@ mod tests {
 
     /// This is a very simple benchmark checking the cost of PSK Identity derivation
     /// We use this setup because it allows us to keep the EpochSecret struct private
+    ///
+    /// In release mode a PSK Derivation takes ~ 292 ns.
     #[test]
-    fn psk_derivation_cost() {
+    fn psk_derivation_benchmark() {
+        const TRIALS: u32 = 1_000_000;
         let start = Instant::now();
-        for i in 0_u64..1_000_000 {
+        for i in 0..TRIALS {
             let _identity = PskIdentity::new(&i.to_be_bytes(), &test_epoch_secret()).unwrap();
         }
         let elapsed = start.elapsed();
         println!(
             "total time: {:?}, per derivation: {:?}",
             elapsed,
-            elapsed / 1_000_000
+            elapsed / TRIALS
         );
+    }
+
+    /// We should avoid logging sensitive materials
+    #[test]
+    fn redacted_debug() {
+        let secret_a = test_epoch_secret();
+        let secret_b = {
+            let mut secret = test_epoch_secret();
+            secret.secret = b"different material".to_vec();
+            secret
+        };
+
+        // these can only be equal if the secret material isn't included in the
+        // debug representation
+        assert_eq!(format!("{secret_a:?}"), format!("{secret_b:?}"));
+    }
+
+    /// `output_len()` isn't a const function, so we define
+    /// our own constants to let us use those values in things like array sizes.
+    #[test]
+    fn constant_check() {
+        assert_eq!(SHA384_DIGEST_SIZE, SHA384.output_len());
     }
 }
