@@ -20,6 +20,7 @@
 #include "api/s2n.h"
 #include "api/unstable/async_offload.h"
 #include "api/unstable/cert_authorities.h"
+#include "api/unstable/events.h"
 #include "crypto/s2n_certificate.h"
 #include "crypto/s2n_dhe.h"
 #include "tls/s2n_crl.h"
@@ -211,6 +212,10 @@ struct s2n_config {
     s2n_psk_mode psk_mode;
 
     s2n_async_pkey_validation_mode async_pkey_validation_mode;
+
+    /* s2n_events stuff */
+    void* subscriber;
+    s2n_on_handshake_complete handshake_event_cb;
 
     /* The user defined context associated with config */
     void *context;
