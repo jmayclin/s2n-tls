@@ -1697,13 +1697,30 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE(!conn->negotiate_in_use, S2N_ERR_REENTRANCY);
     conn->negotiate_in_use = true;
 
+    uint64_t start = 0;
+    s2n_config_wall_clock(conn->config, &start);
+
+    if (conn->handshake_event.handshake_duration_ns == 0) {
+        conn->handshake_event.handshake_duration_ns = start;
+    }
+
+    // start the timer if we haven't already
+
     int result = s2n_negotiate_impl(conn, blocked);
 
     /* finish up sending and receiving */
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_in_buffer(conn));
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
+    uint64_t end = 0;
+    s2n_config_wall_clock(conn->config, &end);
+
+    conn->handshake_event.handshake_negotiate_duration_ns += end - start;
+
     if (result == S2N_SUCCESS) {
+        // assuming this is idempotent, probably a bad idea
+        conn->handshake_event.handshake_duration_ns = end - conn->handshake_event.handshake_duration_ns;
+
         if (conn->config->subscriber) {
             conn->handshake_event.cipher = s2n_connection_get_cipher(conn);
             s2n_connection_get_key_exchange_group(conn, &conn->handshake_event.group);

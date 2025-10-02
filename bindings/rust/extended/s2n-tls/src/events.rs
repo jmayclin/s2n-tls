@@ -1,4 +1,4 @@
-use std::{ffi::CStr, fmt::Debug, sync::{atomic::AtomicU64, Arc}};
+use std::{ffi::CStr, fmt::Debug, sync::{atomic::AtomicU64, Arc}, time::Duration};
 
 #[derive(Debug, Default)]
 struct TestSubscriber {
@@ -35,6 +35,9 @@ impl EventExtension for s2n_tls_sys::s2n_event_handshake {
         println!("{:?}", maybe_string(self.cipher));
         println!("{:?}", maybe_string(self.group));
         println!("{:?}", maybe_string(self.signature));
+        println!("handshake duration: {:?}", Duration::from_nanos(self.handshake_duration_ns));
+        println!("handshake negotiate duration: {:?}", Duration::from_nanos(self.handshake_negotiate_duration_ns));
+
     }
 }
 
@@ -80,5 +83,10 @@ mod tests {
         let mut test_pair = TestPair::from_configs(&client_config, &server_config);
         test_pair.handshake().unwrap();
         assert_eq!(invoked.load(Ordering::Relaxed), 1);
+
+        let mut test_pair = TestPair::from_configs(&client_config, &server_config);
+        test_pair.handshake().unwrap();
+        assert_eq!(invoked.load(Ordering::Relaxed), 2);
+        assert!(false);
     }
 }

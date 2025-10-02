@@ -35,6 +35,12 @@ struct s2n_event_handshake {
      */
     bool supports_resumption;
     bool attempted_resumption;
+
+    /* the amount of time between when the s2n_negotiate was started and when it
+     * finished, including network round trips */
+    uint64_t handshake_duration_ns;
+    /* the amount of time inside the synchronus s2n_negotiate method */
+    uint64_t handshake_negotiate_duration_ns;
 };
 
 typedef void (*s2n_event_on_handshake_cb)(void *subscriber, struct s2n_event_handshake *event);
