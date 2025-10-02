@@ -1703,6 +1703,14 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_in_buffer(conn));
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
+    if (result == S2N_SUCCESS) {
+        if (conn->config->subscriber) {
+            conn->handshake_event.cipher = s2n_connection_get_cipher(conn);
+            s2n_connection_get_key_exchange_group(conn, &conn->handshake_event.group);
+            conn->config->on_handshake_event(conn->config->subscriber, &conn->handshake_event);
+        }
+    }
+
     conn->negotiate_in_use = false;
     return result;
 }

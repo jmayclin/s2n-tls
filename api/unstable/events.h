@@ -20,20 +20,26 @@
 struct s2n_event_handshake {
     uint8_t protocol_version;
     /* static memory */
-    char * cipher;
+    const char * cipher;
     /* static memory */
-    char * group;
+    const char * group;
     /* static memory */
-    char * signature;
+    const char * signature;
     /* true if the connection was resumed */
     bool resumed;
+    /* true if the connection performed a hello retry */
+    bool hello_retry;
+    /* true if the connection supports resumption
+     * For TLS 1.3 -> PSK-KE-MODES was sent
+     * For TLS 1.2 -> an empty NST extension was sent
+     */
     bool supports_resumption;
     bool attempted_resumption;
 };
 
-typedef void (*s2n_on_handshake_complete)(void *subscriber, struct s2n_event_handshake *event);
+typedef void (*s2n_event_on_handshake_cb)(void *subscriber, struct s2n_event_handshake *event);
 
 S2N_API extern int s2n_config_set_subscriber(struct s2n_config *config, void *subscriber);
-S2N_API extern int s2n_config_set_handshake_event(struct s2n_config *config, s2n_on_handshake_complete callback);
+S2N_API extern int s2n_config_set_handshake_event(struct s2n_config *config, s2n_event_on_handshake_cb callback);
 
 void s2n_event_on_handshake_finished(void * subscriber, struct s2n_event_handshake *event);

@@ -215,7 +215,7 @@ struct s2n_config {
 
     /* s2n_events stuff */
     void* subscriber;
-    s2n_on_handshake_complete handshake_event_cb;
+    s2n_event_on_handshake_cb on_handshake_event;
 
     /* The user defined context associated with config */
     void *context;

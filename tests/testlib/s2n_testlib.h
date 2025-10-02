@@ -13,6 +13,46 @@
  * permissions and limitations under the License.
  */
 
+/* *****************************************************************************
+ * ******************    MINIMAL TEST HARNESS EXAMPLE   ************************
+ * *****************************************************************************
+ * > Developers will commonly need to write unit tests that perform a handshake.
+ * > Over it's lifespan, there have been several different conventions in the 
+ * > codebase for doing this. This example tries to walk you through existing/
+ * > preferred conventions.
+ * > 1. prefer DEFER_CLEANUP over explict memory management
+ * > 2. prefer `s2n_config_new_minimal()` over `s2n_config_new()`
+ * > 3. prefer numbered policies (e.g. "20240503") over default policies (e.g. "default_tls13")
+ * >    unless you are explicitly testing the properties of the default. Include
+ * >    a comment about why you picked the numbered policy e.g. "needs TLS 1.3"
+ * > 4. Prefer `s2n_test_io_stuffer_pair` over `s2n_test_io_pair`
+ * 
+ * DEFER_CLEANUP(struct s2n_config *server_config = s2n_config_new_minimal(), s2n_config_ptr_free);
+ * EXPECT_NOT_NULL(config);
+ * DEFER_CLEANUP(struct s2n_config *client_config = s2n_config_new_minimal(), s2n_config_ptr_free);
+ * EXPECT_NOT_NULL(config);
+ * 
+ * EXPECT_SUCCESS(s2n_config_set_cipher_preferences(server_config, "20240503"))
+ * EXPECT_SUCCESS(s2n_config_set_cipher_preferences(client_config, "20240503"))
+ * 
+ * DEFER_CLEANUP(struct s2n_cert_chain_and_key *cert_chain = NULL, s2n_cert_chain_and_key_ptr_free);
+ * EXPECT_SUCCESS(s2n_test_cert_chain_and_key_new(&cert_chain, S2N_DEFAULT_ECDSA_TEST_CERT_CHAIN, S2N_DEFAULT_ECDSA_TEST_PRIVATE_KEY));
+ * EXPECT_SUCCESS(s2n_config_add_cert_chain_and_key_to_store(server_config, chain_and_key));
+ * 
+ * DEFER_CLEANUP(struct s2n_connection *client_conn = s2n_connection_new(S2N_CLIENT), s2n_connection_ptr_free);
+ * EXPECT_NOT_NULL(client_conn);
+ * DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER), s2n_connection_ptr_free);
+ * EXPECT_NOT_NULL(server_conn);
+ * 
+ * EXPECT_SUCCESS(s2n_connection_set_config(client_conn, client_config));
+ * EXPECT_SUCCESS(s2n_connection_set_config(server_conn, server_config));
+ * 
+ * DEFER_CLEANUP(struct s2n_test_io_stuffer_pair io_pair = { 0 }, s2n_io_stuffer_pair_free);
+ * EXPECT_OK(s2n_io_stuffer_pair_init(&io_pair));
+ * EXPECT_OK(s2n_connections_set_io_stuffer_pair(client_conn, server_conn, &io_pair));
+ * EXPECT_SUCCESS(s2n_negotiate_test_server_and_client(server_conn, client_conn));
+ */
+
 #pragma once
 
 #include <stdint.h>
