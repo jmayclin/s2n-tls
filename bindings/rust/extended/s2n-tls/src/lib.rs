@@ -21,6 +21,7 @@ pub mod client_hello;
 pub mod config;
 pub mod connection;
 pub mod enums;
+pub mod events;
 #[cfg(feature = "unstable-fingerprint")]
 pub mod fingerprint;
 pub mod init;

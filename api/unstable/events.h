@@ -41,5 +41,3 @@ typedef void (*s2n_event_on_handshake_cb)(void *subscriber, struct s2n_event_han
 
 S2N_API extern int s2n_config_set_subscriber(struct s2n_config *config, void *subscriber);
 S2N_API extern int s2n_config_set_handshake_event(struct s2n_config *config, s2n_event_on_handshake_cb callback);
-
-void s2n_event_on_handshake_finished(void * subscriber, struct s2n_event_handshake *event);
