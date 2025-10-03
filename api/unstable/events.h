@@ -17,8 +17,25 @@
 
 #include <s2n.h>
 
+typedef enum {
+    S2N_RESUMPTION_NONE = 0,
+    S2N_RESUMPTION_SUCCESS,
+    S2N_RESUMPTION_TICKET_EXPIRED,
+    S2N_RESUMPTION_FORMAT_UNKNOWN,
+    S2N_RESUMPTION_STEK_UNKNOWN,
+    S2N_RESUMPTION_OTHER_ERROR,
+} s2n_resumption_outcome;
+
+struct s2n_event_resumption {
+    bool supports_resumption;
+    bool attempted_resumption;
+    s2n_resumption_outcome outcome;
+    uint64_t ticket_age_ms;
+    uint64_t material_age_ms;
+};
+
 struct s2n_event_handshake {
-    uint8_t protocol_version;
+    int protocol_version;
     /* static memory */
     const char * cipher;
     /* static memory */
@@ -29,18 +46,14 @@ struct s2n_event_handshake {
     bool resumed;
     /* true if the connection performed a hello retry */
     bool hello_retry;
-    /* true if the connection supports resumption
-     * For TLS 1.3 -> PSK-KE-MODES was sent
-     * For TLS 1.2 -> an empty NST extension was sent
-     */
-    bool supports_resumption;
-    bool attempted_resumption;
 
     /* the amount of time between when the s2n_negotiate was started and when it
      * finished, including network round trips */
     uint64_t handshake_duration_ns;
     /* the amount of time inside the synchronus s2n_negotiate method */
     uint64_t handshake_negotiate_duration_ns;
+
+    struct s2n_event_resumption resumption_event;
 };
 
 typedef void (*s2n_event_on_handshake_cb)(void *subscriber, struct s2n_event_handshake *event);

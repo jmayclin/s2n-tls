@@ -4,10 +4,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        callbacks::{SessionTicket, SessionTicketCallback},
-        config::ConnectionInitializer,
-        connection::{self, Connection},
-        testing::*,
+        callbacks::{SessionTicket, SessionTicketCallback}, config::ConnectionInitializer, connection::{self, Connection}, events::TestSubscriber, testing::*
     };
     use futures_test::task::noop_waker;
     use std::{error::Error, sync::Mutex, time::SystemTime};
@@ -71,7 +68,8 @@ mod tests {
         server_config_builder
             .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
             .set_security_policy(&security::TESTING_TLS12)?
-            .load_pem(keypair.cert(), keypair.key())?;
+            .load_pem(keypair.cert(), keypair.key())?
+            .set_event_subscriber(TestSubscriber::default())?;
         let server_config = server_config_builder.build()?;
 
         let handler = SessionTicketHandler::default();
@@ -113,6 +111,7 @@ mod tests {
             validate_session_ticket(&pair.client)?;
             validate_session_ticket(&pair.server)?;
         }
+        assert!(false);
 
         Ok(())
     }
@@ -126,7 +125,8 @@ mod tests {
         server_config_builder
             .add_session_ticket_key(&KEYNAME, &KEY, SystemTime::now())?
             .load_pem(keypair.cert(), keypair.key())?
-            .set_security_policy(&security::DEFAULT_TLS13)?;
+            .set_security_policy(&security::DEFAULT_TLS13)?
+            .set_event_subscriber(TestSubscriber::default())?;
         let server_config = server_config_builder.build()?;
 
         let handler = SessionTicketHandler::default();
@@ -162,6 +162,7 @@ mod tests {
             // validate that a ticket is available
             validate_session_ticket(&pair.client)?;
         }
+        assert!(false);
         Ok(())
     }
 }

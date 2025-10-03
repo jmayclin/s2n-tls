@@ -28,6 +28,7 @@ libc = "0.2.121"
 s2n-tls-sys = { version = "=0.3.28", path = "../s2n-tls-sys", features = ["internal"] }
 pin-project-lite = "0.2"
 hex = "0.4"
+metrique = "0.1.6"
 
 [dev-dependencies]
 futures-test = "0.3"

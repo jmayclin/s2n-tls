@@ -1698,7 +1698,7 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     conn->negotiate_in_use = true;
 
     uint64_t start = 0;
-    s2n_config_wall_clock(conn->config, &start);
+    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &start));
 
     if (conn->handshake_event.handshake_duration_ns == 0) {
         conn->handshake_event.handshake_duration_ns = start;
@@ -1713,7 +1713,7 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
     uint64_t end = 0;
-    s2n_config_wall_clock(conn->config, &end);
+    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &end));
 
     conn->handshake_event.handshake_negotiate_duration_ns += end - start;
 
@@ -1724,6 +1724,11 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
         if (conn->config->subscriber) {
             conn->handshake_event.cipher = s2n_connection_get_cipher(conn);
             s2n_connection_get_key_exchange_group(conn, &conn->handshake_event.group);
+            conn->handshake_event.protocol_version = s2n_connection_get_actual_protocol_version(conn);
+            if (s2n_connection_is_session_resumed(conn)) {
+                conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_SUCCESS;
+            }
+
             conn->config->on_handshake_event(conn->config->subscriber, &conn->handshake_event);
         }
     }
