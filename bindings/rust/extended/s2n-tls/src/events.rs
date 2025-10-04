@@ -1,26 +1,218 @@
 use std::{
     ffi::CStr,
     fmt::Debug,
-    sync::{atomic::AtomicU64, Arc},
-    time::Duration,
+    io,
+    sync::{atomic::AtomicU64, mpsc::Sender, Arc, Mutex},
+    time::{Duration, Instant, SystemTime},
 };
 
+use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client};
+use metrique::{unit_of_work::metrics, ServiceMetrics};
+use metrique_writer::{sink::AttachHandle, AttachGlobalEntrySinkExt, FormatExt, GlobalEntrySink};
+use metrique_writer_format_emf::Emf;
 use s2n_tls_sys::s2n_resumption_outcome;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::fmt::MakeWriter;
+
+use crate::enums::Version;
 
 #[derive(Debug, Default)]
 pub struct TestSubscriber {
     invoked: Arc<AtomicU64>,
 }
 
+// pub struct MinuteMemoryBuffer {
+//     created: Instant,
+//     current_buffer: Arc<Vec<u8>>,
+// }
+
+// impl<'a> MakeWriter<'a> for MinuteMemoryBuffer {
+//     type Writer = Vec<u8>;
+
+//     fn make_writer(&'a self) -> Self::Writer {
+//         self.current_buffer
+//     }
+// }
+
+#[derive(Clone)]
+pub struct CloudWatchExporter {
+    cloudwatch_logs_client: Client,
+    stream_receiver: Arc<Mutex<std::sync::mpsc::Receiver<Vec<u8>>>>,
+    handle: Arc<AttachHandle>,
+}
+
+pub struct SenderWriter(Sender<Vec<u8>>);
+
+pub struct ChannelMessage {
+    buffer: Vec<u8>,
+    channel: Sender<Vec<u8>>
+}
+
+impl<'a> MakeWriter<'a> for SenderWriter {
+    type Writer = ChannelMessage;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        let channel = self.0.clone();
+        ChannelMessage{
+            buffer: Vec::new(),
+            channel
+        }
+    }
+}
+
+impl io::Write for ChannelMessage {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        println!("calling write: {}", buf.len());
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        /* no op */
+        println!("calling flush with {}", self.buffer.len());
+        self.channel.send(self.buffer.clone()).unwrap();
+        Ok(())
+    }
+}
+
+impl Drop for ChannelMessage {
+    fn drop(&mut self) {
+        println!("flushing through drop {}", self.buffer.len());
+        self.channel.send(self.buffer.clone()).unwrap();
+    }
+}
+
+impl CloudWatchExporter {
+    async fn initialize() -> Self {
+        let config = aws_config::load_from_env().await;
+        println!("{config:?}");
+        let client = aws_sdk_cloudwatchlogs::Client::new(&config);
+        let (sender, receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let attach_handle = ServiceMetrics::attach_to_stream(
+            Emf::builder("MyS2NTlsServer".to_string(), vec![vec![]])
+                .build()
+                .output_to_makewriter(SenderWriter(sender)),
+        );
+
+        CloudWatchExporter {
+            cloudwatch_logs_client: client,
+            stream_receiver: Arc::new(Mutex::new(receiver)),
+            handle: Arc::new(attach_handle),
+        }
+    }
+
+    fn current_timestamp() -> i64 {
+        SystemTime::UNIX_EPOCH.elapsed().unwrap().as_millis() as i64
+    }
+
+    async fn try_write(&self) -> bool {
+        let results = self.cloudwatch_logs_client.list_log_groups().send().await.unwrap();
+        println!("{results:?}");
+        if let Ok(data) = self.stream_receiver.lock().unwrap().try_recv() {
+            let event = InputLogEvent::builder().message(String::from_utf8(data).unwrap()).timestamp(Self::current_timestamp()).build().unwrap();
+            let result = self.cloudwatch_logs_client
+                .put_log_events()
+                .log_group_name("s2n-tls-metric-development")
+                .log_stream_name("stream1")
+                .log_events(event)
+                .send().await.unwrap();
+            // if let Err(e) = result {
+            //     e.
+            // }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl EventSubscriber for CloudWatchExporter {
+    fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
+        HandshakeMetrics::from_event(event).append_on_drop(ServiceMetrics::sink());
+        ResumptionMetrics::from_event(&event.resumption_event)
+            .map(|event| event.append_on_drop(ServiceMetrics::sink()));
+    }
+}
+
+pub struct RollingFileExporter(AttachHandle);
+
+/// use metrique_writer::GlobalEntrySink;
+/// use metrique_writer::{AttachGlobalEntrySinkExt, FormatExt, sink::AttachHandle};
+/// use metrique_writer_format_emf::Emf;
+
+impl RollingFileExporter {
+    fn service_metrics_init() -> Self {
+        let attach_handle = ServiceMetrics::attach_to_stream(
+            Emf::builder("MyS2NTlsServer".to_string(), vec![vec![]])
+                .build()
+                .output_to_makewriter(RollingFileAppender::new(
+                    Rotation::HOURLY,
+                    "logs",
+                    "s2n.log",
+                )),
+        );
+        RollingFileExporter(attach_handle)
+    }
+}
+
+impl EventSubscriber for RollingFileExporter {
+    fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
+        HandshakeMetrics::from_event(event).append_on_drop(ServiceMetrics::sink());
+        ResumptionMetrics::from_event(&event.resumption_event)
+            .map(|event| event.append_on_drop(ServiceMetrics::sink()));
+    }
+}
+
+#[metrics]
+struct ResumptionMetrics {
+    outcome: ResumptionOutcome,
+    ticket_age: Option<Duration>,
+}
+
+impl ResumptionMetrics {
+    fn from_event(event: &s2n_tls_sys::s2n_event_resumption) -> Option<Self> {
+        let event = ResumptionEvent(event);
+        Some(ResumptionMetrics {
+            outcome: event.outcome()?,
+            ticket_age: event.ticket_age(),
+        })
+    }
+}
+
+#[metrics]
+struct HandshakeMetrics {
+    cipher: &'static str,
+    group: Option<&'static str>,
+    protocol_version: Version,
+    /// The time for the handshake to complete, including network trips
+    handshake_latency: Duration,
+    /// The time for the handshake to complete, only including compute
+    handshake_duration: Duration,
+}
+
+impl HandshakeMetrics {
+    fn from_event(event: &s2n_tls_sys::s2n_event_handshake) -> Self {
+        let event = HandshakeEvent(event);
+        HandshakeMetrics {
+            cipher: event.cipher().unwrap(),
+            group: event.group(),
+            protocol_version: event.protocol_version(),
+            handshake_latency: event.handshake_duration(),
+            handshake_duration: event.handshake_cpu_duration(),
+        }
+    }
+}
+
 impl EventSubscriber for TestSubscriber {
     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-        let event =  HandshakeEvent(event);
+        let event = HandshakeEvent(event);
         println!("{event:#?}");
         self.invoked
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
+#[metrics(value(string))]
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ResumptionOutcome {
@@ -43,11 +235,10 @@ impl TryFrom<s2n_resumption_outcome::Type> for ResumptionOutcome {
             s2n_resumption_outcome::RESUMPTION_STEK_UNKNOWN => Self::StekUnknown,
             s2n_resumption_outcome::RESUMPTION_TICKET_EXPIRED => Self::TicketExpired,
             s2n_resumption_outcome::RESUMPTION_OTHER_ERROR => Self::OtherError,
-            _ => return Err(())
+            _ => return Err(()),
         };
         Ok(error)
     }
-    
 }
 
 // #[repr(C)]
@@ -60,13 +251,12 @@ impl TryFrom<s2n_resumption_outcome::Type> for ResumptionOutcome {
 //     pub resumed: bool,
 //     pub hello_retry: bool,
 //     pub supports_resumption: bool,
-//     pub attempted_resumption: bool, 
+//     pub attempted_resumption: bool,
 // }
 
 struct ResumptionEvent<'a>(&'a s2n_tls_sys::s2n_event_resumption);
 
-impl <'a> ResumptionEvent<'a> {
-
+impl<'a> ResumptionEvent<'a> {
     // TODO: return new, which forces Option field
     fn ticket_age(&self) -> Option<Duration> {
         if self.outcome() == Some(ResumptionOutcome::Success) {
@@ -94,7 +284,6 @@ impl<'a> Debug for ResumptionEvent<'a> {
             .finish()
     }
 }
-
 
 struct HandshakeEvent<'a>(&'a s2n_tls_sys::s2n_event_handshake);
 
@@ -177,4 +366,54 @@ mod tests {
         assert_eq!(invoked.load(Ordering::Relaxed), 2);
         assert!(false);
     }
+
+    #[test]
+    fn logging_events() {
+        let subscriber = RollingFileExporter::service_metrics_init();
+        let mut server_config = config_builder(&security::DEFAULT_TLS13).unwrap();
+        server_config.set_event_subscriber(subscriber).unwrap();
+        let server_config = server_config.build().unwrap();
+
+        let client_config = build_config(&security::DEFAULT_TLS13).unwrap();
+        let mut test_pair = TestPair::from_configs(&client_config, &server_config);
+        test_pair.handshake().unwrap();
+
+        let mut test_pair = TestPair::from_configs(&client_config, &server_config);
+        test_pair.handshake().unwrap();
+
+        assert!(false);
+    }
+
+    #[tokio::test]
+    async fn cloudwatch_events() {
+        let subscriber = CloudWatchExporter::initialize().await;
+        let subscriber_handle= subscriber.clone();
+        let mut server_config = config_builder(&security::DEFAULT_TLS13).unwrap();
+        server_config.set_event_subscriber(subscriber_handle).unwrap();
+        let server_config = server_config.build().unwrap();
+
+        let client_config = build_config(&security::DEFAULT_TLS13).unwrap();
+        let mut test_pair = TestPair::from_configs(&client_config, &server_config);
+        test_pair.handshake().unwrap();
+        subscriber.try_write().await;
+
+        let mut test_pair = TestPair::from_configs(&client_config, &server_config);
+        test_pair.handshake().unwrap();
+        subscriber.try_write().await;
+
+        let tls12_client_config = build_config(&security::DEFAULT).unwrap();
+        let mut test_pair = TestPair::from_configs(&tls12_client_config, &server_config);
+        test_pair.handshake().unwrap();
+        subscriber.try_write().await;
+
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(false);
+    }
+
+    // #[tokio::test]
+    // async fn cloudwatch_emission() {
+    //     let config = aws_config::load_from_env().await;
+    //     let client = aws_sdk_cloudwatchlogs::Client::new(&config);
+    //     client.put_log_events().
+    // }
 }
