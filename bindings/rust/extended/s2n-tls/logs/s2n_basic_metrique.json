@@ -1,0 +1,28 @@
+{
+    "_aws": {
+        "CloudWatchMetrics": [
+            {
+                "Namespace": "MyS2NTlsServer",
+                "Dimensions": [
+                    []
+                ],
+                "Metrics": [
+                    {
+                        "Name": "handshake_latency",
+                        "Unit": "Milliseconds"
+                    },
+                    {
+                        "Name": "handshake_duration",
+                        "Unit": "Milliseconds"
+                    }
+                ]
+            }
+        ],
+        "Timestamp": 1759537573060
+    },
+    "handshake_latency": 1.762429,
+    "handshake_duration": 1.2466949999999999,
+    "cipher": "TLS_AES_128_GCM_SHA256",
+    "group": "secp256r1",
+    "protocol_version": "TLS13"
+}

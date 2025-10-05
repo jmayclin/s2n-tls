@@ -78,7 +78,7 @@ impl From<Mode> for s2n_mode::Type {
 
 #[metrics(value(string))]
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
 pub enum Version {
     SSLV2,
     SSLV3,

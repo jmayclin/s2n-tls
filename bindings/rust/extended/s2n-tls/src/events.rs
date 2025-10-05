@@ -1,13 +1,15 @@
 use std::{
+    collections::HashMap,
     ffi::CStr,
     fmt::Debug,
+    hash::Hash,
     io,
-    sync::{atomic::AtomicU64, mpsc::Sender, Arc, Mutex},
+    sync::{atomic::AtomicU64, mpsc::Sender, Arc, LazyLock, Mutex},
     time::{Duration, Instant, SystemTime},
 };
 
 use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client};
-use metrique::{unit_of_work::metrics, ServiceMetrics};
+use metrique::{unit::Count, unit_of_work::metrics, ServiceMetrics};
 use metrique_writer::{sink::AttachHandle, AttachGlobalEntrySinkExt, FormatExt, GlobalEntrySink};
 use metrique_writer_format_emf::Emf;
 use s2n_tls_sys::s2n_resumption_outcome;
@@ -21,18 +23,44 @@ pub struct TestSubscriber {
     invoked: Arc<AtomicU64>,
 }
 
-// pub struct MinuteMemoryBuffer {
-//     created: Instant,
-//     current_buffer: Arc<Vec<u8>>,
-// }
+struct Prefixer<T> {
+    /// e.g. cipher.
+    prefix: &'static str,
+    /// lookup from raw item to prefixed item
+    prefixed_items: Mutex<HashMap<T, &'static str>>,
+}
 
-// impl<'a> MakeWriter<'a> for MinuteMemoryBuffer {
-//     type Writer = Vec<u8>;
+impl<T> Prefixer<T> {
+    fn new(prefix: &'static str) -> Self {
+        Prefixer {
+            prefix,
+            prefixed_items: Mutex::new(HashMap::new()),
+        }
+    }
+}
 
-//     fn make_writer(&'a self) -> Self::Writer {
-//         self.current_buffer
-//     }
-// }
+impl<T: std::cmp::Eq + Hash + std::fmt::Display + Clone> Prefixer<T> {
+    fn get_from_display(&self, item: T) -> &'static str {
+        // TODO: R/W Lock
+        self.prefixed_items.lock().unwrap()
+            .entry(item.clone())
+            .or_insert_with(|| format!("{}{}", &self.prefix, &item).leak())
+    }
+}
+
+impl<T: std::cmp::Eq + Hash + std::fmt::Debug + Clone> Prefixer<T> {
+    fn get_from_debug(&self, item: T) -> &'static str {
+        // TODO: R/W Lock
+        self.prefixed_items.lock().unwrap()
+            .entry(item.clone())
+            .or_insert_with(|| format!("{}{:?}", &self.prefix, &item).leak())
+    }
+}
+
+static CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> = LazyLock::new(|| Prefixer::new("cipher."));
+static GROUP_PREFIXER: LazyLock<Prefixer<&'static str>> = LazyLock::new(|| Prefixer::new("group."));
+static RESUMPTION_OUTCOME_PREFIXER: LazyLock<Prefixer<ResumptionOutcome>> = LazyLock::new(|| Prefixer::new("resumption_outcome."));
+static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<crate::enums::Version>> = LazyLock::new(|| Prefixer::new("protocol_version."));
 
 #[derive(Clone)]
 pub struct CloudWatchExporter {
@@ -45,7 +73,7 @@ pub struct SenderWriter(Sender<Vec<u8>>);
 
 pub struct ChannelMessage {
     buffer: Vec<u8>,
-    channel: Sender<Vec<u8>>
+    channel: Sender<Vec<u8>>,
 }
 
 impl<'a> MakeWriter<'a> for SenderWriter {
@@ -53,9 +81,9 @@ impl<'a> MakeWriter<'a> for SenderWriter {
 
     fn make_writer(&'a self) -> Self::Writer {
         let channel = self.0.clone();
-        ChannelMessage{
+        ChannelMessage {
             buffer: Vec::new(),
-            channel
+            channel,
         }
     }
 }
@@ -106,19 +134,28 @@ impl CloudWatchExporter {
     }
 
     async fn try_write(&self) -> bool {
-        let results = self.cloudwatch_logs_client.list_log_groups().send().await.unwrap();
+        let results = self
+            .cloudwatch_logs_client
+            .list_log_groups()
+            .send()
+            .await
+            .unwrap();
         println!("{results:?}");
         if let Ok(data) = self.stream_receiver.lock().unwrap().try_recv() {
-            let event = InputLogEvent::builder().message(String::from_utf8(data).unwrap()).timestamp(Self::current_timestamp()).build().unwrap();
-            let result = self.cloudwatch_logs_client
+            let event = InputLogEvent::builder()
+                .message(String::from_utf8(data).unwrap())
+                .timestamp(Self::current_timestamp())
+                .build()
+                .unwrap();
+            let result = self
+                .cloudwatch_logs_client
                 .put_log_events()
                 .log_group_name("s2n-tls-metric-development")
                 .log_stream_name("stream1")
                 .log_events(event)
-                .send().await.unwrap();
-            // if let Err(e) = result {
-            //     e.
-            // }
+                .send()
+                .await
+                .unwrap();
             true
         } else {
             false
@@ -128,9 +165,10 @@ impl CloudWatchExporter {
 
 impl EventSubscriber for CloudWatchExporter {
     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-        HandshakeMetrics::from_event(event).append_on_drop(ServiceMetrics::sink());
-        ResumptionMetrics::from_event(&event.resumption_event)
-            .map(|event| event.append_on_drop(ServiceMetrics::sink()));
+        let handshake = HandshakeMetrics::from_event(event);
+        let resumption = ResumptionMetrics::from_event(&event.resumption_event);
+        ServiceMetrics::append(handshake);
+        resumption.map(|event| ServiceMetrics::append(event));
     }
 }
 
@@ -157,16 +195,28 @@ impl RollingFileExporter {
 
 impl EventSubscriber for RollingFileExporter {
     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-        HandshakeMetrics::from_event(event).append_on_drop(ServiceMetrics::sink());
-        ResumptionMetrics::from_event(&event.resumption_event)
-            .map(|event| event.append_on_drop(ServiceMetrics::sink()));
+        let handshake = HandshakeMetrics::from_event(event);
+        let resumption = ResumptionMetrics::from_event(&event.resumption_event);
+        ServiceMetrics::append(handshake);
+        resumption.map(|event| ServiceMetrics::append(event));
     }
 }
 
-#[metrics]
 struct ResumptionMetrics {
     outcome: ResumptionOutcome,
     ticket_age: Option<Duration>,
+}
+
+impl metrique_writer::Entry for ResumptionMetrics {
+    fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
+        writer.value("resumption_outcome", &format!("{:?}", self.outcome));
+        let resumption_label = RESUMPTION_OUTCOME_PREFIXER.get_from_debug(self.outcome);
+        writer.value(resumption_label, &1_u64);
+        
+        if let Some(ticket_age) = self.ticket_age {
+            writer.value("resumption_ticket_age", &ticket_age);
+        }
+    }
 }
 
 impl ResumptionMetrics {
@@ -179,15 +229,44 @@ impl ResumptionMetrics {
     }
 }
 
-#[metrics]
 struct HandshakeMetrics {
+    /// The negotiated cipher, in IANA format.
     cipher: &'static str,
+    /// The negotiated key exchange group, in IANA format.
+    ///
+    /// This is not emitted in the event of TLS 1.2 session resumption or RSA
+    /// key exchange
     group: Option<&'static str>,
     protocol_version: Version,
     /// The time for the handshake to complete, including network trips
     handshake_latency: Duration,
     /// The time for the handshake to complete, only including compute
     handshake_duration: Duration,
+}
+
+impl metrique_writer::Entry for HandshakeMetrics {
+    fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
+        //writer.timestamp(self.request_start);
+        writer.value("cipher", self.cipher);
+        let cipher_counter = CIPHER_PREFIXER.get_from_display(self.cipher);
+        writer.value(cipher_counter, &1_u64);
+
+        writer.value("protocol_version", &format!("{:?}", self.protocol_version));
+        let protocol_counter = PROTOCOL_VERSION_PREFIXER.get_from_debug(self.protocol_version);
+        writer.value(protocol_counter, &1_u64);
+
+        if let Some(group) = self.group {
+            writer.value("group", group);
+            let group_counter = GROUP_PREFIXER.get_from_display(group);
+            writer.value(group_counter, &1_u64);
+        }
+
+
+
+        // TODO need to maintain static str mapping for protocol version
+        writer.value("handshake_latency", &self.handshake_latency);
+        writer.value("handshake_duration", &self.handshake_duration);
+    }
 }
 
 impl HandshakeMetrics {
@@ -214,7 +293,7 @@ impl EventSubscriber for TestSubscriber {
 
 #[metrics(value(string))]
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
 pub enum ResumptionOutcome {
     /// The client did not supply an SNI
     None,
@@ -387,9 +466,11 @@ mod tests {
     #[tokio::test]
     async fn cloudwatch_events() {
         let subscriber = CloudWatchExporter::initialize().await;
-        let subscriber_handle= subscriber.clone();
+        let subscriber_handle = subscriber.clone();
         let mut server_config = config_builder(&security::DEFAULT_TLS13).unwrap();
-        server_config.set_event_subscriber(subscriber_handle).unwrap();
+        server_config
+            .set_event_subscriber(subscriber_handle)
+            .unwrap();
         let server_config = server_config.build().unwrap();
 
         let client_config = build_config(&security::DEFAULT_TLS13).unwrap();
