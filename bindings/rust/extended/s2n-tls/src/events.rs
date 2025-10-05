@@ -42,7 +42,9 @@ impl<T> Prefixer<T> {
 impl<T: std::cmp::Eq + Hash + std::fmt::Display + Clone> Prefixer<T> {
     fn get_from_display(&self, item: T) -> &'static str {
         // TODO: R/W Lock
-        self.prefixed_items.lock().unwrap()
+        self.prefixed_items
+            .lock()
+            .unwrap()
             .entry(item.clone())
             .or_insert_with(|| format!("{}{}", &self.prefix, &item).leak())
     }
@@ -51,16 +53,21 @@ impl<T: std::cmp::Eq + Hash + std::fmt::Display + Clone> Prefixer<T> {
 impl<T: std::cmp::Eq + Hash + std::fmt::Debug + Clone> Prefixer<T> {
     fn get_from_debug(&self, item: T) -> &'static str {
         // TODO: R/W Lock
-        self.prefixed_items.lock().unwrap()
+        self.prefixed_items
+            .lock()
+            .unwrap()
             .entry(item.clone())
             .or_insert_with(|| format!("{}{:?}", &self.prefix, &item).leak())
     }
 }
 
-static CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> = LazyLock::new(|| Prefixer::new("cipher."));
+static CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
+    LazyLock::new(|| Prefixer::new("cipher."));
 static GROUP_PREFIXER: LazyLock<Prefixer<&'static str>> = LazyLock::new(|| Prefixer::new("group."));
-static RESUMPTION_OUTCOME_PREFIXER: LazyLock<Prefixer<ResumptionOutcome>> = LazyLock::new(|| Prefixer::new("resumption_outcome."));
-static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<crate::enums::Version>> = LazyLock::new(|| Prefixer::new("protocol_version."));
+static RESUMPTION_OUTCOME_PREFIXER: LazyLock<Prefixer<ResumptionOutcome>> =
+    LazyLock::new(|| Prefixer::new("resumption_outcome."));
+static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<crate::enums::Version>> =
+    LazyLock::new(|| Prefixer::new("protocol_version."));
 
 #[derive(Clone)]
 pub struct CloudWatchExporter {
@@ -96,10 +103,8 @@ impl io::Write for ChannelMessage {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        /* no op */
-        println!("calling flush with {}", self.buffer.len());
-        self.channel.send(self.buffer.clone()).unwrap();
-        Ok(())
+        // this is a test-only reporter, so this is fine.
+        unreachable!("metricque (currently) doesn't ever call flush");
     }
 }
 
@@ -212,7 +217,7 @@ impl metrique_writer::Entry for ResumptionMetrics {
         writer.value("resumption_outcome", &format!("{:?}", self.outcome));
         let resumption_label = RESUMPTION_OUTCOME_PREFIXER.get_from_debug(self.outcome);
         writer.value(resumption_label, &1_u64);
-        
+
         if let Some(ticket_age) = self.ticket_age {
             writer.value("resumption_ticket_age", &ticket_age);
         }
@@ -260,8 +265,6 @@ impl metrique_writer::Entry for HandshakeMetrics {
             let group_counter = GROUP_PREFIXER.get_from_display(group);
             writer.value(group_counter, &1_u64);
         }
-
-
 
         // TODO need to maintain static str mapping for protocol version
         writer.value("handshake_latency", &self.handshake_latency);
@@ -423,7 +426,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        security,
+        security::{self, Policy},
         testing::{build_config, config_builder, TestPair},
     };
 
@@ -472,6 +475,12 @@ mod tests {
             .set_event_subscriber(subscriber_handle)
             .unwrap();
         let server_config = server_config.build().unwrap();
+
+        let client_configs = [
+            build_config(&security::DEFAULT_TLS13).unwrap(),
+            build_config(&security::DEFAULT_TLS13).unwrap(),
+            build_config(&Policy::from_version("default_pq").unwrap()).unwrap(),
+        ];
 
         let client_config = build_config(&security::DEFAULT_TLS13).unwrap();
         let mut test_pair = TestPair::from_configs(&client_config, &server_config);
