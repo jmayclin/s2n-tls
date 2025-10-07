@@ -23,6 +23,25 @@ pub struct TestSubscriber {
     invoked: Arc<AtomicU64>,
 }
 
+// struct AggregatedHandshakeMetrics {
+//     cipher_counts: HashMap<&'static str, AtomicU64>,
+// }
+
+// // metrique knows how to write this into EMF/QueryLog
+// impl metrique_writer::Entry for AggregatedHandshakeMetrics {
+//     fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
+//         todo!()
+//     }
+// }
+
+// impl EventSubscriber for AggregatedSubscriber {
+//     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
+//         let handshake_event = HandshakeEvent(event);
+//         self.cipher_count.get(handshake_event.cipher().unwrap()) += 1;
+//     }
+// }
+
+
 struct Prefixer<T> {
     /// e.g. cipher.
     prefix: &'static str,
@@ -69,13 +88,25 @@ static RESUMPTION_OUTCOME_PREFIXER: LazyLock<Prefixer<ResumptionOutcome>> =
 static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<crate::enums::Version>> =
     LazyLock::new(|| Prefixer::new("protocol_version."));
 
+/// This is a very inefficient metric uploader for CloudWatch
+/// 
+/// You MUST poll [`CloudWatchExporter::try_write`] to actually write events to
+/// cloudwatch. It does not happen in the background/automatically. 
+/// 
+/// This is done to make sure that all events from short lived tests are getting
+/// flushed.
 #[derive(Clone)]
 pub struct CloudWatchExporter {
+    /// The cloudwatch logs client, used to "put-metric-events"
     cloudwatch_logs_client: Client,
     stream_receiver: Arc<Mutex<std::sync::mpsc::Receiver<Vec<u8>>>>,
     handle: Arc<AttachHandle>,
 }
 
+/// Metrique does IO on top of a MakeWriter abstraction.
+/// 
+/// MakeWriter basically creates an intermediate buffer that a metric is written
+/// into, which is finally dropped/flushed to the main buffer
 pub struct SenderWriter(Sender<Vec<u8>>);
 
 pub struct ChannelMessage {
@@ -139,13 +170,6 @@ impl CloudWatchExporter {
     }
 
     async fn try_write(&self) -> bool {
-        let results = self
-            .cloudwatch_logs_client
-            .list_log_groups()
-            .send()
-            .await
-            .unwrap();
-        println!("{results:?}");
         if let Ok(data) = self.stream_receiver.lock().unwrap().try_recv() {
             let event = InputLogEvent::builder()
                 .message(String::from_utf8(data).unwrap())
@@ -179,9 +203,6 @@ impl EventSubscriber for CloudWatchExporter {
 
 pub struct RollingFileExporter(AttachHandle);
 
-/// use metrique_writer::GlobalEntrySink;
-/// use metrique_writer::{AttachGlobalEntrySinkExt, FormatExt, sink::AttachHandle};
-/// use metrique_writer_format_emf::Emf;
 
 impl RollingFileExporter {
     fn service_metrics_init() -> Self {
@@ -254,7 +275,7 @@ impl metrique_writer::Entry for HandshakeMetrics {
         //writer.timestamp(self.request_start);
         writer.value("cipher", self.cipher);
         let cipher_counter = CIPHER_PREFIXER.get_from_display(self.cipher);
-        writer.value(cipher_counter, &1_u64);
+        writer.value(cipher_counter, &2_u64);
 
         writer.value("protocol_version", &format!("{:?}", self.protocol_version));
         let protocol_counter = PROTOCOL_VERSION_PREFIXER.get_from_debug(self.protocol_version);
