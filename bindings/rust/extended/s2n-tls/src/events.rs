@@ -23,25 +23,6 @@ pub struct TestSubscriber {
     invoked: Arc<AtomicU64>,
 }
 
-// struct AggregatedHandshakeMetrics {
-//     cipher_counts: HashMap<&'static str, AtomicU64>,
-// }
-
-// // metrique knows how to write this into EMF/QueryLog
-// impl metrique_writer::Entry for AggregatedHandshakeMetrics {
-//     fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
-//         todo!()
-//     }
-// }
-
-// impl EventSubscriber for AggregatedSubscriber {
-//     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-//         let handshake_event = HandshakeEvent(event);
-//         self.cipher_count.get(handshake_event.cipher().unwrap()) += 1;
-//     }
-// }
-
-
 struct Prefixer<T> {
     /// e.g. cipher.
     prefix: &'static str,
@@ -195,6 +176,7 @@ impl CloudWatchExporter {
 impl EventSubscriber for CloudWatchExporter {
     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
         let handshake = HandshakeMetrics::from_event(event);
+        EntryDim
         let resumption = ResumptionMetrics::from_event(&event.resumption_event);
         ServiceMetrics::append(handshake);
         resumption.map(|event| ServiceMetrics::append(event));
@@ -437,6 +419,13 @@ fn maybe_string(string: *const libc::c_char) -> Option<&'static str> {
     }
 }
 
+impl<A: EventSubscriber, B:EventSubscriber> EventSubscriber for (A, B) {
+    fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
+        self.0.on_handshake_event(event);
+        self.1.on_handshake_event(event);
+    }
+}
+
 pub trait EventSubscriber: 'static + Send + Sync {
     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake);
 }
@@ -519,6 +508,22 @@ mod tests {
 
         std::thread::sleep(Duration::from_secs(1));
         assert!(false);
+    }
+
+
+    #[tokio::test]
+    async fn native_rust_consumer() {
+        // customer codebase
+        // customer sets up their EMF format. 
+
+        // unclear whether we have to care about format here?
+
+        // goal: it would be nice to be format agnostic. But how does that react 
+        // with dimensions?
+
+        // I don't understand dimension sets
+        // I don't understand how to specify the actual global dimenions?
+        let formatter = Emf::builder("cute-kittens-cdn".into(), vec![vec!["region".into(), "stage".into()]]);
     }
 
     // #[tokio::test]
