@@ -180,7 +180,7 @@ impl ReceiverSecrets {
 /// 1.3 out-of-band PSK authentication, using PSK's generated from KMS.
 ///
 /// This struct can be enabled on a config with [`s2n_tls::config::Builder::set_client_hello_callback`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PskReceiver {
     secrets: Arc<ReceiverSecrets>,
 }
