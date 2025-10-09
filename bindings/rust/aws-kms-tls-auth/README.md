@@ -6,10 +6,12 @@ Clients use the [generateMAC](https://docs.aws.amazon.com/kms/latest/APIReferenc
 
 The authenticated property is "the peer has kms:GenerateMac permissions on the KMS HMAC Key".
 
+Note that this library is a data-plane dependency on KMS. If KMS is down for more than 24 hours, handshakes will fail.
+
 # infrastructure setup
 - KMS HMAC Key: Library users must provision a [KMS HMAC key](https://docs.aws.amazon.com/kms/latest/developerguide/hmac.html) using an [HMAC_384](https://docs.aws.amazon.com/kms/latest/developerguide/symm-asymm-choose-key-spec.html#hmac-key-specs) key spec.
-
 - IAM Role: clients and servers must be configured with an IAM role that has `kms:GenerateMac` permissions on the created HMAC key.
+- Rotation Failure Notification: Applications must supply a "failure notification" closure to the `PskProvider` and `PskReceiver`. This closure is invoked whenever there is a failure to rotate the epoch secret. Customers should alarm on this value. If a rotation fails, rotation will be reattempted in 1 hour. If rotation fails for 24 hours, handshakes will then fail.
 
 # High Level Design
 
