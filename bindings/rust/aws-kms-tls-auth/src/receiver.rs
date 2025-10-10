@@ -3,7 +3,7 @@
 
 use crate::{
     codec::DecodeValue,
-    epoch_schedule,
+    epoch_schedule::{self, SAFETY_EPOCHS},
     psk_derivation::{EpochSecret, PskIdentity},
     psk_parser::retrieve_psk_identities,
     KeyArn, ONE_HOUR,
@@ -98,20 +98,14 @@ impl ReceiverSecrets {
         // generation has failed for several days
         let mut fetch_failed = false;
         let mut to_fetch: Vec<(u64, KeyArn)> = {
-            [
-                current_epoch - 1,
-                current_epoch,
-                current_epoch + 1,
-                current_epoch + 2,
-            ]
-            .iter()
-            .flat_map(|epoch| {
-                self.trusted_key_arns
-                    .iter()
-                    .cloned()
-                    .map(|arn| (*epoch, arn))
-            })
-            .collect()
+            ((current_epoch - 1)..=(current_epoch + SAFETY_EPOCHS))
+                .flat_map(|epoch| {
+                    self.trusted_key_arns
+                        .iter()
+                        .cloned()
+                        .map(move |arn| (epoch, arn))
+                })
+                .collect()
         };
 
         let available: Vec<(u64, KeyArn)> = self.available_secrets();
@@ -136,9 +130,9 @@ impl ReceiverSecrets {
             return Err(ONE_HOUR);
         }
 
-        let sleep_duration = self.newest_available_epoch().and_then(|fetch_epoch| {
-            epoch_schedule::until_fetch(fetch_epoch + 1, smoothing_factor)
-        });
+        let sleep_duration = self
+            .newest_available_epoch()
+            .and_then(|fetch_epoch| epoch_schedule::until_fetch(fetch_epoch + 1, smoothing_factor));
         match sleep_duration {
             Some(duration) => Ok(duration),
             None => Err(ONE_HOUR),
@@ -292,7 +286,7 @@ impl ClientHelloCallback for PskReceiver {
 #[cfg(test)]
 mod secret_state_tests {
     use crate::{
-        epoch_schedule::{self},
+        epoch_schedule::{self, SAFETY_EPOCHS},
         psk_derivation::{EpochSecret, PskIdentity},
         receiver::ReceiverSecrets,
         test_utils::{self, mocked_kms_client, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
@@ -312,6 +306,9 @@ mod secret_state_tests {
         time::Duration,
     };
 
+    /// the current key, 1 for each safety epoch, and the key before the current
+    /// epoch
+    const RECEIVER_KEY_COUNT: usize = SAFETY_EPOCHS as usize + 1 + 1;
     #[test]
     fn insert() {
         let secret_state = ReceiverSecrets::new(vec![]);
@@ -407,14 +404,14 @@ mod secret_state_tests {
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.secrets.available_secrets().len(), 4);
+        assert_eq!(receiver.secrets.available_secrets().len(), RECEIVER_KEY_COUNT);
 
         let kms_client = test_utils::mocked_kms_client();
         let trusted_key_arns = vec![KMS_KEY_ARN_A.to_owned(), KMS_KEY_ARN_B.to_owned()];
         let receiver = PskReceiver::initialize(kms_client, trusted_key_arns, |_| {})
             .await
             .unwrap();
-        assert_eq!(receiver.secrets.available_secrets().len(), 8);
+        assert_eq!(receiver.secrets.available_secrets().len(), RECEIVER_KEY_COUNT * 2);
     }
 
     #[tokio::test]
@@ -432,11 +429,12 @@ mod secret_state_tests {
             .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
-        assert_eq!(available.len(), 4);
+        assert_eq!(available.len(), RECEIVER_KEY_COUNT);
         assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + SAFETY_EPOCHS, KMS_KEY_ARN_A.to_owned())));
 
         // idempotent if the time hasn't changed
         secret_state
@@ -453,11 +451,12 @@ mod secret_state_tests {
             .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
-        assert_eq!(available.len(), 4);
+        assert_eq!(available.len(), RECEIVER_KEY_COUNT);
         assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + SAFETY_EPOCHS, KMS_KEY_ARN_A.to_owned())));
 
         this_epoch += 2;
         // time skips are gracefully handled
@@ -465,11 +464,12 @@ mod secret_state_tests {
             .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
-        assert_eq!(available.len(), 4);
+        assert_eq!(available.len(), RECEIVER_KEY_COUNT);
         assert!(available.contains(&(this_epoch - 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 1, KMS_KEY_ARN_A.to_owned())));
         assert!(available.contains(&(this_epoch + 2, KMS_KEY_ARN_A.to_owned())));
+        assert!(available.contains(&(this_epoch + SAFETY_EPOCHS, KMS_KEY_ARN_A.to_owned())));
         Ok(())
     }
 
@@ -491,7 +491,7 @@ mod secret_state_tests {
                     .mac(Blob::new(b"mock_mac_output".to_vec()))
                     .build()
             })
-            .times(5)
+            .times(RECEIVER_KEY_COUNT + 1)
             .error(|| GenerateMacError::unhandled("MockedFailure"))
             .output(|| {
                 GenerateMacOutput::builder()
@@ -508,33 +508,37 @@ mod secret_state_tests {
         )
         .await
         .unwrap();
-        assert_eq!(rule.num_calls(), 4);
+        assert_eq!(rule.num_calls(), RECEIVER_KEY_COUNT);
         let current_epoch = epoch_schedule::current_epoch();
 
         assert_eq!(error_count.load(Ordering::SeqCst), 0);
         psk_receiver
             .secrets
-            .poll_update(&kms_client, current_epoch + 1, smoothing_factor, &notification_fn)
+            .poll_update(
+                &kms_client,
+                current_epoch + 1,
+                smoothing_factor,
+                &notification_fn,
+            )
             .await
             .unwrap();
-        assert_eq!(rule.num_calls(), 5);
+        assert_eq!(rule.num_calls(), RECEIVER_KEY_COUNT + 1);
 
-        assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
+        assert_eq!(psk_receiver.secrets.available_secrets().len(), RECEIVER_KEY_COUNT);
         psk_receiver
             .secrets
-            .poll_update(&kms_client, current_epoch + 2, smoothing_factor, &notification_fn)
+            .poll_update(
+                &kms_client,
+                current_epoch + 2,
+                smoothing_factor,
+                &notification_fn,
+            )
             .await
             .unwrap_err();
-        assert_eq!(psk_receiver.secrets.available_secrets().len(), 3);
-        assert_eq!(rule.num_calls(), 6);
+        // an old key was evicted, so - 1
+        assert_eq!(psk_receiver.secrets.available_secrets().len(), RECEIVER_KEY_COUNT - 1);
+        assert_eq!(rule.num_calls(), RECEIVER_KEY_COUNT + 2);
         assert_eq!(error_count.load(Ordering::SeqCst), 1);
-
-        psk_receiver
-            .secrets
-            .poll_update(&kms_client, current_epoch + 2, smoothing_factor, &notification_fn)
-            .await
-            .unwrap();
-        assert_eq!(psk_receiver.secrets.available_secrets().len(), 4);
     }
 
     #[tokio::test]
