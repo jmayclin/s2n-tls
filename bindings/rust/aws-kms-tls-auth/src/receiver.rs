@@ -134,7 +134,7 @@ impl ReceiverSecrets {
 
         let sleep_duration = self
             .newest_available_epoch()
-            .and_then(|fetch_epoch| epoch_schedule::until_fetch(fetch_epoch + 1, smoothing_factor));
+            .and_then(|fetch_epoch| epoch_schedule::until_fetch(fetch_epoch + 1, self.smoothing_factor));
         match sleep_duration {
             Some(duration) => Ok(duration),
             None => Err(ONE_HOUR),
@@ -159,7 +159,6 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         let sleep_duration = self
@@ -279,7 +278,7 @@ impl ClientHelloCallback for PskReceiver {
 #[cfg(test)]
 mod secret_state_tests {
     use crate::{
-        epoch_schedule::{self},
+        epoch_schedule::{self, SAFETY_EPOCHS},
         psk_derivation::{EpochSecret, PskIdentity},
         receiver::ReceiverSecrets,
         test_utils::{self, mocked_kms_client, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
@@ -418,7 +417,7 @@ mod secret_state_tests {
         let secret_state = psk_provider.secrets;
 
         secret_state
-            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), RECEIVER_KEY_COUNT);
@@ -440,7 +439,7 @@ mod secret_state_tests {
         // 2. rotate the current one
         // 3. drop the old one
         secret_state
-            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), RECEIVER_KEY_COUNT);
@@ -453,7 +452,7 @@ mod secret_state_tests {
         this_epoch += 2;
         // time skips are gracefully handled
         secret_state
-            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, &|_| {})
             .await?;
         let available = secret_state.available_secrets();
         assert_eq!(available.len(), RECEIVER_KEY_COUNT);
@@ -508,7 +507,6 @@ mod secret_state_tests {
             .poll_update(
                 &kms_client,
                 current_epoch + 1,
-                smoothing_factor,
                 &notification_fn,
             )
             .await
@@ -521,7 +519,6 @@ mod secret_state_tests {
             .poll_update(
                 &kms_client,
                 current_epoch + 2,
-                smoothing_factor,
                 &notification_fn,
             )
             .await

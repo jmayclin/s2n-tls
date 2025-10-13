@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{epoch_schedule, psk_derivation::EpochSecret, KeyArn, ONE_HOUR};
+use crate::{epoch_schedule::{self, SAFETY_EPOCHS}, psk_derivation::EpochSecret, KeyArn, ONE_HOUR};
 use aws_sdk_kms::Client;
 use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
 use std::{
@@ -79,8 +79,7 @@ impl ProviderSecrets {
         kms_client: &Client,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
-        let mut to_fetch = vec![current_epoch, current_epoch + 1, current_epoch + 2];
-        let available = self.available_epochs();
+        let mut to_fetch: Vec<u64> = (current_epoch..=(current_epoch + SAFETY_EPOCHS)).collect();        let available = self.available_epochs();
         to_fetch.retain(|epoch| !available.contains(epoch));
 
         for epoch in to_fetch {
@@ -242,9 +241,9 @@ impl ConnectionInitializer for PskProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{
+    use crate::{epoch_schedule::SAFETY_EPOCHS, test_utils::{
         configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver, KMS_KEY_ARN_A,
-    };
+    }};
     use aws_sdk_kms::{
         operation::generate_mac::{GenerateMacError, GenerateMacOutput},
         primitives::Blob,
@@ -262,6 +261,7 @@ mod tests {
     /// The session names for each connection should be unique
     #[tokio::test]
     async fn session_names_are_random() {
+        tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
         let psk_provider =
             PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
                 .await
@@ -293,10 +293,11 @@ mod tests {
             .poll_update(this_epoch, &client, &|_| {})
             .await?;
         let available = secret_state.available_epochs();
-        assert_eq!(available.len(), 3);
+        assert_eq!(available.len(), 1 + SAFETY_EPOCHS as usize);
         assert!(available.contains(&this_epoch));
         assert!(available.contains(&(this_epoch + 1)));
         assert!(available.contains(&(this_epoch + 2)));
+        assert!(available.contains(&(this_epoch + SAFETY_EPOCHS)));
         let current_epoch_secret = secret_state.current_secret();
 
         // a second call should be idempotent, no time has passed
@@ -328,10 +329,9 @@ mod tests {
         secret_state
             .poll_update(this_epoch, &client, &|_| {})
             .await?;
-        assert_eq!(secret_state.available_epochs().len(), 3);
-        assert!(secret_state.available_epochs().contains(&this_epoch));
+        assert_eq!(secret_state.available_epochs().len(), 1 + SAFETY_EPOCHS as usize);        assert!(secret_state.available_epochs().contains(&this_epoch));
         assert!(secret_state.available_epochs().contains(&(this_epoch + 1)));
-        assert!(secret_state.available_epochs().contains(&(this_epoch + 2)));
+        assert!(secret_state.available_epochs().contains(&(this_epoch + SAFETY_EPOCHS)));
         assert_eq!(secret_state.current_secret().key_epoch, this_epoch);
 
         Ok(())
