@@ -81,7 +81,7 @@ pub fn mocked_kms_client() -> Client {
 
     let current_epoch = epoch_schedule::current_epoch();
 
-    for epoch in (current_epoch - 5)..=(current_epoch + MOCKED_EPOCH_COUNT) {
+    for epoch in (current_epoch - MOCKED_EPOCH_COUNT)..=(current_epoch + MOCKED_EPOCH_COUNT) {
         for key in [KMS_KEY_A, KMS_KEY_B] {
             rules.push(construct_rule(key, epoch));
         }

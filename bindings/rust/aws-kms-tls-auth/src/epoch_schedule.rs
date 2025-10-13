@@ -35,6 +35,8 @@ use std::time::{Duration, SystemTime};
 
 /// The epoch duration controls how long an epoch secret is used for.
 pub(crate) const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
+/// The amount of "warning" the applications get before handshakes start failing
+pub(crate) const SAFETY_EPOCHS: u64 = 7;
 
 /// Return a "smoothing factor" indicating how long the actor should wait before
 /// fetching the key for some epoch
@@ -72,7 +74,7 @@ pub(crate) fn until_fetch(epoch: u64, smoothing_factor: Duration) -> Option<Dura
     // we always want to fetch the key at least one epoch (24 hours) before the
     // key is needed.
     let fetch_time = {
-        let fetch_epoch = epoch - 2;
+        let fetch_epoch = epoch - SAFETY_EPOCHS;
 
         let fetch_epoch_start = epoch_start(fetch_epoch);
 
@@ -120,7 +122,11 @@ mod tests {
         assert!(until_fetch(current_epoch, ZERO_DURATION).is_none());
         assert!(until_fetch(current_epoch + 1, ZERO_DURATION).is_none());
         assert!(until_fetch(current_epoch + 2, ZERO_DURATION).is_none());
-        assert!(until_fetch(current_epoch + 2, EPOCH_DURATION).is_some());
+
+        assert!(until_fetch(current_epoch + 6, ZERO_DURATION).is_none());
+        assert!(until_fetch(current_epoch + 7, EPOCH_DURATION).is_some());
+        assert!(until_fetch(current_epoch + 8, ZERO_DURATION).is_some());
+
     }
 
     #[test]

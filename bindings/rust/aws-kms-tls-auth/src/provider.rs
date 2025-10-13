@@ -1,7 +1,11 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{epoch_schedule, psk_derivation::EpochSecret, KeyArn, ONE_HOUR};
+use crate::{
+    epoch_schedule::{self, SAFETY_EPOCHS},
+    psk_derivation::EpochSecret,
+    KeyArn, ONE_HOUR,
+};
 use aws_sdk_kms::Client;
 use s2n_tls::{callbacks::ConnectionFuture, config::ConnectionInitializer};
 use std::{
@@ -46,14 +50,14 @@ impl ProviderSecrets {
     }
 
     fn available_epochs(&self) -> Vec<u64> {
-        let mut epochs = Vec::new();
-        epochs.push(self.current_secret().key_epoch);
-        self.next_secrets
+        let mut epochs: Vec<u64> = self
+            .next_secrets
             .lock()
             .unwrap()
             .iter()
             .map(|s| s.key_epoch)
-            .for_each(|epoch| epochs.push(epoch));
+            .collect();
+        epochs.push(self.current_secret().key_epoch);
         epochs
     }
 
@@ -79,7 +83,7 @@ impl ProviderSecrets {
         kms_client: &Client,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
-        let mut to_fetch = vec![current_epoch, current_epoch + 1, current_epoch + 2];
+        let mut to_fetch: Vec<u64> = (current_epoch..=(current_epoch + SAFETY_EPOCHS)).collect();
         let available = self.available_epochs();
         to_fetch.retain(|epoch| !available.contains(epoch));
 
@@ -91,7 +95,7 @@ impl ProviderSecrets {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "failed to fetch secret for epoch {epoch} from {}",
+                        "failed to fetch secret for epoch {epoch} from {} because {e:?}",
                         self.key_arn
                     );
                     failure_notification(e);
@@ -242,8 +246,12 @@ impl ConnectionInitializer for PskProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{
-        configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver, KMS_KEY_ARN_A,
+    use crate::{
+        epoch_schedule::SAFETY_EPOCHS,
+        test_utils::{
+            configs_from_callbacks, handshake, mocked_kms_client, PskIdentityObserver,
+            KMS_KEY_ARN_A,
+        },
     };
     use aws_sdk_kms::{
         operation::generate_mac::{GenerateMacError, GenerateMacOutput},
@@ -262,6 +270,9 @@ mod tests {
     /// The session names for each connection should be unique
     #[tokio::test]
     async fn session_names_are_random() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
         let psk_provider =
             PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
                 .await
@@ -293,10 +304,11 @@ mod tests {
             .poll_update(this_epoch, &client, &|_| {})
             .await?;
         let available = secret_state.available_epochs();
-        assert_eq!(available.len(), 3);
+        assert_eq!(available.len(), 1 + SAFETY_EPOCHS as usize);
         assert!(available.contains(&this_epoch));
         assert!(available.contains(&(this_epoch + 1)));
         assert!(available.contains(&(this_epoch + 2)));
+        assert!(available.contains(&(this_epoch + SAFETY_EPOCHS)));
         let current_epoch_secret = secret_state.current_secret();
 
         // a second call should be idempotent, no time has passed
@@ -328,10 +340,15 @@ mod tests {
         secret_state
             .poll_update(this_epoch, &client, &|_| {})
             .await?;
-        assert_eq!(secret_state.available_epochs().len(), 3);
+        assert_eq!(
+            secret_state.available_epochs().len(),
+            1 + SAFETY_EPOCHS as usize
+        );
         assert!(secret_state.available_epochs().contains(&this_epoch));
         assert!(secret_state.available_epochs().contains(&(this_epoch + 1)));
-        assert!(secret_state.available_epochs().contains(&(this_epoch + 2)));
+        assert!(secret_state
+            .available_epochs()
+            .contains(&(this_epoch + SAFETY_EPOCHS)));
         assert_eq!(secret_state.current_secret().key_epoch, this_epoch);
 
         Ok(())
@@ -369,7 +386,7 @@ mod tests {
                     .mac(Blob::new(b"mock_mac_output".to_vec()))
                     .build()
             })
-            .times(4)
+            .times(SAFETY_EPOCHS as usize + 2)
             .error(|| GenerateMacError::unhandled("MockedFailure"))
             .times(4)
             .build();
@@ -383,7 +400,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(rule.num_calls(), 3);
+        assert_eq!(rule.num_calls(), 1 + SAFETY_EPOCHS as usize);
         let mut current_epoch = epoch_schedule::current_epoch();
 
         // we successfully fetch the secret, the error count should be 0
@@ -394,10 +411,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(error_count.load(Ordering::SeqCst), 0);
-        assert_eq!(
-            psk_provider.secret_state.available_epochs(),
-            vec![current_epoch, current_epoch + 1, current_epoch + 2]
-        );
+
         assert_eq!(
             psk_provider
                 .secret_state
@@ -415,83 +429,38 @@ mod tests {
             .poll_update(current_epoch, &kms_client, &notification_fn)
             .await
             .unwrap_err();
+        let last_successful_fetch = psk_provider.secret_state.current_secret().key_epoch;
         assert_eq!(error_count.load(Ordering::SeqCst), 1);
-        assert_eq!(rule.num_calls(), 5);
-        // we failed to fetch the latest secret
-        assert_eq!(
-            psk_provider.secret_state.available_epochs(),
-            vec![current_epoch, current_epoch + 1]
-        );
-        assert_eq!(
-            psk_provider
-                .secret_state
-                .current_secret
-                .read()
-                .unwrap()
-                .key_epoch,
-            current_epoch
-        );
+        // SAFETY_EPOCHS -> 1 for each safety epoch
+        // 1 -> current epoch
+        // 1 -> the next epoch
+        // 1 -> the failed call
+        assert_eq!(rule.num_calls(), SAFETY_EPOCHS as usize + 2 + 1);
 
         // The cases below assert that when we fail to fetch new secrets, a best
         // effort is made using the last secret we fetched.
-        current_epoch += 1;
-        psk_provider
-            .secret_state
-            .poll_update(current_epoch, &kms_client, &notification_fn)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            psk_provider.secret_state.available_epochs(),
-            vec![current_epoch]
-        );
-        assert_eq!(
-            psk_provider
-                .secret_state
-                .current_secret
-                .read()
-                .unwrap()
-                .key_epoch,
-            current_epoch
-        );
+        current_epoch += SAFETY_EPOCHS as u64;
+        for _ in 1..3 {
+            current_epoch += 1;
 
-        current_epoch += 1;
-        psk_provider
-            .secret_state
-            .poll_update(current_epoch, &kms_client, &notification_fn)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            psk_provider.secret_state.available_epochs(),
-            vec![current_epoch - 1]
-        );
-        assert_eq!(
             psk_provider
                 .secret_state
-                .current_secret
-                .read()
-                .unwrap()
-                .key_epoch,
-            current_epoch - 1
-        );
-
-        current_epoch += 1;
-        psk_provider
-            .secret_state
-            .poll_update(current_epoch, &kms_client, &notification_fn)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            psk_provider.secret_state.available_epochs(),
-            vec![current_epoch - 2]
-        );
-        assert_eq!(
-            psk_provider
-                .secret_state
-                .current_secret
-                .read()
-                .unwrap()
-                .key_epoch,
-            current_epoch - 2
-        );
+                .poll_update(current_epoch, &kms_client, &notification_fn)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                psk_provider.secret_state.available_epochs(),
+                vec![last_successful_fetch]
+            );
+            assert_eq!(
+                psk_provider
+                    .secret_state
+                    .current_secret
+                    .read()
+                    .unwrap()
+                    .key_epoch,
+                last_successful_fetch
+            );
+        }
     }
 }
