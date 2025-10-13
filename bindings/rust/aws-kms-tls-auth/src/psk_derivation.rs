@@ -209,7 +209,7 @@ impl EpochSecret {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub(crate) struct PskIdentity {
+pub struct PskIdentity {
     version: PskVersion,
     /// the key epoch that was used to derive the daily secret
     pub key_epoch: u64,

@@ -48,10 +48,17 @@ mod provider;
 mod psk_derivation;
 mod psk_parser;
 mod receiver;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-only-mock"))]
 pub(crate) mod test_utils;
 
 use std::time::Duration;
+
+#[cfg(feature = "test-only-mock")]
+pub use epoch_schedule::EPOCH_SECONDS;
+#[cfg(feature = "test-only-mock")]
+pub use test_utils::*;
+#[cfg(feature = "test-only-mock")]
+pub use psk_derivation::PskIdentity;
 
 pub type KeyArn = String;
 pub use provider::PskProvider;

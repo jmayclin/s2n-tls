@@ -31,7 +31,12 @@
 //! ```
 
 use rand::Rng;
-use std::time::{Duration, SystemTime};
+use std::{
+    time::{Duration, SystemTime},
+};
+
+#[cfg(feature = "test-only-mock")]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The epoch duration controls how long an epoch secret is used for.
 pub(crate) const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
@@ -44,14 +49,26 @@ pub fn smoothing_factor() -> Duration {
     rand::rng().random_range(Duration::from_secs(0)..EPOCH_DURATION)
 }
 
-pub fn current_epoch() -> u64 {
+#[cfg(feature = "test-only-mock")]
+pub static EPOCH_SECONDS: AtomicU64 = AtomicU64::new(1_760_341_020);
+
+pub fn epoch_seconds() -> u64 {
+    #[cfg(feature = "test-only-mock")]
+    {
+        return EPOCH_SECONDS.load(Ordering::SeqCst);
+    }
     // SAFETY: this method will panic if the current system clock is set to
     // a time before the unix epoch. This is not a recoverable error, so we
     // panic
-    let now = SystemTime::now()
+    SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("expected system time to be after UNIX epoch");
-    now.as_secs() / (EPOCH_DURATION.as_secs())
+        .expect("expected system time to be after UNIX epoch")
+        .as_secs()
+}
+
+pub fn current_epoch() -> u64 {
+
+    epoch_seconds() / (EPOCH_DURATION.as_secs())
 }
 
 /// Return the instant in time that `epoch` starts
@@ -126,7 +143,6 @@ mod tests {
         assert!(until_fetch(current_epoch + 6, ZERO_DURATION).is_none());
         assert!(until_fetch(current_epoch + 7, EPOCH_DURATION).is_some());
         assert!(until_fetch(current_epoch + 8, ZERO_DURATION).is_some());
-
     }
 
     #[test]

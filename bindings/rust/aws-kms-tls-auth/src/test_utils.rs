@@ -80,7 +80,7 @@ pub fn mocked_kms_client() -> Client {
     let mut rules = Vec::new();
 
     let current_epoch = epoch_schedule::current_epoch();
-
+    dbg!(current_epoch);
     for epoch in (current_epoch - MOCKED_EPOCH_COUNT)..=(current_epoch + MOCKED_EPOCH_COUNT) {
         for key in [KMS_KEY_A, KMS_KEY_B] {
             rules.push(construct_rule(key, epoch));

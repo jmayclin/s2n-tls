@@ -270,9 +270,9 @@ mod tests {
     /// The session names for each connection should be unique
     #[tokio::test]
     async fn session_names_are_random() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+        // tracing_subscriber::fmt()
+        //     .with_max_level(tracing::Level::DEBUG)
+        //     .init();
         let psk_provider =
             PskProvider::initialize(mocked_kms_client(), KMS_KEY_ARN_A.to_owned(), |_| {})
                 .await
