@@ -22,6 +22,7 @@ use std::{
 
 #[derive(Debug)]
 struct ReceiverSecrets {
+    smoothing_factor: Duration,
     pub trusted_key_arns: Vec<KeyArn>,
     pub epoch_secrets: RwLock<HashMap<u64, HashMap<KeyArn, EpochSecret>>>,
 }
@@ -29,6 +30,7 @@ struct ReceiverSecrets {
 impl ReceiverSecrets {
     fn new(trusted_key_arns: Vec<KeyArn>) -> Self {
         Self {
+            smoothing_factor: epoch_schedule::smoothing_factor(),
             trusted_key_arns,
             epoch_secrets: Default::default(),
         }
@@ -90,7 +92,6 @@ impl ReceiverSecrets {
         &self,
         kms_client: &Client,
         current_epoch: u64,
-        smoothing_factor: Duration,
         failure_notification: &(dyn Fn(anyhow::Error) + Send + Sync + 'static),
     ) -> Result<Duration, Duration> {
         // fetch all keys that aren't already available
@@ -119,14 +120,15 @@ impl ReceiverSecrets {
                 }
                 Err(e) => {
                     fetch_failed = true;
-                    tracing::error!("failed to fetch secret for epoch {epoch} from {key_arn}");
+                    tracing::error!(
+                        "failed to fetch secret for epoch {epoch} from {key_arn}: {e:?}"
+                    );
                     failure_notification(anyhow::anyhow!("failed to fetch {key_arn}").context(e));
                 }
             }
         }
 
         if fetch_failed {
-            println!("fetch failed");
             return Err(ONE_HOUR);
         }
 
@@ -150,6 +152,9 @@ impl ReceiverSecrets {
             .retain(|epoch, _arn_map| *epoch >= current_epoch - 1);
     }
 
+    /// The is the entry point for periodic updates of the secret state.
+    ///
+    /// This will fetch any new secrets that are needed, and clean up old secrets.
     async fn poll_update(
         &self,
         kms_client: &Client,
@@ -161,7 +166,6 @@ impl ReceiverSecrets {
             .fetch_secrets(
                 kms_client,
                 current_epoch,
-                smoothing_factor,
                 failure_notification,
             )
             .await;
@@ -199,16 +203,10 @@ impl PskReceiver {
         failure_notification: impl Fn(anyhow::Error) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let secret_state = Arc::new(ReceiverSecrets::new(trusted_key_arns.clone()));
-        let smoothing_factor = epoch_schedule::smoothing_factor();
         let current_epoch = epoch_schedule::current_epoch();
 
         let update = secret_state
-            .fetch_secrets(
-                &kms_client,
-                current_epoch,
-                smoothing_factor,
-                &failure_notification,
-            )
+            .fetch_secrets(&kms_client, current_epoch, &failure_notification)
             .await;
         if update.is_err() {
             anyhow::bail!("failed to fetch keys during startup");
@@ -220,12 +218,7 @@ impl PskReceiver {
             loop {
                 let this_epoch = epoch_schedule::current_epoch();
                 let sleep_duration = secret_handle
-                    .fetch_secrets(
-                        &kms_client,
-                        this_epoch,
-                        smoothing_factor,
-                        &failure_notification,
-                    )
+                    .fetch_secrets(&kms_client, this_epoch, &failure_notification)
                     .await;
                 secret_handle.cleanup_old_secrets(this_epoch);
 
@@ -286,7 +279,7 @@ impl ClientHelloCallback for PskReceiver {
 #[cfg(test)]
 mod secret_state_tests {
     use crate::{
-        epoch_schedule::{self, SAFETY_EPOCHS},
+        epoch_schedule::{self},
         psk_derivation::{EpochSecret, PskIdentity},
         receiver::ReceiverSecrets,
         test_utils::{self, mocked_kms_client, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
@@ -416,7 +409,6 @@ mod secret_state_tests {
 
     #[tokio::test]
     async fn poll_update() -> Result<(), Duration> {
-        let smoothing_factor = epoch_schedule::smoothing_factor();
         let psk_provider =
             PskReceiver::initialize(mocked_kms_client(), vec![KMS_KEY_ARN_A.to_owned()], |_| {})
                 .await
@@ -438,7 +430,7 @@ mod secret_state_tests {
 
         // idempotent if the time hasn't changed
         secret_state
-            .poll_update(&client, this_epoch, smoothing_factor, &|_| {})
+            .poll_update(&client, this_epoch, &|_| {})
             .await?;
         assert_eq!(secret_state.available_secrets(), available);
 
@@ -475,7 +467,6 @@ mod secret_state_tests {
 
     #[tokio::test]
     async fn poll_update_with_failure() {
-        let smoothing_factor = epoch_schedule::smoothing_factor();
         let error_count = Arc::new(AtomicUsize::new(0));
         let notification_fn = {
             let error_count = Arc::clone(&error_count);

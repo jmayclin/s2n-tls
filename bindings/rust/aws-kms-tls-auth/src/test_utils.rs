@@ -59,14 +59,15 @@ const MOCKED_EPOCH_COUNT: u64 = 100;
 ////////////////////////////////////////////////////////////////////////////////
 
 /// Mock the "generateMAC" operation for `key` on `message`.
-fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
+fn construct_rule(key: MockKmsKey, epoch: u64) -> Rule {
+    let message = EpochSecret::construct_message(epoch);
     let mac = {
         let s_key = hmac::Key::new(hmac::HMAC_SHA384, key.material);
-        let tag = hmac::sign(&s_key, &message.to_be_bytes());
+        let tag = hmac::sign(&s_key, &message);
         tag.as_ref().to_vec()
     };
 
-    let message = Blob::new(message.to_be_bytes().to_vec());
+    let message = Blob::new(message);
     let mac = Blob::new(mac);
 
     mock!(Client::generate_mac)
@@ -74,7 +75,7 @@ fn construct_rule(key: MockKmsKey, message: u64) -> Rule {
         .then_output(move || GenerateMacOutput::builder().mac(mac.clone()).build())
 }
 
-/// This will return a fake KMS client supporting the
+/// a fake KMS client that allows MAC generation for a range of epochs.
 pub fn mocked_kms_client() -> Client {
     let mut rules = Vec::new();
 
@@ -187,9 +188,6 @@ pub async fn handshake(
 pub struct PskIdentityObserver(pub Arc<Mutex<Vec<PskIdentity>>>);
 impl s2n_tls::callbacks::ClientHelloCallback for PskIdentityObserver {
     fn on_client_hello(
-        // this method takes an immutable reference to self to prevent the
-        // Config from being mutated by one connection and then used in another
-        // connection, leading to undefined behavior
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, S2NError> {

@@ -6,27 +6,27 @@
 
 //! The KMS TLS PSK Provider provides a way to get a mutually authenticated TLS
 //! connection using IAM credentials, KMS, and the external PSK feature of TLS 1.3.
-//! 
+//!
 //! # Design
-//! 
-//! `aws-kms-tls-auth` allows a fleet of instance to mutually authenticate each 
-//! other. You will configured a single [KMS HMAC Key](https://docs.aws.amazon.com/kms/latest/developerguide/hmac.html)
+//!
+//! `aws-kms-tls-auth` allows a fleet of instances to mutually authenticate each
+//! other. You will configure a single [KMS HMAC Key](https://docs.aws.amazon.com/kms/latest/developerguide/hmac.html)
 //! with a SHA384 signing spec and grant all of the instances IAM permissions to
-//! call `kms:GenerateMAC` on the KMS key. Clients and servers are considered 
+//! call `kms:GenerateMAC` on the KMS key. Clients and servers are considered
 //! interchangeable.
-//! 
+//!
 //! Instances will call `kms:GenerateMAC(days_since_unix_epoch)` to obtain a secret
-//! that is shared across the fleet. This is referred to as the `epoch_secret`. 
+//! that is shared across the fleet. This is referred to as the `epoch_secret`.
 //! This secret will rotate daily.
-//! 
+//!
 //! For each new connection, the instance will generate a nonce (`session_name`)
-//! and use that along with the `epoch_secret` to derive a connection-specific secret. 
-//! This unique secret will then be used for RFC-standard, TLS 1.3 PSK authentication 
+//! and use that along with the `epoch_secret` to derive a connection-specific secret.
+//! This unique secret will then be used for RFC-standard, TLS 1.3 PSK authentication
 //! (PSK with (EC)DHE handshake mode).
-//! 
+//!
 //! The authenticated identity of a peer is “the peer has IAM permissions to call
 //! `kms:GenerateMAC` on the trusted KMS key”.
-//! 
+//!
 //! ## Deployment Concerns
 //!
 //! The KMS Key ARN that the [`PskProvider`] is configured with must be supplied
@@ -54,9 +54,9 @@ pub(crate) mod test_utils;
 use std::time::Duration;
 
 pub type KeyArn = String;
-pub use receiver::PskReceiver;
 pub use provider::PskProvider;
 pub use psk_derivation::PskVersion;
+pub use receiver::PskReceiver;
 
 // We have "pub" use statement so these can be fuzz tested
 pub use codec::DecodeValue;
@@ -70,45 +70,13 @@ mod integration_tests {
     use aws_sdk_kms::Client;
     use tracing_subscriber::EnvFilter;
 
-    use crate::{provider::PskProvider, receiver::PskReceiver, test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B}};
+    use crate::{
+        provider::PskProvider,
+        receiver::PskReceiver,
+        test_utils::{configs_from_callbacks, handshake, KMS_KEY_ARN_A, KMS_KEY_ARN_B},
+    };
 
     use super::*;
-
-    const KEY_ARN: &str =
-        "arn:aws:kms:us-west-2:109149295617:key/c45d0b28-52c4-489d-b926-ed85f9d97c3c";
-
-    pub async fn test_kms_client() -> Client {
-        let shared_config = aws_config::from_env()
-            .region(Region::new("us-west-2"))
-            .load()
-            .await;
-        Client::new(&shared_config)
-    }
-
-    #[tokio::test]
-    async fn test_handshake() {
-        let filter = EnvFilter::new("aws_kms_tls_auth=trace");
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_env_filter(filter)
-            .init();
-        let kms_client = test_kms_client().await;
-        let key_arn = KEY_ARN.to_owned();
-
-        let client_psk_provider =
-            PskProvider::initialize(kms_client.clone(), key_arn.clone(), |_| {})
-                .await
-                .unwrap();
-        let server_psk_receiver = PskReceiver::initialize(kms_client, vec![key_arn], |_| {})
-            .await
-            .unwrap();
-        println!("{server_psk_receiver:?}");
-
-        let (client_config, server_config) =
-            configs_from_callbacks(client_psk_provider, server_psk_receiver);
-        handshake(&client_config, &server_config).await.unwrap();
-        handshake(&client_config, &server_config).await.unwrap();
-    }
 
     #[tokio::test]
     async fn basic_handshake() {
