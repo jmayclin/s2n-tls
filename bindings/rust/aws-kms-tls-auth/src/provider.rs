@@ -237,6 +237,7 @@ impl ConnectionInitializer for PskProvider {
         &self,
         connection: &mut s2n_tls::connection::Connection,
     ) -> Result<Option<Pin<Box<dyn ConnectionFuture>>>, s2n_tls::error::Error> {
+        tracing::info!("setting PSK, current epoch is: {}", epoch_schedule::current_epoch());
         let psk = self.secret_state.current_secret().new_connection_psk()?;
         connection.append_psk(&psk)?;
         Ok(None)

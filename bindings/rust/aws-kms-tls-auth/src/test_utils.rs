@@ -52,7 +52,7 @@ const KMS_KEY_B: MockKmsKey = MockKmsKey {
     material: KEY_B_MATERIAL,
 };
 
-const MOCKED_EPOCH_COUNT: u64 = 100;
+const MOCKED_EPOCH_COUNT: u64 = 1_000;
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////////    mocks & fixtures   ////////////////////////////////
@@ -153,6 +153,7 @@ pub async fn handshake(
     client_config: &s2n_tls::config::Config,
     server_config: &s2n_tls::config::Config,
 ) -> Result<TlsStream<TcpStream>, S2NError> {
+    let handshake = tokio::time::Instant::now();
     const SERVER_MESSAGE: &[u8] = b"hello from server";
     let client = s2n_tls_tokio::TlsConnector::new(client_config.clone());
     let server = s2n_tls_tokio::TlsAcceptor::new(server_config.clone());
@@ -180,6 +181,7 @@ pub async fn handshake(
     // check the server status first, because it has the interesting errors
     let stream = server.await.unwrap()?;
     client_result?;
+    tracing::info!("handshake duration: {:?}", handshake.elapsed());
 
     Ok(stream)
 }

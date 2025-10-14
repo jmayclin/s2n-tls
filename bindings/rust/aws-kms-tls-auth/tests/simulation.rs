@@ -4,8 +4,7 @@ use std::{
 };
 
 use aws_kms_tls_auth::{
-    handshake, make_client_config, make_server_config, mocked_kms_client, DecodeValue, PskIdentity,
-    PskProvider, PskReceiver, KMS_KEY_ARN_A, KMS_KEY_ARN_B,
+    current_system_time, epoch_seconds, handshake, make_client_config, make_server_config, mocked_kms_client, DecodeValue, PskIdentity, PskProvider, PskReceiver, KMS_KEY_ARN_A, KMS_KEY_ARN_B
 };
 use s2n_tls::config::Config as S2NConfig;
 use s2n_tls::error::Error as S2NError;
@@ -36,14 +35,9 @@ struct TestCase<'a> {
 impl<'a> TestCase<'a> {
     async fn assert_correct_state(&self, epoch_seconds: u64) {
         let result = handshake(self.client_config, self.server_config).await;
-        (self.correct_state)(epoch_seconds, result);
+        //(self.correct_state)(epoch_seconds, result);
+        assert!((self.correct_state)(epoch_seconds, result));
     }
-}
-
-fn current_system_time() -> SystemTime {
-    tokio::time::Instant::now()
-    SystemTime::UNIX_EPOCH
-        + Duration::from_secs(aws_kms_tls_auth::PSEUDO_EPOCH.load(Ordering::SeqCst))
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
@@ -53,9 +47,9 @@ async fn simulation() {
         .with_max_level(tracing::Level::DEBUG)
         .with_env_filter(filter)
         .init();
-    let current_time = SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs();
-    aws_kms_tls_auth::PSEUDO_EPOCH.store(current_time, Ordering::SeqCst);
-    dbg!(aws_kms_tls_auth::PSEUDO_EPOCH.load(Ordering::SeqCst));
+    let current_time = epoch_seconds();
+    // aws_kms_tls_auth::PSEUDO_EPOCH.store(current_time, Ordering::SeqCst);
+    // dbg!(aws_kms_tls_auth::PSEUDO_EPOCH.load(Ordering::SeqCst));
 
     let mut ticker = tokio::time::interval(TICK_INCREMENT);
 
@@ -99,15 +93,18 @@ async fn simulation() {
             }
         }),
     };
-
+    let current = tokio::time::Instant::now();
     for _ in 0..100 {
-        aws_kms_tls_auth::PSEUDO_EPOCH.fetch_add(TICK_INCREMENT.as_secs(), Ordering::SeqCst);
+        // aws_kms_tls_auth::PSEUDO_EPOCH.fetch_add(TICK_INCREMENT.as_secs(), Ordering::SeqCst);
         ticker.tick().await;
+        tracing::info!("elapsed in ticker: {:?}", current.elapsed());
 
         // case 1: always able to handshake, PSK is from current epoch
+        tokio::time::resume();
         happy_path
-            .assert_correct_state(aws_kms_tls_auth::PSEUDO_EPOCH.load(Ordering::SeqCst))
+            .assert_correct_state(aws_kms_tls_auth::epoch_seconds())
             .await;
+        tokio::time::pause();
 
         // case 2: failure happens at some point, at which point the client is
         // sending an old PSK. Eventually the handshakes fail.

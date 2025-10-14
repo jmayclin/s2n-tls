@@ -49,18 +49,14 @@ pub fn smoothing_factor() -> Duration {
 }
 
 #[cfg(feature = "test-only-mock")]
-use std::sync::{atomic::{AtomicU64, Ordering}, LazyLock};
-
-#[cfg(feature = "test-only-mock")]
-pub static PSEUDO_EPOCH: LazyLock<tokio::time::Instant> = LazyLock::new(|| {
-    tokio::time::Instant::now() - tokio::time::Duration::from_secs(1_760_341_020)
+pub static PSEUDO_EPOCH: std::sync::LazyLock<tokio::time::Instant> = std::sync::LazyLock::new(|| {
+    tokio::time::Instant::now() - tokio::time::Duration::from_secs(1_000_000_000)
 });
 
 pub fn epoch_seconds() -> u64 {
     #[cfg(feature = "test-only-mock")]
     {
-        tokio::time::Instant::now().saturating_duration_since(earlier)
-        return PSEUDO_EPOCH.load(Ordering::SeqCst);
+        return tokio::time::Instant::now().saturating_duration_since(*PSEUDO_EPOCH).as_secs();
     }
     // SAFETY: this method will panic if the current system clock is set to
     // a time before the unix epoch. This is not a recoverable error, so we
@@ -71,8 +67,11 @@ pub fn epoch_seconds() -> u64 {
         .as_secs()
 }
 
-pub fn current_epoch() -> u64 {
+pub fn current_system_time() -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(epoch_seconds())
+}
 
+pub fn current_epoch() -> u64 {
     epoch_seconds() / (EPOCH_DURATION.as_secs())
 }
 
@@ -85,7 +84,7 @@ pub fn epoch_start(epoch: u64) -> SystemTime {
 ///
 /// returns None if the epoch has already started
 pub fn until_epoch_start(epoch: u64) -> Option<Duration> {
-    epoch_start(epoch).duration_since(SystemTime::now()).ok()
+    epoch_start(epoch).duration_since(current_system_time()).ok()
 }
 
 /// The Duration between now and when the actor should make the network call
@@ -103,7 +102,7 @@ pub(crate) fn until_fetch(epoch: u64, smoothing_factor: Duration) -> Option<Dura
         fetch_epoch_start + smoothing_factor
     };
 
-    fetch_time.duration_since(SystemTime::now()).ok()
+    fetch_time.duration_since(current_system_time()).ok()
 }
 
 // Note that these tests technically have a "race condition". We assume that
