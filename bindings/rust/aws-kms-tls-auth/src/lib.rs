@@ -54,7 +54,7 @@ pub(crate) mod test_utils;
 use std::time::Duration;
 
 #[cfg(feature = "test-only-mock")]
-pub use epoch_schedule::EPOCH_SECONDS;
+pub use epoch_schedule::*;
 #[cfg(feature = "test-only-mock")]
 pub use test_utils::*;
 #[cfg(feature = "test-only-mock")]
