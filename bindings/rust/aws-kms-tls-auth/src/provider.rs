@@ -223,7 +223,7 @@ impl PskProvider {
                         Ok(duration) => duration,
                         Err(duration) => duration,
                     };
-                    tracing::debug!("sleeping for {sleep_duration:?}");
+                    tracing::debug!("sleeping for {sleep_duration:?} in epoch {current_epoch}");
                     tokio::time::sleep(sleep_duration).await;
                 }
             }

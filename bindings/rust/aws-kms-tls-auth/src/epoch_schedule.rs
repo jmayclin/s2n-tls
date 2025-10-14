@@ -35,8 +35,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-#[cfg(feature = "test-only-mock")]
-use std::sync::atomic::{AtomicU64, Ordering};
+
 
 /// The epoch duration controls how long an epoch secret is used for.
 pub(crate) const EPOCH_DURATION: Duration = Duration::from_secs(3_600 * 24);
@@ -50,12 +49,18 @@ pub fn smoothing_factor() -> Duration {
 }
 
 #[cfg(feature = "test-only-mock")]
-pub static EPOCH_SECONDS: AtomicU64 = AtomicU64::new(1_760_341_020);
+use std::sync::{atomic::{AtomicU64, Ordering}, LazyLock};
+
+#[cfg(feature = "test-only-mock")]
+pub static PSEUDO_EPOCH: LazyLock<tokio::time::Instant> = LazyLock::new(|| {
+    tokio::time::Instant::now() - tokio::time::Duration::from_secs(1_760_341_020)
+});
 
 pub fn epoch_seconds() -> u64 {
     #[cfg(feature = "test-only-mock")]
     {
-        return EPOCH_SECONDS.load(Ordering::SeqCst);
+        tokio::time::Instant::now().saturating_duration_since(earlier)
+        return PSEUDO_EPOCH.load(Ordering::SeqCst);
     }
     // SAFETY: this method will panic if the current system clock is set to
     // a time before the unix epoch. This is not a recoverable error, so we
