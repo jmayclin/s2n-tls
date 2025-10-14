@@ -51,6 +51,15 @@ async fn simulation() {
     // aws_kms_tls_auth::PSEUDO_EPOCH.store(current_time, Ordering::SeqCst);
     // dbg!(aws_kms_tls_auth::PSEUDO_EPOCH.load(Ordering::SeqCst));
 
+    // server KMS client
+    // - always successfully calls A
+    // - successfully calls B, one failure at item 50 (should retry)
+    // - fails all B calls at letter 60
+    // happy path A client -> always handshakes successfully
+    // happy path B client -> always handshakes successfully through 60 (make sure 50 was retrieved)
+    // failing A client -> fails to retrieve A items after item 75, record first failure, and the time between
+    // when it fully failed.
+
     let mut ticker = tokio::time::interval(TICK_INCREMENT);
 
     let psk_provider_a =
