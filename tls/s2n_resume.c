@@ -172,17 +172,7 @@ static int s2n_tls12_deserialize_resumption_state(struct s2n_connection *conn, s
     uint64_t then = 0;
     POSIX_GUARD(s2n_stuffer_read_uint64(from, &then));
     S2N_ERROR_IF(then > now, S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
-    /* TODO ticket age stuff here */
-    { /* EVENT: resumption age */
-        uint64_t ticket_age_ns = now - then;
-        uint64_t ticket_age_ms = ticket_age_ns / 1000;
-        conn->handshake_event.resumption_event.ticket_age_ms = ticket_age_ms;
-    };
-
-    if (now - then > conn->config->session_state_lifetime_in_nanos) {
-        conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_TICKET_EXPIRED;
-        POSIX_BAIL(S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
-    }
+    S2N_ERROR_IF(now - then > conn->config->session_state_lifetime_in_nanos, S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
 
     POSIX_GUARD(s2n_stuffer_read_bytes(from, conn->secrets.version.tls12.master_secret, S2N_TLS_SECRET_LEN));
 
@@ -342,15 +332,7 @@ static S2N_RESULT s2n_tls13_deserialize_session_state(struct s2n_connection *con
      */
     uint64_t current_time = 0;
     RESULT_GUARD(s2n_config_wall_clock(conn->config, &current_time));
-    if (s2n_result_is_error(s2n_validate_ticket_age(current_time, psk.ticket_issue_time))) {
-        conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_TICKET_EXPIRED;
-        return S2N_RESULT_ERROR;
-    }
-    {   /* EVENT: record ticket age */
-        uint64_t ticket_age_in_nanos = current_time - psk.ticket_issue_time;
-        uint64_t ticket_age_in_ms = ticket_age_in_nanos / 1000;
-        conn->handshake_event.resumption_event.ticket_age_ms = ticket_age_in_ms;
-    };
+    RESULT_GUARD(s2n_validate_ticket_age(current_time, psk.ticket_issue_time));
 
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint32(from, &psk.ticket_age_add));
 
@@ -413,7 +395,6 @@ S2N_RESULT s2n_deserialize_resumption_state(struct s2n_connection *conn,
     } else if (format == S2N_SERIALIZED_FORMAT_TLS13_V1) {
         RESULT_GUARD(s2n_tls13_deserialize_session_state(conn, ticket, from));
     } else {
-        // TODO: also need to set the invalid version here?
         RESULT_BAIL(S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
     }
     conn->set_session = true;
@@ -914,17 +895,10 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
     RESULT_ENSURE_REF(from);
     RESULT_ENSURE_REF(conn->config);
 
-    conn->handshake_event.resumption_event.attempted_resumption = true;
-    /* set "other error" to handle all of the early exits we have */
-    conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_OTHER_ERROR;
-
     /* Read version number */
     uint8_t version = 0;
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(from, &version));
-    if (version != S2N_PRE_ENCRYPTED_STATE_V1) {
-        conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_FORMAT_UNKNOWN;
-        RESULT_BAIL(S2N_ERR_SAFETY);
-    }
+    RESULT_ENSURE_EQ(version, S2N_PRE_ENCRYPTED_STATE_V1);
 
     /* Read key name */
     uint8_t key_name[S2N_TICKET_KEY_NAME_LEN] = { 0 };
@@ -932,10 +906,7 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
 
     struct s2n_ticket_key *key = s2n_find_ticket_key(conn->config, key_name);
     /* Key has expired; do full handshake */
-    if (key == NULL) {
-        conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_STEK_UNKNOWN;
-        RESULT_BAIL(S2N_ERR_KEY_USED_IN_SESSION_TICKET_NOT_FOUND);
-    }
+    RESULT_ENSURE(key != NULL, S2N_ERR_KEY_USED_IN_SESSION_TICKET_NOT_FOUND);
 
     struct s2n_unique_ticket_key ticket_key = { 0 };
     RESULT_GUARD_POSIX(s2n_blob_init(&ticket_key.initial_key, key->aes_key, sizeof(key->aes_key)));
