@@ -1197,6 +1197,7 @@ int s2n_config_set_npn(struct s2n_config *config, bool enable)
  */
 S2N_RESULT s2n_config_wall_clock(struct s2n_config *config, uint64_t *output)
 {
+    RESULT_ENSURE_REF(config);
     RESULT_ENSURE(config->wall_clock(config->sys_clock_ctx, output) >= S2N_SUCCESS, S2N_ERR_CANCELLED);
     return S2N_RESULT_OK;
 }
