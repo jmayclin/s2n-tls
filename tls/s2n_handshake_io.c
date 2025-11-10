@@ -1701,11 +1701,14 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
 
     // TODO -> use the monotonic clock instead.
     uint64_t negotiate_start = 0;
-    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_start));
-
-    if (conn->handshake_event.handshake_start_epoch_ns == 0) {
-        conn->handshake_event.handshake_start_epoch_ns = negotiate_start;
+    if (conn->config) {
+        POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_start));
+        if (conn->handshake_event.handshake_start_epoch_ns == 0) {
+            conn->handshake_event.handshake_start_epoch_ns = negotiate_start;
+        }
     }
+
+
 
     int result = s2n_negotiate_impl(conn, blocked);
 
@@ -1714,7 +1717,9 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
     uint64_t negotiate_end = 0;
-    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_end));
+    if (conn->config) {
+        POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_end));
+    }
 
     conn->handshake_event.handshake_time_ns += negotiate_end - negotiate_start;
 

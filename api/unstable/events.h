@@ -17,23 +17,6 @@
 
 #include <s2n.h>
 
-// typedef enum {
-//     S2N_RESUMPTION_NONE = 0,
-//     S2N_RESUMPTION_SUCCESS,
-//     S2N_RESUMPTION_TICKET_EXPIRED,
-//     S2N_RESUMPTION_FORMAT_UNKNOWN,
-//     S2N_RESUMPTION_STEK_UNKNOWN,
-//     S2N_RESUMPTION_OTHER_ERROR,
-// } s2n_resumption_outcome;
-
-// struct s2n_event_resumption {
-//     bool supports_resumption;
-//     bool attempted_resumption;
-//     s2n_resumption_outcome outcome;
-//     uint64_t ticket_age_ms;
-//     uint64_t material_age_ms;
-// };
-
 struct s2n_event_handshake {
     int protocol_version;
     /* static memory */
