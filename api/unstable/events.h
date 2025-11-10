@@ -17,22 +17,22 @@
 
 #include <s2n.h>
 
-typedef enum {
-    S2N_RESUMPTION_NONE = 0,
-    S2N_RESUMPTION_SUCCESS,
-    S2N_RESUMPTION_TICKET_EXPIRED,
-    S2N_RESUMPTION_FORMAT_UNKNOWN,
-    S2N_RESUMPTION_STEK_UNKNOWN,
-    S2N_RESUMPTION_OTHER_ERROR,
-} s2n_resumption_outcome;
+// typedef enum {
+//     S2N_RESUMPTION_NONE = 0,
+//     S2N_RESUMPTION_SUCCESS,
+//     S2N_RESUMPTION_TICKET_EXPIRED,
+//     S2N_RESUMPTION_FORMAT_UNKNOWN,
+//     S2N_RESUMPTION_STEK_UNKNOWN,
+//     S2N_RESUMPTION_OTHER_ERROR,
+// } s2n_resumption_outcome;
 
-struct s2n_event_resumption {
-    bool supports_resumption;
-    bool attempted_resumption;
-    s2n_resumption_outcome outcome;
-    uint64_t ticket_age_ms;
-    uint64_t material_age_ms;
-};
+// struct s2n_event_resumption {
+//     bool supports_resumption;
+//     bool attempted_resumption;
+//     s2n_resumption_outcome outcome;
+//     uint64_t ticket_age_ms;
+//     uint64_t material_age_ms;
+// };
 
 struct s2n_event_handshake {
     int protocol_version;
@@ -40,20 +40,14 @@ struct s2n_event_handshake {
     const char * cipher;
     /* static memory */
     const char * group;
-    /* static memory */
-    const char * signature;
-    /* true if the connection was resumed */
-    bool resumed;
+    s2n_tls_signature_algorithm signature;
     /* true if the connection performed a hello retry */
     bool hello_retry;
 
-    /* the amount of time between when the s2n_negotiate was started and when it
-     * finished, including network round trips */
-    uint64_t handshake_duration_ns;
-    /* the amount of time inside the synchronus s2n_negotiate method */
-    uint64_t handshake_negotiate_duration_ns;
-
-    struct s2n_event_resumption resumption_event;
+    /* the amount of time inside the synchronous s2n_negotiate method */
+    uint64_t handshake_time_ns;
+    uint64_t handshake_start_epoch_ns;
+    uint64_t handshake_end_epoch_ns;
 };
 
 typedef void (*s2n_event_on_handshake_cb)(void *subscriber, struct s2n_event_handshake *event);

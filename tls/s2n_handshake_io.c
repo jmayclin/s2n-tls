@@ -36,6 +36,7 @@
 #include "utils/s2n_random.h"
 #include "utils/s2n_safety.h"
 #include "utils/s2n_socket.h"
+#include "utils/s2n_events.h"
 
 /* clang-format off */
 struct s2n_handshake_action {
@@ -1694,17 +1695,17 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
 int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
 {
     POSIX_ENSURE_REF(conn);
+
     POSIX_ENSURE(!conn->negotiate_in_use, S2N_ERR_REENTRANCY);
     conn->negotiate_in_use = true;
 
-    uint64_t start = 0;
-    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &start));
+    // TODO -> use the monotonic clock instead.
+    uint64_t negotiate_start = 0;
+    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_start));
 
-    if (conn->handshake_event.handshake_duration_ns == 0) {
-        conn->handshake_event.handshake_duration_ns = start;
+    if (conn->handshake_event.handshake_start_epoch_ns == 0) {
+        conn->handshake_event.handshake_start_epoch_ns = negotiate_start;
     }
-
-    // start the timer if we haven't already
 
     int result = s2n_negotiate_impl(conn, blocked);
 
@@ -1712,25 +1713,17 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_in_buffer(conn));
     POSIX_GUARD_RESULT(s2n_connection_dynamic_free_out_buffer(conn));
 
-    uint64_t end = 0;
-    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &end));
+    uint64_t negotiate_end = 0;
+    POSIX_GUARD_RESULT(s2n_config_wall_clock(conn->config, &negotiate_end));
 
-    conn->handshake_event.handshake_negotiate_duration_ns += end - start;
+    conn->handshake_event.handshake_time_ns += negotiate_end - negotiate_start;
 
     if (result == S2N_SUCCESS) {
         // assuming this is idempotent, probably a bad idea
-        conn->handshake_event.handshake_duration_ns = end - conn->handshake_event.handshake_duration_ns;
-
-        if (conn->config->subscriber) {
-            conn->handshake_event.cipher = s2n_connection_get_cipher(conn);
-            s2n_connection_get_key_exchange_group(conn, &conn->handshake_event.group);
-            conn->handshake_event.protocol_version = s2n_connection_get_actual_protocol_version(conn);
-            if (s2n_connection_is_session_resumed(conn)) {
-                conn->handshake_event.resumption_event.outcome = S2N_RESUMPTION_SUCCESS;
-            }
-
-            conn->config->on_handshake_event(conn->config->subscriber, &conn->handshake_event);
-        }
+        conn->handshake_event.handshake_end_epoch_ns = negotiate_end;
+        // thoughts: could this break the handshake loop in any way?
+        POSIX_GUARD_RESULT(s2n_event_handshake_populate(conn, &conn->handshake_event));
+        POSIX_GUARD_RESULT(s2n_event_handshake_send(conn));
     }
 
     conn->negotiate_in_use = false;
