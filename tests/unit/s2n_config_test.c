@@ -14,6 +14,8 @@
  */
 
 #include "tls/s2n_config.h"
+/* included for access to static `monotonic_clock`*/
+#include "tls/s2n_config.c"
 
 #include <stdlib.h>
 #include <testlib/s2n_sslv2_client_hello.h>
@@ -1219,8 +1221,12 @@ int main(int argc, char **argv)
 
             EXPECT_SUCCESS(s2n_connection_set_config(client_conn, config_arr[i]));
 
-            /* Server config pointer is explicitly set to NULL */
-            server_conn->config = NULL;
+            /* Server config is zero'd out. Ideally we'd actually set the config
+             * to null, but we need to access the monotonic clock for handshaking
+             * timing 
+             */            struct s2n_config zeroed_config = { 0 };
+            zeroed_config.monotonic_clock = monotonic_clock;
+            server_conn->config = &zeroed_config;
 
             DEFER_CLEANUP(struct s2n_test_io_stuffer_pair test_io = { 0 },
                     s2n_io_stuffer_pair_free);
@@ -1256,7 +1262,13 @@ int main(int argc, char **argv)
             DEFER_CLEANUP(struct s2n_connection *server_conn = s2n_connection_new(S2N_SERVER),
                     s2n_connection_ptr_free);
             EXPECT_NOT_NULL(server_conn);
-            server_conn->config = NULL;
+            /* Server config is zero'd out. Ideally we'd actually set the config
+             * to null, but we need to access the monotonic clock for handshaking
+             * timing 
+             */
+            struct s2n_config zeroed_config = { 0 };
+            zeroed_config.monotonic_clock = monotonic_clock;
+            server_conn->config = &zeroed_config;
 
             /* Record version and protocol version are in the header for SSLv2 */
             server_conn->client_hello.sslv2 = true;

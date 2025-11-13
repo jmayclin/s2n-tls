@@ -37,6 +37,7 @@ aws-sdk-cloudwatch = "1.93.0"
 tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }
 aws-config = "1.8.7"
 aws-sdk-cloudwatchlogs = "1.104.0"
+tracing = "0.1.41"
 
 
 [dev-dependencies]

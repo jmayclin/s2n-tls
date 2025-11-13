@@ -1202,6 +1202,18 @@ S2N_RESULT s2n_config_wall_clock(struct s2n_config *config, uint64_t *output)
     return S2N_RESULT_OK;
 }
 
+/*
+ * Get the indicated time from the monotonic clock.
+ * 
+ * This callback ensures that the correct errno is set in the case of failure.
+ */
+S2N_RESULT s2n_config_monotonic_clock(struct s2n_config *config, uint64_t *output)
+{
+    RESULT_ENSURE_REF(config);
+    RESULT_ENSURE(config->monotonic_clock(config->monotonic_clock_ctx, output) >= S2N_SUCCESS, S2N_ERR_CANCELLED);
+    return S2N_RESULT_OK;
+}
+
 int s2n_config_set_crl_lookup_cb(struct s2n_config *config, s2n_crl_lookup_callback cb, void *ctx)
 {
     POSIX_ENSURE_REF(config);

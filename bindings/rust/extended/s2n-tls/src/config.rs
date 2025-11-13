@@ -6,7 +6,7 @@ use crate::cert_authorities::CertificateRequestCallback;
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::*, cert_chain::CertificateChain, enums::*, error::{Error, ErrorType, Fallible}, events::EventSubscriber, security
+    callbacks::*, cert_chain::CertificateChain, enums::*, error::{Error, ErrorType, Fallible}, events::{EventSubscriber, HandshakeEvent}, security
 };
 use core::{convert::TryInto, ptr::NonNull};
 use s2n_tls_sys::*;
@@ -718,7 +718,7 @@ impl Builder {
         ) {
             let context = subscriber as *mut Context as *const Context;
             let context = &*context;
-            context.event_subscriber.as_ref().map(|c| c.on_handshake_event(&*event));
+            context.event_subscriber.as_ref().map(|c| c.on_handshake_event(&HandshakeEvent::new(&*event)));
         }
 
         let handler = Box::new(subscriber);
