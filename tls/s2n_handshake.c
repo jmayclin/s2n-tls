@@ -62,6 +62,8 @@ S2N_RESULT s2n_handshake_parse_header(struct s2n_stuffer *io, uint8_t *message_t
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(io, message_type));
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint24(io, length));
 
+    printf("s2n_handshake_parse_header: %s with length %d\n", s2n_get_message_name(*message_type), *length);
+
     return S2N_RESULT_OK;
 }
 

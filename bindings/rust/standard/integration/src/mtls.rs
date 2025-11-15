@@ -152,7 +152,7 @@ fn mtls_with_cert_verify() {
 }
 
 #[test]
-fn mtls_with_async_cert_verify() {
+fn mtls_rustls_s2n_async_verify() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::TRACE)
         .init();
@@ -220,7 +220,7 @@ impl VerifyHostNameCallback for HostNameIgnorer {
 
 /// control case: async cert validation stuff works in this case
 #[test]
-fn mtls_with_async_cert_verify_and_s2n_tls() {
+fn mtls_s2n_s2n_async_verify() {
     let (callback, rx) = SyncCallback::new(false);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<S2NConnection, S2NConnection> = {

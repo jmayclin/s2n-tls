@@ -59,6 +59,8 @@ typedef enum {
     S2N_NEW_TICKET
 } s2n_session_ticket_status;
 
+const char* s2n_get_message_name(int message);
+
 struct s2n_connection {
     /* Is this connection using CORK/SO_RCVLOWAT optimizations? Only valid when the connection is using
      * managed_send_io

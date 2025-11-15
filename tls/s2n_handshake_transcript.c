@@ -22,6 +22,7 @@
 /* Length of the synthetic message header */
 #define MESSAGE_HASH_HEADER_LENGTH 4
 
+/* precondition: conn->handshake.io is filled with one message */
 S2N_RESULT s2n_handshake_transcript_update(struct s2n_connection *conn)
 {
     RESULT_ENSURE_REF(conn);

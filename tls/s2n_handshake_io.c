@@ -107,6 +107,7 @@ static struct s2n_handshake_action tls13_state_machine[] = {
     [APPLICATION_DATA]          = {TLS_APPLICATION_DATA, 0, 'B', {s2n_always_fail_send, s2n_always_fail_recv}},
 };
 
+/* Create a */
 #define MESSAGE_NAME_ENTRY(msg) [msg] = #msg
 
 static const char *message_names[] = {
@@ -826,6 +827,7 @@ static const char *tls13_handshake_type_names[] = {
 #define ACTIVE_STATE_MACHINE(conn) (IS_TLS13_HANDSHAKE(conn) ? tls13_state_machine : state_machine)
 #define ACTIVE_HANDSHAKES(conn)    (IS_TLS13_HANDSHAKE(conn) ? tls13_handshakes : handshakes)
 
+/* return the current message that s2n-tls is waiting for */
 #define ACTIVE_MESSAGE(conn) ACTIVE_HANDSHAKES(conn)[(conn)->handshake.handshake_type][(conn)->handshake.message_number]
 
 #define ACTIVE_STATE(conn) ACTIVE_STATE_MACHINE(conn)[ACTIVE_MESSAGE((conn))]
@@ -1131,12 +1133,56 @@ S2N_RESULT s2n_conn_choose_state_machine(struct s2n_connection *conn, uint8_t pr
 
     return S2N_RESULT_OK;
 }
-
+/* why does this say last message, but the macro is active message. I am confusion */
 const char *s2n_connection_get_last_message_name(struct s2n_connection *conn)
 {
     PTR_ENSURE_REF(conn);
     PTR_GUARD_RESULT(s2n_handshake_validate(&(conn->handshake)));
     return message_names[ACTIVE_MESSAGE(conn)];
+}
+
+/* this is not the message type that we use other places ahhhhhh */
+const char *s2n_get_message_name(int iana_message_id) {
+    switch (iana_message_id) {
+case TLS_HELLO_REQUEST:
+        return "TLS_HELLO_REQUEST";
+case TLS_CLIENT_HELLO:
+        return "TLS_CLIENT_HELLO";
+case TLS_SERVER_HELLO:
+        return "TLS_SERVER_HELLO";
+case TLS_SERVER_NEW_SESSION_TICKET:
+        return "TLS_SERVER_NEW_SESSION_TICKET";
+case TLS_END_OF_EARLY_DATA:
+        return "TLS_END_OF_EARLY_DATA";
+case TLS_ENCRYPTED_EXTENSIONS:
+        return "TLS_ENCRYPTED_EXTENSIONS";
+case TLS_CERTIFICATE:
+        return "TLS_CERTIFICATE";
+case TLS_SERVER_KEY:
+        return "TLS_SERVER_KEY";
+case TLS_CERT_REQ:
+        return "TLS_CERT_REQ";
+case TLS_SERVER_HELLO_DONE:
+        return "TLS_SERVER_HELLO_DONE";
+case TLS_CERT_VERIFY:
+        return "TLS_CERT_VERIFY";
+case TLS_CLIENT_KEY:
+        return "TLS_CLIENT_KEY";
+case TLS_FINISHED:
+        return "TLS_FINISHED";
+case TLS_SERVER_CERT_STATUS:
+        return "TLS_SERVER_CERT_STATUS";
+case TLS_SERVER_SESSION_LOOKUP:
+        return "TLS_SERVER_SESSION_LOOKUP";
+case TLS_KEY_UPDATE:
+        return "TLS_KEY_UPDATE";
+case TLS_NPN:
+        return "TLS_NPN";
+case TLS_MESSAGE_HASH:
+        return "TLS_MESSAGE_HASH";
+default:
+        return "UNKNOWN";
+    }
 }
 
 const char *s2n_connection_get_handshake_type_name(struct s2n_connection *conn)
@@ -1272,6 +1318,9 @@ static int s2n_handshake_write_io(struct s2n_connection *conn)
  *  1  - more data is needed to complete the handshake message.
  *  0  - we read the whole handshake message.
  * -1  - error processing the handshake message.
+ * 
+ * If we read the whole message, then the decrypted (?) message is available in 
+ * conn->handshake.io
  */
 static int s2n_read_full_handshake_message(struct s2n_connection *conn, uint8_t *message_type)
 {
@@ -1358,6 +1407,7 @@ static S2N_RESULT s2n_finish_read(struct s2n_connection *conn)
     RESULT_ENSURE_REF(conn);
 
     RESULT_GUARD(s2n_handshake_transcript_update(conn));
+    printf("s2n_finish_read: wiping handshake io: r:%d, w: %d\n", conn->handshake.io.read_cursor, conn->handshake.io.write_cursor);
     RESULT_GUARD_POSIX(s2n_stuffer_wipe(&conn->handshake.io));
     RESULT_GUARD(s2n_tls13_secrets_update(conn));
     RESULT_GUARD(s2n_tls13_key_schedule_update(conn));
@@ -1384,7 +1434,11 @@ static S2N_RESULT s2n_handshake_app_data_recv(struct s2n_connection *conn)
     RESULT_BAIL(S2N_ERR_BAD_MESSAGE);
 }
 
-/* Reading is a little more complicated than writing as the TLS RFCs allow content
+/**
+ * Precondition: conn->handshake.io is empty, and the input buffer has handshake
+ *               data waiting to be read.
+ * Postcondition: 
+ * Reading is a little more complicated than writing as the TLS RFCs allow content
  * types to be interleaved at the record layer. We may get an alert message
  * during the handshake phase, or messages of types that we don't support (e.g.
  * HEARTBEAT messages), or during renegotiations we may even get application
@@ -1393,14 +1447,14 @@ static S2N_RESULT s2n_handshake_app_data_recv(struct s2n_connection *conn)
 static int s2n_handshake_read_io(struct s2n_connection *conn)
 {
     uint8_t record_type = 0;
-    uint8_t message_type = 0;
+    uint8_t iana_message_id = 0;
     int isSSLv2 = 0;
 
     /* Fill conn->in stuffer necessary for the handshake.
      * If using TCP, read a record. If using QUIC, read a message. */
     if (s2n_connection_is_quic_enabled(conn)) {
         record_type = TLS_HANDSHAKE;
-        POSIX_GUARD_RESULT(s2n_quic_read_handshake_message(conn, &message_type));
+        POSIX_GUARD_RESULT(s2n_quic_read_handshake_message(conn, &iana_message_id));
     } else {
         int r = s2n_read_full_record(conn, &record_type, &isSSLv2);
 
@@ -1483,7 +1537,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         /* We're done with negotiating but we have trailing data in this record. Bail on the handshake. */
         S2N_ERROR_IF(EXPECTED_RECORD_TYPE(conn) == TLS_APPLICATION_DATA, S2N_ERR_BAD_MESSAGE);
         int r = 0;
-        POSIX_GUARD((r = s2n_read_full_handshake_message(conn, &message_type)));
+        POSIX_GUARD((r = s2n_read_full_handshake_message(conn, &iana_message_id)));
 
         /* Do we need more data? This happens for message fragmentation */
         if (r == 1) {
@@ -1500,7 +1554,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
             /* If client auth is optional, we initially assume it will not be requested.
              * If we received a request, switch to a client auth handshake.
              */
-            if (client_cert_auth_type != S2N_CERT_AUTH_REQUIRED && message_type == TLS_CERT_REQ) {
+            if (client_cert_auth_type != S2N_CERT_AUTH_REQUIRED && iana_message_id == TLS_CERT_REQ) {
                 POSIX_ENSURE(client_cert_auth_type == S2N_CERT_AUTH_OPTIONAL, S2N_ERR_UNEXPECTED_CERT_REQUEST);
                 POSIX_ENSURE(IS_FULL_HANDSHAKE(conn), S2N_ERR_HANDSHAKE_STATE);
                 POSIX_GUARD_RESULT(s2n_handshake_type_set_flag(conn, CLIENT_AUTH));
@@ -1510,7 +1564,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
              * message even if it has sent a "status_request" extension in the ServerHello message.
              */
             if (EXPECTED_MESSAGE_TYPE(conn) == TLS_SERVER_CERT_STATUS
-                    && message_type != TLS_SERVER_CERT_STATUS) {
+                    && iana_message_id != TLS_SERVER_CERT_STATUS) {
                 POSIX_GUARD_RESULT(s2n_handshake_type_unset_tls12_flag(conn, OCSP_STATUS));
             }
         }
@@ -1521,7 +1575,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
          *# is the HelloRequest message, which can be sent at any time, but which
          *# SHOULD be ignored by the client if it arrives in the middle of a handshake.
          */
-        if (message_type == TLS_HELLO_REQUEST) {
+        if (iana_message_id == TLS_HELLO_REQUEST) {
             POSIX_GUARD_RESULT(s2n_client_hello_request_validate(conn));
             POSIX_GUARD(s2n_stuffer_wipe(&conn->handshake.io));
             continue;
@@ -1529,15 +1583,16 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
 
         /* Check for missing Certificate Requests to surface a more specific error */
         if (EXPECTED_MESSAGE_TYPE(conn) == TLS_CERT_REQ) {
-            POSIX_ENSURE(message_type == TLS_CERT_REQ,
+            POSIX_ENSURE(iana_message_id == TLS_CERT_REQ,
                     S2N_ERR_MISSING_CERT_REQUEST);
         }
 
         POSIX_ENSURE(record_type == EXPECTED_RECORD_TYPE(conn), S2N_ERR_BAD_MESSAGE);
-        POSIX_ENSURE(message_type == EXPECTED_MESSAGE_TYPE(conn), S2N_ERR_BAD_MESSAGE);
+        POSIX_ENSURE(iana_message_id == EXPECTED_MESSAGE_TYPE(conn), S2N_ERR_BAD_MESSAGE);
         POSIX_ENSURE(!CONNECTION_IS_WRITER(conn), S2N_ERR_BAD_MESSAGE);
 
         /* Call the relevant handler */
+        printf("s2n_handshake_read_io: calling the handler for %s\n", message_names[ACTIVE_MESSAGE(conn)]);
         WITH_ERROR_BLINDING(conn, POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn)));
 
         /* Advance the state machine */
@@ -1605,7 +1660,11 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(blocked);
 
+    printf("s2n_negotiate: poll start -> %s\n", s2n_connection_get_last_message_name(conn));
+
     while (!s2n_handshake_is_complete(conn) && ACTIVE_MESSAGE(conn) != conn->handshake.end_of_messages) {
+        printf("s2n_negotiate: interior poll -> %s\n", s2n_connection_get_last_message_name(conn));
+
         errno = 0;
         s2n_errno = S2N_ERR_OK;
 
