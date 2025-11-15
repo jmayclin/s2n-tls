@@ -22,6 +22,14 @@
 
 #pragma once
 
+#ifdef S2N_DEBUG_LOGS
+    #include <stdio.h>
+    #define S2N_DEBUG(...) printf(__VA_ARGS__)
+#else
+    /* Strip out all debug log calls at compile time */
+    #define S2N_DEBUG(...) do {} while (0)
+#endif
+
 #ifndef S2N_API
     /**
      * Marks a function as belonging to the public s2n API.
