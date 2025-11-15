@@ -4,25 +4,21 @@
 use openssl::ssl::SslContextBuilder;
 use rustls::ClientConfig;
 use s2n_tls::{
-    callbacks::{CertValidationCallbackSync, CertValidationInfo},
+    callbacks::{CertValidationCallbackSync, CertValidationInfo, VerifyHostNameCallback},
     connection::Connection,
     enums::ClientAuthType,
 };
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, atomic::{AtomicU64, Ordering}, mpsc::{Receiver, Sender}
     },
     thread::sleep,
     time::Duration,
 };
 use tls_harness::{
-    cohort::{
-        rustls::RustlsConfigBuilder, OpenSslConnection, RustlsConfig, RustlsConnection, S2NConfig,
-        S2NConnection,
-    },
-    harness::{read_to_bytes, TlsConfigBuilder, TlsConfigBuilderPair},
-    PemType, SigType, TlsConnPair,
+    PemType, SigType, TlsConnPair, TlsConnection, cohort::{
+        OpenSslConnection, RustlsConfig, RustlsConnection, S2NConfig, S2NConnection, rustls::RustlsConfigBuilder
+    }, harness::{TlsConfigBuilder, TlsConfigBuilderPair, read_to_bytes}
 };
 
 /// Total application data size (chosen so the final record is always more than small size)
@@ -70,27 +66,36 @@ fn mtls_basic() {
 }
 use s2n_tls::error::Error as S2NError;
 
-#[derive(Debug, Default)]
+struct LetMeSendDamnIt(*mut s2n_tls_sys::s2n_cert_validation_info);
+
+unsafe impl Send for LetMeSendDamnIt {}
+
+#[derive(Debug)]
 struct SyncCallback {
     invoked: Arc<AtomicU64>,
     /// this is the number of time that the callback must be polled before it returns successfully
-    required_invokes: u64,
+    immediately_accept: bool,
+    callback_sender: Sender<LetMeSendDamnIt>,
 }
 
 impl SyncCallback {
-    fn new(required_invokes: u64) -> Self {
-        Self {
+    fn new(immediately_accept: bool) -> (Self, Receiver<LetMeSendDamnIt>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let value = Self {
             invoked: Default::default(),
-            required_invokes,
-        }
+            immediately_accept: immediately_accept,
+            callback_sender: tx
+        };
+        (value, rx)
     }
 }
 
 impl CertValidationCallbackSync for SyncCallback {
     fn handle_validation(&self, conn: &mut Connection, info: &mut CertValidationInfo) {
         self.invoked.fetch_add(1, Ordering::SeqCst);
+        self.callback_sender.send(LetMeSendDamnIt(info.info.as_ptr()));
         println!("cert validation invoked");
-        if self.invoked.load(Ordering::SeqCst) == self.required_invokes {
+        if self.immediately_accept {
             info.accept().unwrap();
         }
     }
@@ -98,7 +103,7 @@ impl CertValidationCallbackSync for SyncCallback {
 
 #[test]
 fn mtls_with_cert_verify() {
-    let callback = SyncCallback::new(1);
+    let (callback, rx) = SyncCallback::new(true);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
         let server_config = {
@@ -148,7 +153,7 @@ fn mtls_with_cert_verify() {
 
 #[test]
 fn mtls_with_async_cert_verify() {
-    let callback = SyncCallback::new(2);
+    let (callback, rx) = SyncCallback::new(false);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
         let server_config = {
@@ -179,20 +184,79 @@ fn mtls_with_async_cert_verify() {
             .unwrap();
         let client_config: RustlsConfig = client_config.into();
 
+        TlsConnPair::from_configs(&client_config, &server_config)
+    };
+    pair.io.enable_recording();
+    
+    pair.client.handshake().unwrap();
+    pair.server.handshake().unwrap();
+    pair.client.handshake().unwrap();
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
+    pair.server.handshake().unwrap();
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
+    let ptr = rx.recv().unwrap().0;
+    let mut validation_info = CertValidationInfo::from_ptr(ptr);
+    validation_info.accept().unwrap();
+
+    pair.handshake().unwrap();
+
+    pair.round_trip_assert(APP_DATA_SIZE).unwrap();
+    pair.shutdown().unwrap();
+}
+
+struct HostNameIgnorer;
+impl VerifyHostNameCallback for HostNameIgnorer {
+    fn verify_host_name(&self, host_name: &str) -> bool {
+        println!("the host name: {host_name}");
+        true
+    }
+}
+
+/// control case: async cert validation stuff works in this case
+#[test]
+fn mtls_with_async_cert_verify_and_s2n_tls() {
+    let (callback, rx) = SyncCallback::new(false);
+    let callback_handle = Arc::clone(&callback.invoked);
+    let mut pair: TlsConnPair<S2NConnection, S2NConnection> = {
         let mut configs =
-            TlsConfigBuilderPair::<RustlsConfigBuilder, s2n_tls::config::Builder>::default();
+            TlsConfigBuilderPair::<s2n_tls::config::Builder, s2n_tls::config::Builder>::default();
         configs
             .server
             .set_client_auth_type(ClientAuthType::Required)
+            .unwrap()
+            .with_system_certs(false)
+            .unwrap()
+            .trust_pem(&read_to_bytes(PemType::CACert, SigType::Rsa2048))
+            .unwrap()
+            .set_cert_validation_callback_sync(callback)
+            .unwrap()
+            .set_verify_host_callback(HostNameIgnorer)
             .unwrap();
-        TlsConnPair::from_configs(&client_config, &server_config)
+        configs.client.set_chain(SigType::Rsa2048);
+        configs
+            .client
+            .set_client_auth_type(ClientAuthType::Required)
+            .unwrap()
+            .set_verify_host_callback(HostNameIgnorer)
+            .unwrap();
+
+        configs.connection_pair()
     };
-    assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
     pair.io.enable_recording();
+    
+    pair.client.handshake().unwrap();
+    pair.server.handshake().unwrap();
+    pair.client.handshake().unwrap();
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
+    pair.server.handshake().unwrap();
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
+    let ptr = rx.recv().unwrap().0;
+    let mut validation_info = CertValidationInfo::from_ptr(ptr);
+    validation_info.accept().unwrap();
 
     pair.handshake().unwrap();
+
     pair.round_trip_assert(APP_DATA_SIZE).unwrap();
     pair.shutdown().unwrap();
 
-    assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
 }

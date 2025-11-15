@@ -194,9 +194,14 @@ where
     /// Two round trips are needed for the server to receive the Finished message
     /// from the client and be ready to send data
     pub fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut attempts = 0;
         while !self.handshake_completed() {
+            attempts += 1;
             self.client.handshake()?;
             self.server.handshake()?;
+            if attempts == 100 {
+                panic!("there were 100 poll attempts");
+            }
         }
         // match (self.client.handshake()?, self.server.handshake()?) {
 

@@ -10,12 +10,12 @@ use crate::{
 use std::{marker::PhantomData, ptr::NonNull};
 
 pub struct CertValidationInfo<'a> {
-    info: NonNull<s2n_cert_validation_info>,
+    pub info: NonNull<s2n_cert_validation_info>,
     _lifetime: PhantomData<&'a s2n_cert_validation_info>,
 }
 
 impl CertValidationInfo<'_> {
-    pub(crate) fn from_ptr(info: *mut s2n_cert_validation_info) -> Self {
+    pub fn from_ptr(info: *mut s2n_cert_validation_info) -> Self {
         let info = NonNull::new(info).expect("info pointer should not be null");
         CertValidationInfo {
             info,
