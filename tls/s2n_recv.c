@@ -88,6 +88,7 @@ static S2N_RESULT s2n_recv_buffer_in(struct s2n_connection *conn, size_t min_siz
     return S2N_RESULT_OK;
 }
 
+/* post condition: conn->buffer_in holds a (possible encrypted) record */
 int s2n_read_full_record(struct s2n_connection *conn, uint8_t *record_type, int *isSSLv2)
 {
     *isSSLv2 = 0;
@@ -98,6 +99,11 @@ int s2n_read_full_record(struct s2n_connection *conn, uint8_t *record_type, int 
 
     /* If the record has already been decrypted, then leave it alone */
     if (conn->in_status == PLAINTEXT) {
+        /* TODO: check if we're still handshake*/
+        if (!is_handshake_complete(conn)) {
+            *record_type = TLS_HANDSHAKE;
+            return S2N_SUCCESS;
+        }
         /* Only application data packets count as plaintext */
         *record_type = TLS_APPLICATION_DATA;
         return S2N_SUCCESS;
@@ -108,6 +114,7 @@ int s2n_read_full_record(struct s2n_connection *conn, uint8_t *record_type, int 
     uint32_t header_available = s2n_stuffer_data_available(&conn->header_in);
     if (header_available < S2N_TLS_RECORD_HEADER_LENGTH) {
         uint32_t header_remaining = S2N_TLS_RECORD_HEADER_LENGTH - header_available;
+        /* this is the thing that actually does the reading */
         s2n_result ret = s2n_recv_buffer_in(conn, header_remaining);
         uint32_t header_read = MIN(header_remaining, s2n_stuffer_data_available(&conn->buffer_in));
         POSIX_GUARD(s2n_stuffer_copy(&conn->buffer_in, &conn->header_in, header_read));

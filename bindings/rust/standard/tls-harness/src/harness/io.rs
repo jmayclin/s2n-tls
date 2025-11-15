@@ -139,7 +139,7 @@ impl std::io::Read for ViewIO {
 impl std::io::Write for ViewIO {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let write_result = self.send_ctx().borrow_mut().write(buf);
-        println!("{:?} wrote {:?} bytes", self.identity, write_result);
+        tracing::debug!("{:?} wrote {:?} bytes", self.identity, write_result);
 
         if self.io.recording.load(Ordering::Relaxed) {
             if let Ok(written) = write_result {

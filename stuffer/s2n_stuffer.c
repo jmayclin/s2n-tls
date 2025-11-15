@@ -167,7 +167,7 @@ int s2n_stuffer_resize(struct s2n_stuffer *stuffer, const uint32_t size)
     POSIX_POSTCONDITION(s2n_stuffer_validate(stuffer));
     return S2N_SUCCESS;
 }
-
+/* resize the buffer to size, doing nothing if it is empty */
 int s2n_stuffer_resize_if_empty(struct s2n_stuffer *stuffer, const uint32_t size)
 {
     POSIX_PRECONDITION(s2n_stuffer_validate(stuffer));

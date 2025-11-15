@@ -851,19 +851,24 @@ S2N_RESULT s2n_x509_validator_validate_cert_chain(struct s2n_x509_validator *val
         uint8_t *cert_chain_in, uint32_t cert_chain_len, s2n_pkey_type *pkey_type, struct s2n_pkey *public_key_out)
 {
     RESULT_ENSURE_REF(validator);
+    S2N_DEBUG("start in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
     if (validator->cert_validation_cb_invoked) {
         RESULT_GUARD(s2n_x509_validator_handle_cert_validation_callback_result(validator));
     } else {
         RESULT_GUARD(s2n_x509_validator_validate_cert_chain_pre_cb(validator, conn, cert_chain_in, cert_chain_len));
+        S2N_DEBUG("after pre_cb in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
         if (conn->config->cert_validation_cb) {
             RESULT_ENSURE(conn->config->cert_validation_cb(conn, &(validator->cert_validation_info), conn->config->cert_validation_ctx) == S2N_SUCCESS,
                     S2N_ERR_CANCELLED);
             validator->cert_validation_cb_invoked = true;
+            S2N_DEBUG("after cert validation cb invocation in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
+
             RESULT_GUARD(s2n_x509_validator_handle_cert_validation_callback_result(validator));
         }
     }
+    S2N_DEBUG("callback returned in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
     /* retrieve information from leaf cert */
     RESULT_ENSURE_GT(sk_X509_num(validator->cert_chain_from_wire), 0);

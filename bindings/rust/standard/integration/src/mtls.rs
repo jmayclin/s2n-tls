@@ -103,6 +103,9 @@ impl CertValidationCallbackSync for SyncCallback {
 
 #[test]
 fn mtls_with_cert_verify() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
     let (callback, rx) = SyncCallback::new(true);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
@@ -151,6 +154,7 @@ fn mtls_with_cert_verify() {
     assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
 }
 
+// gdb --args target/debug/deps/integration-a4a2dc78ba29c050 mtls_rustls_s2n_async_verify
 #[test]
 fn mtls_rustls_s2n_async_verify() {
     tracing_subscriber::fmt()
@@ -203,7 +207,7 @@ fn mtls_rustls_s2n_async_verify() {
     let ptr = rx.recv().unwrap().0;
     let mut validation_info = CertValidationInfo::from_ptr(ptr);
     validation_info.accept().unwrap();
-
+    tracing::info!("cert accepted");
     pair.handshake().unwrap();
 
     pair.round_trip_assert(10).unwrap();

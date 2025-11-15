@@ -108,6 +108,8 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     /* s2n_client_cert_recv() may be re-entered due to handling an async callback.
      * We operate on a copy of `handshake.io` to ensure the stuffer is initilized properly on the re-entry case.
      */
+    S2N_DEBUG("started in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
+
     struct s2n_stuffer in = conn->handshake.io;
 
     if (conn->actual_protocol_version == S2N_TLS13) {
@@ -136,6 +138,7 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
     POSIX_GUARD(s2n_pkey_zero_init(&public_key));
 
     /* Determine the Cert Type, Verify the Cert, and extract the Public Key */
+    S2N_DEBUG("before validate in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
     s2n_pkey_type pkey_type = S2N_PKEY_TYPE_UNKNOWN;
     POSIX_GUARD_RESULT(s2n_x509_validator_validate_cert_chain(&conn->x509_validator, conn, cert_chain_data,
             cert_chain_size, &pkey_type, &public_key));
@@ -148,6 +151,8 @@ int s2n_client_cert_recv(struct s2n_connection *conn)
 
     /* Update handshake.io to reflect the true stuffer state after all async callbacks are handled. */
     conn->handshake.io = in;
+
+    S2N_DEBUG("finished in{r:%d w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
     return S2N_SUCCESS;
 }

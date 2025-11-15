@@ -1463,7 +1463,7 @@ int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connecti
     S2N_IO_RETRY_EINTR(r,
             conn->recv(conn->recv_io_context, stuffer->blob.data + stuffer->write_cursor, len));
     POSIX_ENSURE(r >= 0, S2N_ERR_RECV_STUFFER_FROM_CONN);
-
+    S2N_DEBUG("read %d bytes into buffer_in", r);
     /* Record just how many bytes we have written */
     POSIX_GUARD(s2n_stuffer_skip_write(stuffer, r));
     return r;

@@ -26,6 +26,7 @@ s2n-tls-sys = { path = "../../extended/s2n-tls-sys" }
 aws-lc-sys = "*"
 tls-harness = { path = "../tls-harness" }
 rustls = "0.23.35"
+tracing = "0.1"
 
 [dev-dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

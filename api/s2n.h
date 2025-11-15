@@ -22,13 +22,7 @@
 
 #pragma once
 
-#ifdef S2N_DEBUG_LOGS
-    #include <stdio.h>
-    #define S2N_DEBUG(...) printf(__VA_ARGS__)
-#else
-    /* Strip out all debug log calls at compile time */
-    #define S2N_DEBUG(...) do {} while (0)
-#endif
+
 
 #ifndef S2N_API
     /**
@@ -46,6 +40,30 @@ extern "C" {
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+
+#include <string.h>
+
+static inline const char* get_file_and_parent(const char* path) {
+    const char* last_sep = strrchr(path, '/');
+    if (!last_sep) return path;
+    
+    // Find second-to-last separator
+    const char* prev_sep = last_sep - 1;
+    while (prev_sep > path && *prev_sep != '/') prev_sep--;
+    
+    return (prev_sep > path) ? prev_sep + 1 : path;
+}
+
+#define S2N_DEBUG_LOGS 1
+
+#ifdef S2N_DEBUG_LOGS
+    #define S2N_DEBUG(...) \
+        printf("[%s:%d:%s] ", get_file_and_parent(__FILE__), __LINE__, __func__); \
+        printf(__VA_ARGS__); \
+        printf("\n")
+#else
+    #define S2N_DEBUG(...) do {} while (0)
+#endif
 
 /**
  *  Function return code

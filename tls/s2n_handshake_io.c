@@ -1407,7 +1407,7 @@ static S2N_RESULT s2n_finish_read(struct s2n_connection *conn)
     RESULT_ENSURE_REF(conn);
 
     RESULT_GUARD(s2n_handshake_transcript_update(conn));
-    printf("s2n_finish_read: wiping handshake io: r:%d, w: %d\n", conn->handshake.io.read_cursor, conn->handshake.io.write_cursor);
+    S2N_DEBUG("wiping handshake io: r:%d, w: %d", conn->handshake.io.read_cursor, conn->handshake.io.write_cursor);
     RESULT_GUARD_POSIX(s2n_stuffer_wipe(&conn->handshake.io));
     RESULT_GUARD(s2n_tls13_secrets_update(conn));
     RESULT_GUARD(s2n_tls13_key_schedule_update(conn));
@@ -1449,6 +1449,12 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
     uint8_t record_type = 0;
     uint8_t iana_message_id = 0;
     int isSSLv2 = 0;
+
+    S2N_DEBUG(
+        "want read, buffer_in{r:%d, w:%d}", 
+        conn->buffer_in.read_cursor, 
+        conn->buffer_in.write_cursor
+    );
 
     /* Fill conn->in stuffer necessary for the handshake.
      * If using TCP, read a record. If using QUIC, read a message. */
@@ -1592,8 +1598,12 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         POSIX_ENSURE(!CONNECTION_IS_WRITER(conn), S2N_ERR_BAD_MESSAGE);
 
         /* Call the relevant handler */
-        printf("s2n_handshake_read_io: calling the handler for %s\n", message_names[ACTIVE_MESSAGE(conn)]);
-        WITH_ERROR_BLINDING(conn, POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn)));
+        S2N_DEBUG("before handler: buffer_in{r:%d, w:%d}", conn->buffer_in.read_cursor, conn->buffer_in.write_cursor);
+        S2N_DEBUG("before handler: in{r:%d, w:%d}", conn->in.read_cursor, conn->in.write_cursor);
+        S2N_DEBUG("before handler: handshake io{r:%d, w:%d}", conn->handshake.io.read_cursor, conn->handshake.io.write_cursor);
+
+        S2N_DEBUG("calling the handler for %s", message_names[ACTIVE_MESSAGE(conn)]);
+        POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn));
 
         /* Advance the state machine */
         POSIX_GUARD_RESULT(s2n_finish_read(conn));
@@ -1621,11 +1631,6 @@ static int s2n_handle_retry_state(struct s2n_connection *conn)
     /* Resume the handshake */
     conn->handshake.paused = false;
 
-    if (!CONNECTION_IS_WRITER(conn)) {
-        /* We're done parsing the record, reset everything */
-        POSIX_GUARD_RESULT(s2n_record_wipe(conn));
-    }
-
     if (CONNECTION_IS_WRITER(conn)) {
         POSIX_GUARD(r);
 
@@ -1635,6 +1640,13 @@ static int s2n_handle_retry_state(struct s2n_connection *conn)
             POSIX_GUARD(s2n_handshake_finish_header(&conn->handshake.io));
         }
     } else {
+        /* We're done parsing the record, reset everything */
+        if (s2n_stuffer_data_available(&conn->in) > 0) {
+            POSIX_GUARD_RESULT(s2n_finish_read(conn));
+            return S2N_SUCCESS;
+        }
+        POSIX_GUARD_RESULT(s2n_record_wipe(conn));
+
         if (r < S2N_SUCCESS && conn->session_id_len) {
             s2n_try_delete_session_cache(conn);
         }
@@ -1660,10 +1672,11 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(blocked);
 
-    printf("s2n_negotiate: poll start -> %s\n", s2n_connection_get_last_message_name(conn));
+    S2N_DEBUG("poll start -> %s", s2n_connection_get_last_message_name(conn));
 
     while (!s2n_handshake_is_complete(conn) && ACTIVE_MESSAGE(conn) != conn->handshake.end_of_messages) {
-        printf("s2n_negotiate: interior poll -> %s\n", s2n_connection_get_last_message_name(conn));
+        S2N_DEBUG("interior poll -> %s", s2n_connection_get_last_message_name(conn));
+        S2N_DEBUG("\t in{r:%d, w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
         errno = 0;
         s2n_errno = S2N_ERR_OK;
@@ -1714,6 +1727,7 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
         } else {
             *blocked = S2N_BLOCKED_ON_READ;
             const int read_result = s2n_handshake_read_io(conn);
+            S2N_DEBUG("\t after handshake_read_io in{r:%d, w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
             if (read_result < S2N_SUCCESS) {
                 /* One blocking condition is waiting on the session resumption cache. */
@@ -1728,6 +1742,7 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
                 } else if (s2n_errno == S2N_ERR_EARLY_DATA_BLOCKED) {
                     *blocked = S2N_BLOCKED_ON_EARLY_DATA;
                 }
+                S2N_DEBUG("\t after paused in{r:%d, w:%d}", conn->in.read_cursor, conn->in.write_cursor);
 
                 S2N_ERROR_PRESERVE_ERRNO();
             }
