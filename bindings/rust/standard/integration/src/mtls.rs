@@ -73,17 +73,32 @@ use s2n_tls::error::Error as S2NError;
 #[derive(Debug, Default)]
 struct SyncCallback {
     invoked: Arc<AtomicU64>,
+    /// this is the number of time that the callback must be polled before it returns successfully
+    required_invokes: u64,
 }
+
+impl SyncCallback {
+    fn new(required_invokes: u64) -> Self {
+        Self {
+            invoked: Default::default(),
+            required_invokes,
+        }
+    }
+}
+
 impl CertValidationCallbackSync for SyncCallback {
     fn handle_validation(&self, conn: &mut Connection, info: &mut CertValidationInfo) {
         self.invoked.fetch_add(1, Ordering::SeqCst);
-        info.accept().unwrap();
+        println!("cert validation invoked");
+        if self.invoked.load(Ordering::SeqCst) == self.required_invokes {
+            info.accept().unwrap();
+        }
     }
 }
 
 #[test]
 fn mtls_with_cert_verify() {
-    let callback = SyncCallback::default();
+    let callback = SyncCallback::new(1);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
         let server_config = {
@@ -123,6 +138,57 @@ fn mtls_with_cert_verify() {
         TlsConnPair::from_configs(&client_config, &server_config)
     };
     assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
+
+    pair.handshake().unwrap();
+    pair.round_trip_assert(APP_DATA_SIZE).unwrap();
+    pair.shutdown().unwrap();
+
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn mtls_with_async_cert_verify() {
+    let callback = SyncCallback::new(2);
+    let callback_handle = Arc::clone(&callback.invoked);
+    let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
+        let server_config = {
+            let mut server_config = s2n_tls::config::Builder::new();
+            server_config.set_chain(SigType::Rsa2048);
+            server_config
+                .set_client_auth_type(ClientAuthType::Required)
+                .unwrap()
+                .with_system_certs(false)
+                .unwrap()
+                .trust_pem(&read_to_bytes(PemType::CACert, SigType::Rsa2048))
+                .unwrap()
+                .set_cert_validation_callback_sync(callback)
+                .unwrap();
+            let server_config = server_config.build().unwrap();
+            S2NConfig::from(server_config)
+        };
+
+        let crypto_provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let client_config = ClientConfig::builder_with_provider(crypto_provider)
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_root_certificates(RustlsConfig::get_root_cert_store(SigType::Rsa2048))
+            .with_client_auth_cert(
+                RustlsConfig::get_cert_chain(PemType::ClientCertChain, SigType::Rsa2048),
+                RustlsConfig::get_key(PemType::ClientKey, SigType::Rsa2048),
+            )
+            .unwrap();
+        let client_config: RustlsConfig = client_config.into();
+
+        let mut configs =
+            TlsConfigBuilderPair::<RustlsConfigBuilder, s2n_tls::config::Builder>::default();
+        configs
+            .server
+            .set_client_auth_type(ClientAuthType::Required)
+            .unwrap();
+        TlsConnPair::from_configs(&client_config, &server_config)
+    };
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
+    pair.io.enable_recording();
 
     pair.handshake().unwrap();
     pair.round_trip_assert(APP_DATA_SIZE).unwrap();

@@ -194,7 +194,7 @@ where
     /// Two round trips are needed for the server to receive the Finished message
     /// from the client and be ready to send data
     pub fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
-        for _ in 0..2 {
+        for _ in 0..3 {
             self.client.handshake()?;
             self.server.handshake()?;
         }

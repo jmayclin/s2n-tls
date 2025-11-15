@@ -114,6 +114,10 @@ impl From<s2n_tls::config::Config> for S2NConfig {
 pub struct S2NConnection {
     io: Pin<Box<ViewIO>>,
     connection: Connection,
+    /// There is apparently no way to easily query this by API, so doing it here
+    /// ahhhhhhhh
+    /// slopfest material
+    handshake_complete: bool,
 }
 
 impl S2NConnection {
@@ -162,23 +166,25 @@ impl TlsConnection for S2NConnection {
             connection.set_session_ticket(&ticket)?;
         }
 
-        Ok(Self { io, connection })
+        Ok(Self { io, connection, handshake_complete: false })
     }
 
     fn handshake(&mut self) -> Result<(), Box<dyn Error>> {
         if let Poll::Ready(res) = self.connection.poll_negotiate() {
+            self.handshake_complete = true;
             res?;
         }
         Ok(())
     }
 
     fn handshake_completed(&self) -> bool {
-        let complete = self
-            .connection
-            .handshake_type()
-            .unwrap()
-            .contains("NEGOTIATED");
-        complete
+        self.handshake_complete
+        // let complete = self
+        //     .connection
+        //     .handshake_type()
+        //     .unwrap()
+        //     .contains("NEGOTIATED");
+        // complete
     }
 
     fn send(&mut self, data: &[u8]) {
