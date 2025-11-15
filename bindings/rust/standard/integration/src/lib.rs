@@ -10,3 +10,5 @@ mod features;
 mod mtls;
 #[cfg(all(not(feature = "no-sensitive-tests"), test))]
 mod network;
+#[cfg(test)]
+mod group_negotiation;
