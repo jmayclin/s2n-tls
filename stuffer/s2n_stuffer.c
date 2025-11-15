@@ -233,6 +233,7 @@ bool s2n_stuffer_is_consumed(struct s2n_stuffer *stuffer)
     return stuffer && (stuffer->read_cursor == stuffer->write_cursor) && !stuffer->tainted;
 }
 
+/* reset the read and write cursor's to zero */
 int s2n_stuffer_wipe(struct s2n_stuffer *stuffer)
 {
     POSIX_PRECONDITION(s2n_stuffer_validate(stuffer));

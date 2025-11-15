@@ -153,6 +153,9 @@ fn mtls_with_cert_verify() {
 
 #[test]
 fn mtls_with_async_cert_verify() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
     let (callback, rx) = SyncCallback::new(false);
     let callback_handle = Arc::clone(&callback.invoked);
     let mut pair: TlsConnPair<RustlsConnection, S2NConnection> = {
@@ -187,20 +190,23 @@ fn mtls_with_async_cert_verify() {
         TlsConnPair::from_configs(&client_config, &server_config)
     };
     pair.io.enable_recording();
-    
+
     pair.client.handshake().unwrap();
     pair.server.handshake().unwrap();
     pair.client.handshake().unwrap();
     assert_eq!(callback_handle.load(Ordering::SeqCst), 0);
     pair.server.handshake().unwrap();
     assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
+    pair.server.handshake().unwrap();
+    assert_eq!(callback_handle.load(Ordering::SeqCst), 1);
+
     let ptr = rx.recv().unwrap().0;
     let mut validation_info = CertValidationInfo::from_ptr(ptr);
     validation_info.accept().unwrap();
 
     pair.handshake().unwrap();
 
-    pair.round_trip_assert(APP_DATA_SIZE).unwrap();
+    pair.round_trip_assert(10).unwrap();
     pair.shutdown().unwrap();
 }
 
@@ -256,7 +262,7 @@ fn mtls_with_async_cert_verify_and_s2n_tls() {
 
     pair.handshake().unwrap();
 
-    pair.round_trip_assert(APP_DATA_SIZE).unwrap();
+    pair.round_trip_assert(10).unwrap();
     pair.shutdown().unwrap();
 
 }

@@ -271,7 +271,9 @@ int s2n_tls13_parse_record_type(struct s2n_stuffer *stuffer, uint8_t *record_typ
 S2N_RESULT s2n_record_wipe(struct s2n_connection *conn)
 {
     RESULT_ENSURE_REF(conn);
+    printf("record_wipe: wiping bytes from header_in read:%d, write:%d\n", conn->header_in.read_cursor, conn->header_in.write_cursor);
     RESULT_GUARD_POSIX(s2n_stuffer_wipe(&conn->header_in));
+    printf("record_wipe: wiping bytes from in read:%d, write:%d\n", conn->in.read_cursor, conn->in.write_cursor);
     RESULT_GUARD_POSIX(s2n_stuffer_wipe(&conn->in));
     conn->in_status = ENCRYPTED;
 
