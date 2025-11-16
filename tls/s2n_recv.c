@@ -99,7 +99,9 @@ int s2n_read_full_record(struct s2n_connection *conn, uint8_t *record_type, int 
 
     /* If the record has already been decrypted, then leave it alone */
     if (conn->in_status == PLAINTEXT) {
-        /* TODO: check if we're still handshake*/
+        /* it is a truth universally acknowledged that the best way to solve 
+         * problems is by adding just one more if statement 
+         */
         if (!is_handshake_complete(conn)) {
             *record_type = TLS_HANDSHAKE;
             return S2N_SUCCESS;

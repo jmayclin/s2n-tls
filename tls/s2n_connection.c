@@ -1327,6 +1327,7 @@ S2N_CLEANUP_RESULT s2n_connection_apply_error_blinding(struct s2n_connection **c
     }
 
     /* Ensure that conn->in doesn't contain any leftover invalid or unauthenticated data. */
+    S2N_DEBUG("wiping the stuffer 🤪 in{r:%d, w:%d}", (*conn)->in.read_cursor, (*conn)->in.write_cursor);
     RESULT_GUARD_POSIX(s2n_stuffer_wipe(&(*conn)->in));
 
     int error_code = s2n_errno;

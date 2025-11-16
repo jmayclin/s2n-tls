@@ -1604,6 +1604,8 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
 
         S2N_DEBUG("calling the handler for %s", message_names[ACTIVE_MESSAGE(conn)]);
         POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn));
+        // Problem 1
+        // WITH_ERROR_BLINDING(conn, POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn)));
 
         /* Advance the state machine */
         POSIX_GUARD_RESULT(s2n_finish_read(conn));
