@@ -25,7 +25,6 @@ impl EventSubscriber for TracingSubscriber {
     }
 }
 
-
 impl EventSubscriber for TestSubscriber {
     fn on_handshake_event(&self, event: &HandshakeEvent) {
         println!("{event:#?}");
@@ -50,7 +49,7 @@ impl<'a> HandshakeEvent<'a> {
     }
 
     /// The negotiated key exchange group, in IANA format.
-    /// 
+    ///
     /// None in the case of RSA key exchange or TLS 1.2 session resumption.
     fn group(&self) -> Option<&'static str> {
         maybe_string(self.0.group)
@@ -62,7 +61,7 @@ impl<'a> HandshakeEvent<'a> {
     }
 
     /// Handshake time, which just the amount of time synchronously spent in s2n_negotiate.
-    /// 
+    ///
     /// This is roughly the "cpu cost" of the handshake.
     fn handshake_time(&self) -> Duration {
         Duration::from_nanos(self.0.handshake_time_ns)
@@ -89,7 +88,7 @@ fn maybe_string(string: *const libc::c_char) -> Option<&'static str> {
     }
 }
 
-impl<A: EventSubscriber, B:EventSubscriber> EventSubscriber for (A, B) {
+impl<A: EventSubscriber, B: EventSubscriber> EventSubscriber for (A, B) {
     fn on_handshake_event(&self, event: &HandshakeEvent) {
         self.0.on_handshake_event(event);
         self.1.on_handshake_event(event);
@@ -180,15 +179,14 @@ mod tests {
     //     assert!(false);
     // }
 
-
     // #[tokio::test]
     // async fn native_rust_consumer() {
     //     // customer codebase
-    //     // customer sets up their EMF format. 
+    //     // customer sets up their EMF format.
 
     //     // unclear whether we have to care about format here?
 
-    //     // goal: it would be nice to be format agnostic. But how does that react 
+    //     // goal: it would be nice to be format agnostic. But how does that react
     //     // with dimensions?
 
     //     // I don't understand dimension sets

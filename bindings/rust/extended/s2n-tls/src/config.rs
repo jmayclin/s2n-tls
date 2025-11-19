@@ -6,7 +6,12 @@ use crate::cert_authorities::CertificateRequestCallback;
 #[cfg(feature = "unstable-renegotiate")]
 use crate::renegotiate::RenegotiateCallback;
 use crate::{
-    callbacks::*, cert_chain::CertificateChain, enums::*, error::{Error, ErrorType, Fallible}, events::{EventSubscriber, HandshakeEvent}, security
+    callbacks::*,
+    cert_chain::CertificateChain,
+    enums::*,
+    error::{Error, ErrorType, Fallible},
+    events::{EventSubscriber, HandshakeEvent},
+    security,
 };
 use core::{convert::TryInto, ptr::NonNull};
 use s2n_tls_sys::*;
@@ -714,11 +719,14 @@ impl Builder {
     ) -> Result<&mut Self, Error> {
         unsafe extern "C" fn on_handshake_event(
             subscriber: *mut c_void,
-            event: *mut s2n_tls_sys::s2n_event_handshake
+            event: *mut s2n_tls_sys::s2n_event_handshake,
         ) {
             let context = subscriber as *mut Context as *const Context;
             let context = &*context;
-            context.event_subscriber.as_ref().map(|c| c.on_handshake_event(&HandshakeEvent::new(&*event)));
+            context
+                .event_subscriber
+                .as_ref()
+                .map(|c| c.on_handshake_event(&HandshakeEvent::new(&*event)));
         }
 
         let handler = Box::new(subscriber);
@@ -729,14 +737,16 @@ impl Builder {
         };
         context.event_subscriber = Some(handler);
 
-        unsafe {s2n_config_set_subscriber(self.as_mut_ptr(), self.config.context_mut() as *mut Context as *mut c_void)};
+        unsafe {
+            s2n_config_set_subscriber(
+                self.as_mut_ptr(),
+                self.config.context_mut() as *mut Context as *mut c_void,
+            )
+        };
 
         unsafe {
-            s2n_config_set_handshake_event(
-                self.as_mut_ptr(),
-                Some(on_handshake_event),
-            )
-            .into_result()
+            s2n_config_set_handshake_event(self.as_mut_ptr(), Some(on_handshake_event))
+                .into_result()
         }?;
         Ok(self)
     }

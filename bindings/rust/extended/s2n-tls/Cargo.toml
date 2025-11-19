@@ -28,17 +28,6 @@ libc = "0.2.121"
 s2n-tls-sys = { version = "=0.3.29", path = "../s2n-tls-sys", features = ["internal"] }
 pin-project-lite = "0.2"
 hex = "0.4"
-metrique = "0.1.6"
-metrique-writer-format-emf = "0.1.6"
-metrique-writer = "0.1.7"
-tracing-subscriber = "0.3.20"
-tracing-appender = "0.2.3"
-aws-sdk-cloudwatch = "1.93.0"
-tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }
-aws-config = "1.8.7"
-aws-sdk-cloudwatchlogs = "1.104.0"
-tracing = "0.1.41"
-
 
 [dev-dependencies]
 futures-test = "0.3"

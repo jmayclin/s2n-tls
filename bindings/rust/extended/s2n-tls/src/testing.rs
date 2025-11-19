@@ -93,7 +93,7 @@ pub struct CertKeyPair {
 
 impl Default for CertKeyPair {
     fn default() -> Self {
-        Self::from_path("rsa_2048_sha256_client_", "cert", "key", "cert")
+        Self::from_path("rsa_4096_sha512_client_", "cert", "key", "cert")
     }
 }
 

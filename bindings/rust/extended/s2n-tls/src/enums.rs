@@ -5,7 +5,6 @@
 
 use crate::error::Error;
 use core::convert::TryFrom;
-use metrique::unit_of_work::metrics;
 use s2n_tls_sys::*;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -76,9 +75,8 @@ impl From<Mode> for s2n_mode::Type {
     }
 }
 
-#[metrics(value(string))]
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Version {
     SSLV2,
     SSLV3,

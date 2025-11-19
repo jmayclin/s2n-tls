@@ -1700,7 +1700,6 @@ int s2n_negotiate(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE(!conn->negotiate_in_use, S2N_ERR_REENTRANCY);
     conn->negotiate_in_use = true;
 
-    // TODO -> use the monotonic clock instead.
     uint64_t negotiate_start = 0;
     POSIX_GUARD_RESULT(s2n_config_monotonic_clock(conn->config, &negotiate_start));
     if (conn->handshake_event.handshake_start_epoch_ns == 0) {
