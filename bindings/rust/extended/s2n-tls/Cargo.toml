@@ -9,7 +9,8 @@ repository = "https://github.com/aws/s2n-tls"
 license = "Apache-2.0"
 
 [features]
-default = []
+default = ["test-log"]
+test-log = ["s2n-tls-sys/log"]
 unstable-fingerprint = ["s2n-tls-sys/unstable-fingerprint"]
 unstable-ktls = ["s2n-tls-sys/unstable-ktls"]
 unstable-renegotiate = ["s2n-tls-sys/unstable-renegotiate"]
@@ -28,6 +29,7 @@ libc = "0.2.121"
 s2n-tls-sys = { version = "=0.3.29", path = "../s2n-tls-sys", features = ["internal"] }
 pin-project-lite = "0.2"
 hex = "0.4"
+tracing = "0.1.41"
 
 [dev-dependencies]
 futures-test = "0.3"

@@ -54,6 +54,13 @@ fn main() {
         out_dir.join("src/features/quic.rs"),
         functions.clone(),
     );
+    write_feature_bindings(
+        out_dir.join("lib/utils/s2n_log.h"),
+        "log",
+        out_dir,
+        out_dir.join("src/features/log.rs"),
+        functions.clone(),
+    );
 
     // get all of the files in the unstable folder
     let unstable_api = out_dir.join("lib/api/unstable");

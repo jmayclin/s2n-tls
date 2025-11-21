@@ -25,7 +25,7 @@ static inline const char* get_file_and_parent(const char* path) {
 
 typedef int (*s2n_log_fn)(uint8_t message[PRINT_BUFFER_SIZE], char *module, int line_number, char* function);
 static s2n_log_fn s2n_global_log;
-void s2n_set_global_log(s2n_log_fn cb);
+S2N_API void s2n_set_global_log(s2n_log_fn cb);
 
 
 #ifdef S2N_DEBUG_LOGS
