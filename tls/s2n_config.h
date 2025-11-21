@@ -31,6 +31,7 @@
 #include "tls/s2n_tls_parameters.h"
 #include "tls/s2n_x509_validator.h"
 #include "utils/s2n_blob.h"
+#include "utils/s2n_log.h"
 
 #define S2N_MAX_TICKET_KEYS 48
 
