@@ -24,6 +24,8 @@ thread_local! {
         S2N_INIT.call_once(|| unsafe {
             // Safety: by using `Once` we can ensure the library is initialized once
             global_init().expect("could not initialize s2n-tls");
+            #[cfg(feature = "test-log")]
+            crate::log::enable_logging();
         });
         Thread
     };

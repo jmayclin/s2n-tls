@@ -1240,6 +1240,7 @@ static int s2n_handshake_write_io(struct s2n_connection *conn)
      */
     if (s2n_stuffer_is_wiped(&conn->handshake.io)) {
         if (record_type == TLS_HANDSHAKE) {
+            S2N_DEBUG("writing %s", s2n_connection_get_last_message_name(conn));
             POSIX_GUARD(s2n_handshake_write_header(&conn->handshake.io, ACTIVE_STATE(conn).message_type));
         }
         POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn));
@@ -1538,6 +1539,7 @@ static int s2n_handshake_read_io(struct s2n_connection *conn)
         POSIX_ENSURE(!CONNECTION_IS_WRITER(conn), S2N_ERR_BAD_MESSAGE);
 
         /* Call the relevant handler */
+        S2N_DEBUG("invoking handler for %s", s2n_connection_get_last_message_name(conn));
         WITH_ERROR_BLINDING(conn, POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn)));
 
         /* Advance the state machine */
@@ -1605,7 +1607,13 @@ int s2n_negotiate_impl(struct s2n_connection *conn, s2n_blocked_status *blocked)
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(blocked);
 
+    {
+        const char * identity = conn->mode == S2N_CLIENT ? "client" : "server";
+        S2N_DEBUG("negotiating as %s", identity);
+    };
+
     while (!s2n_handshake_is_complete(conn) && ACTIVE_MESSAGE(conn) != conn->handshake.end_of_messages) {
+        S2N_DEBUG("active message: %s", s2n_connection_get_last_message_name(conn));
         errno = 0;
         s2n_errno = S2N_ERR_OK;
 

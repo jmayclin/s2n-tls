@@ -23,8 +23,8 @@ static inline const char* get_file_and_parent(const char* path) {
  * having to thread a config/connection into every log statement
  */
 
-typedef int (*s2n_log_fn)(uint8_t message[PRINT_BUFFER_SIZE], char *module, int line_number, char* function);
-static s2n_log_fn s2n_global_log;
+typedef void (*s2n_log_fn)(const uint8_t message[PRINT_BUFFER_SIZE], const char *module, int line_number, const char* function);
+extern s2n_log_fn s2n_global_log;
 S2N_API void s2n_set_global_log(s2n_log_fn cb);
 
 
@@ -32,8 +32,8 @@ S2N_API void s2n_set_global_log(s2n_log_fn cb);
     #define S2N_DEBUG(...) \
         { \
             uint8_t buffer[PRINT_BUFFER_SIZE] = {0}; \
-            int message_length = snprintf(buffer, PRINT_BUFFER_SIZE, __VA_ARGS__); \
-            snprintf(buffer + message_length, PRINT_BUFFER_SIZE - message_length, "\n"); \
+            int message_length = snprintf((char *)&buffer, PRINT_BUFFER_SIZE, __VA_ARGS__); \
+            snprintf((char *)&buffer + message_length, PRINT_BUFFER_SIZE - message_length, "\n"); \
             (*s2n_global_log)(buffer, get_file_and_parent(__FILE__), __LINE__, __func__); \
         };
 #else
