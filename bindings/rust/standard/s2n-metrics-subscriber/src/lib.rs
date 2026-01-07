@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicPtr, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender},
         Arc, Mutex,
     },
@@ -21,7 +21,7 @@ use crate::record::{FrozenS2NMetricRecord, S2NMetricRecord};
 
 #[derive(Debug, Clone)]
 pub struct AggregatedMetricsSubscriber<E: Send + Sync> {
-    current_record: Arc<S2NMetricRecord>,
+    current_record: Arc<AtomicPtr<S2NMetricRecord>>,
     exporter: Arc<Mutex<E>>,
 }
 
@@ -29,9 +29,14 @@ impl<E: Exporter + Send + Sync> AggregatedMetricsSubscriber<E> {
     const CHANNEL_CAPACITY: usize = 1024;
 
     fn new(exporter: E) -> Self {
-        let record = S2NMetricRecord::default();
+        let heap_allocated_record = {
+            let record = S2NMetricRecord::default();
+            let record = Box::new(record);
+            Box::into_raw(record)
+        };
+
         Self {
-            current_record: Arc::new(record),
+            current_record: Arc::new(AtomicPtr::new(heap_allocated_record)),
             exporter: Arc::new(Mutex::new(exporter)),
         }
     }
@@ -41,7 +46,22 @@ impl<E: Exporter + Send + Sync> AggregatedMetricsSubscriber<E> {
     /// Todo -> it feels like this should return an optional future to be polled
     pub fn export(&self) {
         let mut export_lock = self.exporter.lock().unwrap();
-        let record = self.current_record.freeze();
+
+        let heap_allocated_record = {
+            let record = S2NMetricRecord::default();
+            let record = Box::new(record);
+            Box::into_raw(record)
+        };
+        let populated_record = self
+            .current_record
+            .swap(heap_allocated_record, Ordering::SeqCst);
+
+        let populated_record = unsafe { 
+            // SAFETY: all records are created from Box::into_raw.
+            Box::from_raw(populated_record) 
+        };
+
+        let record = self.populated_record.freeze();
         export_lock.export(record)
     }
 }

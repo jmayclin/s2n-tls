@@ -1,8 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc::{Receiver, SyncSender},
-        Arc, Mutex,
+        Arc, Mutex, atomic::{AtomicU16, AtomicU64, Ordering}, mpsc::{Receiver, SyncSender}
     },
     time::SystemTime,
 };
@@ -59,19 +57,105 @@ pub struct FrozenStatisticSet {
     sample_count: u64,
 }
 
+// TODO: "updaters" should refer to the people adding things
+#[derive(Debug, Default)]
+struct UpdatesInFlight(AtomicU64);
+
+impl UpdatesInFlight {
+    const FLUSHING_MASK: u64 = 1 << 63;
+    const LOWER_63_MASK: u64 = Self::FLUSHING_MASK - 1;
+    /// This is called to indicate that the record update is starting.
+    /// 
+    /// This will fail if a flusher has indicated that the record is about to be
+    /// flushed.
+    fn start_update(&self) -> Result<(),()> {
+        loop {
+            let current = self.0.load(Ordering::SeqCst);
+            if current & Self::FLUSHING_MASK != 0 {
+                // a flush is in progress, we should not modify the values
+                return Err(());
+            }
+            assert!(current + 1 < Self::LOWER_63_MASK);
+            if let Ok(_) = self.0.compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                return Ok(())
+            }
+            // else err -> this means that a different thread updated the in flight
+            // we just need to retry
+        }
+    }
+
+    /// This is called indicate that the record update is finished
+    fn finish_update(&self) {
+        loop {
+            let current = self.0.load(Ordering::SeqCst);
+            let minus_one = {
+                if current & Self::FLUSHING_MASK != 0 {
+                    // we need careful subtraction, bc we need to keep the flushing
+                    // bit set
+                    let mut lower_bits = current & Self::LOWER_63_MASK;
+                    assert!(lower_bits != 0);
+                    lower_bits - 1
+                } else {
+                    current - 1
+                }
+            };
+            if let Ok(_) = self.0.compare_exchange(current, minus_one, Ordering::SeqCst, Ordering::SeqCst) {
+                return;
+            }
+        }
+    }
+
+    /// This is called by the flusher.
+    /// 
+    /// It will continue to fail until 
+    fn freeze(&self) {
+        // set the flushing bit
+        loop {
+            let current = self.0.load(Ordering::SeqCst);
+            if let Ok(_) = self.0.compare_exchange(current, current | Self::FLUSHING_MASK, Ordering::SeqCst, Ordering::SeqCst) {
+                break;
+            }
+        }
+
+        // wait for the remaining threads to finish
+        loop {
+            let current = self.0.load(Ordering::SeqCst);
+            let in_progress = current & Self::LOWER_63_MASK;
+            if in_progress == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Return true if the record is _frozen_. This means
+    /// - the "FLUSHING" bit is set
+    /// - there are not active writers
+    fn is_frozen(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == Self::FLUSHING_MASK
+    }
+}
+
 // TODO, this should have +1 for unrecognized things
 #[derive(Debug)]
 pub struct S2NMetricRecord {
-    // groups
-    groups: [AtomicU64; GROUP_COUNT],
-    // ciphers
-    ciphers: [AtomicU64; CIPHER_COUNT],
-    // signature schemes
-    signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
-    // signatures
-    sig_hash: [AtomicU64; SIG_HASH_COUNT],
-    // protocol versions
+    // writer_count -> are any updates in flight? We don't want to *freeze* the 
+    // metrics until none are in flight.
+    // we also use this 
+    updates_in_flight: UpdatesInFlight,
+
+    // negotiated
     protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
+    ciphers: [AtomicU64; CIPHER_COUNT],
+    groups: [AtomicU64; GROUP_COUNT],
+    signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
+    sig_hash: [AtomicU64; SIG_HASH_COUNT],
+
+    // supported
+    protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
+    ciphers: [AtomicU64; CIPHER_COUNT],
+    groups: [AtomicU64; GROUP_COUNT],
+    signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
+    sig_hash: [AtomicU64; SIG_HASH_COUNT],
 
     /// sum of handshake duration
     handshake_duration_us: StatisticSet,
@@ -83,11 +167,14 @@ impl Default for S2NMetricRecord {
     fn default() -> Self {
         let ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         Self {
+            updates_in_flight: Default::default(),
+
             groups: Default::default(),
             ciphers,
             signature_scheme: Default::default(),
             sig_hash: Default::default(),
             protocols: Default::default(),
+            
             handshake_duration_us: Default::default(),
             handshake_compute: Default::default(),
         }
@@ -107,6 +194,8 @@ impl S2NMetricRecord {
 
     /// make a copy of this record to be exported, and zero all entries
     pub fn freeze(&self) -> FrozenS2NMetricRecord {
+        self.updates_in_flight.freeze();
+
         let groups = self
             .groups
             .each_ref()
@@ -128,7 +217,7 @@ impl S2NMetricRecord {
             .each_ref()
             .map(|counter| counter.load(Ordering::Relaxed));
 
-        let frozen_record = FrozenS2NMetricRecord {
+        FrozenS2NMetricRecord {
             freeze_time: SystemTime::now(),
             groups,
             ciphers,
@@ -137,39 +226,36 @@ impl S2NMetricRecord {
             protocols,
             handshake_duration: self.handshake_duration_us.freeze(),
             handshake_compute: self.handshake_compute.freeze(),
-        };
-
-        self.adjust_for_export(&frozen_record);
-        frozen_record
+        }
     }
 
-    /// Not that the metric record is _not_ locked during this action, so there
-    /// is not guarantee that all values will be zero upon the return of this function
-    fn adjust_for_export(&self, frozen: &FrozenS2NMetricRecord) {
-        self.groups.iter().zip(frozen.groups.iter()).for_each(
-            |(record_counter, frozen_counter)| {
-                record_counter.fetch_sub(*frozen_counter, Ordering::Relaxed);
-            },
-        );
+    // /// Not that the metric record is _not_ locked during this action, so there
+    // /// is not guarantee that all values will be zero upon the return of this function
+    // fn adjust_for_export(&self, frozen: &FrozenS2NMetricRecord) {
+    //     self.groups.iter().zip(frozen.groups.iter()).for_each(
+    //         |(record_counter, frozen_counter)| {
+    //             record_counter.fetch_sub(*frozen_counter, Ordering::Relaxed);
+    //         },
+    //     );
 
-        let groups = self.groups.iter().zip(frozen.groups.iter());
-        let cipher = self.ciphers.iter().zip(frozen.ciphers.iter());
-        let signature_scheme = self
-            .signature_scheme
-            .iter()
-            .zip(frozen.signature_scheme.iter());
-        let sig_hash = self.sig_hash.iter().zip(frozen.sig_hash.iter());
-        let protocols = self.protocols.iter().zip(frozen.protocols.iter());
+    //     let groups = self.groups.iter().zip(frozen.groups.iter());
+    //     let cipher = self.ciphers.iter().zip(frozen.ciphers.iter());
+    //     let signature_scheme = self
+    //         .signature_scheme
+    //         .iter()
+    //         .zip(frozen.signature_scheme.iter());
+    //     let sig_hash = self.sig_hash.iter().zip(frozen.sig_hash.iter());
+    //     let protocols = self.protocols.iter().zip(frozen.protocols.iter());
 
-        groups
-            .chain(cipher)
-            .chain(signature_scheme)
-            .chain(sig_hash)
-            .chain(protocols)
-            .for_each(|(metric_counter, frozen_counter)| {
-                metric_counter.fetch_sub(*frozen_counter, Ordering::Relaxed);
-            });
-    }
+    //     groups
+    //         .chain(cipher)
+    //         .chain(signature_scheme)
+    //         .chain(sig_hash)
+    //         .chain(protocols)
+    //         .for_each(|(metric_counter, frozen_counter)| {
+    //             metric_counter.fetch_sub(*frozen_counter, Ordering::Relaxed);
+    //         });
+    // }
 }
 
 #[derive(Debug)]
