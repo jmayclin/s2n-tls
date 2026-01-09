@@ -1,0 +1,188 @@
+{
+    "_aws": {
+        "CloudWatchMetrics": [
+            {
+                "Namespace": "tls/s2n-tls",
+                "Dimensions": [
+                    []
+                ],
+                "Metrics": [
+                    {
+                        "Name": "n.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "n.cipher.TLS_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_128_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_128_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_256_GCM_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_256_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_AES_256_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_128_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_256_GCM_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_256_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_DHE_RSA_WITH_AES_256_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_AES_256_GCM_SHA384"
+                    },
+                    {
+                        "Name": "s.cipher.TLS_CHACHA20_POLY1305_SHA256"
+                    },
+                    {
+                        "Name": "s.group.SecP256r1MLKEM768"
+                    },
+                    {
+                        "Name": "s.group.SecP384r1MLKEM1024"
+                    },
+                    {
+                        "Name": "s.group.X25519MLKEM768"
+                    },
+                    {
+                        "Name": "s.group.secp256r1"
+                    },
+                    {
+                        "Name": "s.group.secp384r1"
+                    },
+                    {
+                        "Name": "s.group.secp521r1"
+                    },
+                    {
+                        "Name": "s.group.x25519"
+                    },
+                    {
+                        "Name": "handshake_duration"
+                    },
+                    {
+                        "Name": "handshake_duration_sample_count"
+                    },
+                    {
+                        "Name": "handshake_compute"
+                    },
+                    {
+                        "Name": "handshake_compute_sample_count"
+                    }
+                ]
+            }
+        ],
+        "Timestamp": 1767910611464
+    },
+    "n.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": 1,
+    "n.cipher.TLS_AES_128_GCM_SHA256": 2,
+    "s.cipher.TLS_RSA_WITH_AES_128_GCM_SHA256": 1,
+    "s.cipher.TLS_RSA_WITH_AES_128_CBC_SHA": 1,
+    "s.cipher.TLS_RSA_WITH_AES_128_CBC_SHA256": 1,
+    "s.cipher.TLS_RSA_WITH_AES_256_GCM_SHA384": 1,
+    "s.cipher.TLS_RSA_WITH_AES_256_CBC_SHA": 1,
+    "s.cipher.TLS_RSA_WITH_AES_256_CBC_SHA256": 1,
+    "s.cipher.TLS_RSA_WITH_3DES_EDE_CBC_SHA": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_128_CBC_SHA": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_128_CBC_SHA256": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_256_GCM_SHA384": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_256_CBC_SHA": 1,
+    "s.cipher.TLS_DHE_RSA_WITH_AES_256_CBC_SHA256": 1,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256": 3,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA": 1,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256": 2,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384": 3,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA": 1,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384": 2,
+    "s.cipher.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256": 1,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": 3,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA": 1,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256": 2,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384": 3,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA": 1,
+    "s.cipher.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384": 2,
+    "s.cipher.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256": 1,
+    "s.cipher.TLS_AES_128_GCM_SHA256": 2,
+    "s.cipher.TLS_AES_256_GCM_SHA384": 2,
+    "s.cipher.TLS_CHACHA20_POLY1305_SHA256": 2,
+    "s.group.SecP256r1MLKEM768": 1,
+    "s.group.SecP384r1MLKEM1024": 1,
+    "s.group.X25519MLKEM768": 1,
+    "s.group.secp256r1": 3,
+    "s.group.secp384r1": 3,
+    "s.group.secp521r1": 2,
+    "s.group.x25519": 2,
+    "handshake_duration": 20416,
+    "handshake_duration_sample_count": 3,
+    "handshake_compute": 18740,
+    "handshake_compute_sample_count": 3,
+    "resource": "kitten_service"
+}

@@ -79,6 +79,25 @@ impl CloudWatchExporter {
         SystemTime::UNIX_EPOCH.elapsed().unwrap().as_millis() as i64
     }
 
+    pub fn to_text(&mut self) -> Option<String> {
+        if let Ok(record) = self.record_receiver.try_recv() {
+
+            let emf_record = {
+                let mut buffer = Vec::new();
+                if let Some(resource) = self.resource.as_ref() {
+                    let with_attribution = MetricWithAttribution::new(record, resource.clone());
+                    self.emf_formatter.format(&with_attribution, &mut buffer).unwrap();
+                } else {
+                    self.emf_formatter.format(&record, &mut buffer).unwrap();
+                }
+                buffer
+            };
+            Some(String::from_utf8(emf_record).unwrap())
+        } else {
+            None
+        }
+    }
+
     pub async fn try_write(&mut self) -> bool {
         if let Ok(record) = self.record_receiver.try_recv() {
 

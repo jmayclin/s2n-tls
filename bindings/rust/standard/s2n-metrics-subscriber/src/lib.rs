@@ -15,9 +15,16 @@ mod cloudwatchlogs_exporter;
 mod record;
 mod static_lists;
 
+use brass_aphid_wire_messages::{
+    codec::DecodeValue,
+    protocol::{extensions::ClientHelloExtensionData, ClientHello, HandshakeMessageHeader},
+};
 use s2n_tls::events::EventSubscriber;
 
-use crate::record::{FrozenS2NMetricRecord, S2NMetricRecord};
+use crate::{
+    record::{FrozenS2NMetricRecord, S2NMetricRecord},
+    static_lists::TlsParam,
+};
 
 #[derive(Debug, Clone)]
 pub struct AggregatedMetricsSubscriber<E: Send + Sync> {
@@ -56,12 +63,12 @@ impl<E: Exporter + Send + Sync> AggregatedMetricsSubscriber<E> {
             .current_record
             .swap(heap_allocated_record, Ordering::SeqCst);
 
-        let populated_record = unsafe { 
+        let populated_record = unsafe {
             // SAFETY: all records are created from Box::into_raw.
-            Box::from_raw(populated_record) 
+            Box::from_raw(populated_record)
         };
 
-        let record = self.populated_record.freeze();
+        let record = populated_record.freeze();
         export_lock.export(record)
     }
 }
@@ -72,7 +79,61 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
         connection: &s2n_tls::connection::Connection,
         event: &s2n_tls::events::HandshakeEvent,
     ) {
-        self.current_record.update(event);
+        // s2n-tls does not have convenient methods to extra the supported parameter,
+        // so we just directly extra them from the client hello
+        let client_hello = {
+            let client_hello_bytes = connection.client_hello().unwrap().raw_message().unwrap();
+            let buffer = &client_hello_bytes;
+            ClientHello::decode_from_exact(buffer).unwrap()
+        };
+
+        let supported_ciphers = client_hello.offered_ciphers.list();
+        let supported_groups = client_hello
+            .extensions
+            .as_ref()
+            .map(|list| {
+                list.list().iter().find_map(|ext| {
+                    if let ClientHelloExtensionData::SupportedGroups(groups) = &ext.extension_data {
+                        Some(groups.named_curve_list.list())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .flatten();
+
+        let current_record = {
+            let mut record_ptr;
+            loop {
+                record_ptr = self.current_record.load(Ordering::Relaxed);
+                if let Ok(_) = (unsafe { &*record_ptr }).updates_in_flight.start_update() {
+                    break;
+                }
+                // else err -> the flush has started, we should fetch the "fresh" record
+                // which is not held in the pointer
+            }
+            unsafe { &*record_ptr }
+        };
+
+        supported_ciphers
+            .iter()
+            .filter_map(|c| TlsParam::Cipher.iana_name_to_metric_index(c.description))
+            .for_each(|index| {
+                current_record.supported_ciphers[index].fetch_add(1, Ordering::SeqCst);
+            });
+        if let Some(groups) = supported_groups {
+            groups
+                .iter()
+                .filter_map(|group| {
+                    TlsParam::Group.iana_name_to_metric_index(group.description)
+                })
+                .for_each(|index| {
+                    current_record.supported_groups[index].fetch_add(1, Ordering::SeqCst);
+                });
+        }
+        current_record.update(event);
+        current_record.updates_in_flight.finish_update();
+
         tracing::debug!("handshake event invoked : {event:?}");
     }
 }
@@ -189,8 +250,8 @@ mod tests {
 
             // this sends it to the cloudwatch exporter
             subscriber_handle.export();
-            let sent = cloudwatch_exporter.try_write().await;
-            assert!(sent);
+            let text = cloudwatch_exporter.to_text();
+            std::fs::write("emf.json", text.unwrap()).unwrap();
         }
 
         {

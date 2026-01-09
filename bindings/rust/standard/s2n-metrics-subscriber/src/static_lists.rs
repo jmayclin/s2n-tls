@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Display,
     sync::{LazyLock, Mutex},
 };
 
@@ -173,64 +174,126 @@ pub const GROUPS_AVAILABLE_IN_S2N: &[&'static str] = &[
     "x25519_kyber-512-r3",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum State {
+    Negotiated,
+    Supported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PrefixKey {
+    item: &'static str,
+    parameter: TlsParam,
+    state: State,
+}
+
+impl PrefixKey {
+    fn new(item: &'static str, parameter: TlsParam, state: State) -> Self {
+        Self {
+            item,
+            parameter,
+            state,
+        }
+    }
+
+    fn value(&self) -> String {
+        format!("{:?}.{}.{}", self.state, self.parameter, self.item)
+    }
+}
+
 /// We want all of our counters to be prefixed, e.g. `group.secp256r1`
 ///
 /// metrique needs the string to be static, so we deliberately "leak" the data.
 ///
 /// This is acceptable because it's just a finite set of values.
-pub struct Prefixer<T> {
-    /// e.g. cipher.
-    prefix: &'static str,
+pub struct Prefixer {
     /// lookup from raw item to prefixed item
-    prefixed_items: Mutex<HashMap<T, &'static str>>,
+    prefixes: Mutex<HashMap<PrefixKey, &'static str>>,
 }
 
-impl<T> Prefixer<T> {
-    fn new(prefix: &'static str) -> Self {
-        Prefixer {
-            prefix,
-            prefixed_items: Mutex::new(HashMap::new()),
+// we use a single global prefixer
+static PREFIXER: LazyLock<Prefixer> = LazyLock::new(|| Prefixer {
+    prefixes: Mutex::new(HashMap::new()),
+});
+
+impl Prefixer {
+    pub fn get_with_prefix(item: &'static str, parameter: TlsParam, state: State) -> &'static str {
+        let key = PrefixKey::new(item, parameter, state);
+        PREFIXER
+            .prefixes
+            .lock()
+            .unwrap()
+            .entry(key.clone())
+            .or_insert_with(|| key.value().leak())
+    }
+}
+
+
+// pub static NEGOTIATED_CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
+//     LazyLock::new(|| Prefixer::new("n.cipher."));
+// pub static SUPPORTED_CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
+//     LazyLock::new(|| Prefixer::new("s.cipher."));
+// pub static NEGOTIATED_GROUP_PREFIXER: LazyLock<Prefixer<&'static str>> =
+//     LazyLock::new(|| Prefixer::new("n.group."));
+// pub static SUPPORTED_GROUP_PREFIXER: LazyLock<Prefixer<&'static str>> =
+//     LazyLock::new(|| Prefixer::new("s.group."));
+// pub static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<s2n_tls::enums::Version>> =
+//     LazyLock::new(|| Prefixer::new("protocol_version."));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TlsParam {
+    /// E.g. TLS 1.2
+    Version,
+    /// E.g. TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    Cipher,
+    /// E.g. SecP256r1MLKEM768
+    Group,
+    /// E.g. ecdsa_secp384r1_sha384
+    SignatureScheme,
+}
+
+impl TlsParam {
+    pub fn index_to_iana_name(&self, index: usize) -> Option<&'static str> {
+        match self {
+            TlsParam::Version => todo!(),
+            TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).2),
+            TlsParam::Group => GROUPS_AVAILABLE_IN_S2N.get(index).map(|name| *name),
+            TlsParam::SignatureScheme => todo!(),
+        }
+    }
+
+    pub fn iana_name_to_metric_index(&self, name: &'static str) -> Option<usize> {
+        match self {
+            TlsParam::Version => todo!(),
+            TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N
+                .iter()
+                .position(|cipher| cipher.2 == name),
+            TlsParam::Group => GROUPS_AVAILABLE_IN_S2N
+                .iter()
+                .position(|group| *group == name),
+            TlsParam::SignatureScheme => todo!(),
         }
     }
 }
 
-impl<T: std::cmp::Eq + std::hash::Hash + std::fmt::Display + Clone> Prefixer<T> {
-    pub fn get_from_display(&self, item: T) -> &'static str {
-        // TODO: R/W Lock
-        self.prefixed_items
-            .lock()
-            .unwrap()
-            .entry(item.clone())
-            .or_insert_with(|| format!("{}{}", &self.prefix, &item).leak())
+impl Display for TlsParam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TlsParam::Version => write!(f, "version"),
+            TlsParam::Cipher => write!(f, "cipher"),
+            TlsParam::Group => write!(f, "group"),
+            TlsParam::SignatureScheme => write!(f, "signature_scheme"),
+        }
     }
 }
 
-impl<T: std::cmp::Eq + std::hash::Hash + std::fmt::Debug + Clone> Prefixer<T> {
-    pub fn get_from_debug(&self, item: T) -> &'static str {
-        // TODO: R/W Lock
-        self.prefixed_items
-            .lock()
-            .unwrap()
-            .entry(item.clone())
-            .or_insert_with(|| format!("{}{:?}", &self.prefix, &item).leak())
-    }
-}
-
-pub static CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
-    LazyLock::new(|| Prefixer::new("cipher."));
-pub static GROUP_PREFIXER: LazyLock<Prefixer<&'static str>> =
-    LazyLock::new(|| Prefixer::new("group."));
-pub static PROTOCOL_VERSION_PREFIXER: LazyLock<Prefixer<s2n_tls::enums::Version>> =
-    LazyLock::new(|| Prefixer::new("protocol_version."));
-
+/// Maps from the the s2n cipher string representation to the array of the
 pub fn cipher_ossl_name_to_index(name: &'static str) -> Option<usize> {
     CIPHERS_AVAILABLE_IN_S2N
         .iter()
         .position(|current_cipher| *current_cipher.0 == *name)
 }
-pub fn cipher_index_to_iana_name(index: usize) -> Option<&'static str> {
-    CIPHERS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).2)
-}
+
 #[cfg(test)]
 mod tests {
     use super::*;
