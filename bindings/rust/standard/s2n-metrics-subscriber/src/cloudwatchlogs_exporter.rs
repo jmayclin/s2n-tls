@@ -1,21 +1,11 @@
 use std::{
-    collections::HashMap,
-    ffi::CStr,
-    fmt::Debug,
-    hash::Hash,
-    io::{self, ErrorKind, Write},
-    sync::{
-        Arc, LazyLock, Mutex, atomic::AtomicU64, mpsc::{Receiver, Sender, TryRecvError}
-    },
-    time::{Duration, Instant, SystemTime},
+    io::{ErrorKind, Write},
+    sync::mpsc::{Receiver, TryRecvError},
+    time::SystemTime,
 };
 
 use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client};
-use metrique::{unit::Count, unit_of_work::metrics, ServiceMetrics};
-use metrique_writer::{sink::AttachHandle, AttachGlobalEntrySinkExt, FormatExt, GlobalEntrySink};
 use metrique_writer_format_emf::Emf;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::fmt::MakeWriter;
 
 use crate::record::{FrozenS2NMetricRecord, MetricWithAttribution};
 
@@ -28,19 +18,21 @@ struct BufferedEmfExporter {
 
 impl BufferedEmfExporter {
     /// write a single record to the specified destination
-    fn write(&mut self, mut destination: &mut[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, mut destination: &mut [u8]) -> std::io::Result<usize> {
         match self.record_receiver.try_recv() {
             Ok(record) => {
                 let mut buffer = Vec::new();
                 self.emf_formatter.format(&record, &mut buffer).unwrap();
                 destination.write(&buffer)
-            },
-            Err(TryRecvError::Disconnected) => {
-                Err(std::io::Error::new(ErrorKind::BrokenPipe, TryRecvError::Disconnected))
-            },
-            Err(TryRecvError::Empty) => {
-                Err(std::io::Error::new(ErrorKind::WouldBlock, TryRecvError::Empty))
-            },
+            }
+            Err(TryRecvError::Disconnected) => Err(std::io::Error::new(
+                ErrorKind::BrokenPipe,
+                TryRecvError::Disconnected,
+            )),
+            Err(TryRecvError::Empty) => Err(std::io::Error::new(
+                ErrorKind::WouldBlock,
+                TryRecvError::Empty,
+            )),
         }
     }
 }
@@ -81,12 +73,13 @@ impl CloudWatchExporter {
 
     pub fn to_text(&mut self) -> Option<String> {
         if let Ok(record) = self.record_receiver.try_recv() {
-
             let emf_record = {
                 let mut buffer = Vec::new();
                 if let Some(resource) = self.resource.as_ref() {
                     let with_attribution = MetricWithAttribution::new(record, resource.clone());
-                    self.emf_formatter.format(&with_attribution, &mut buffer).unwrap();
+                    self.emf_formatter
+                        .format(&with_attribution, &mut buffer)
+                        .unwrap();
                 } else {
                     self.emf_formatter.format(&record, &mut buffer).unwrap();
                 }
@@ -100,12 +93,13 @@ impl CloudWatchExporter {
 
     pub async fn try_write(&mut self) -> bool {
         if let Ok(record) = self.record_receiver.try_recv() {
-
             let emf_record = {
                 let mut buffer = Vec::new();
                 if let Some(resource) = self.resource.as_ref() {
                     let with_attribution = MetricWithAttribution::new(record, resource.clone());
-                    self.emf_formatter.format(&with_attribution, &mut buffer).unwrap();
+                    self.emf_formatter
+                        .format(&with_attribution, &mut buffer)
+                        .unwrap();
                 } else {
                     self.emf_formatter.format(&record, &mut buffer).unwrap();
                 }

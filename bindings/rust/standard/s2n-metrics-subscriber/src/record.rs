@@ -1,14 +1,11 @@
 use std::{
-    sync::{
-        atomic::{AtomicU16, AtomicU64, Ordering},
-        mpsc::{Receiver, SyncSender},
-        Arc, Mutex,
-    },
+    sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
 };
 
 use crate::static_lists::{
-    self, Prefixer, State, TlsParam, CIPHERS_AVAILABLE_IN_S2N, GROUPS_AVAILABLE_IN_S2N,
+    self, Prefixer, State, TlsParam, ToStaticString, CIPHERS_AVAILABLE_IN_S2N,
+    GROUPS_AVAILABLE_IN_S2N,
 };
 
 const GROUP_COUNT: usize = GROUPS_AVAILABLE_IN_S2N.len();
@@ -56,7 +53,7 @@ impl UpdatesInFlight {
                 if current & Self::FLUSHING_MASK != 0 {
                     // we need careful subtraction, bc we need to keep the flushing
                     // bit set
-                    let mut lower_bits = current & Self::LOWER_63_MASK;
+                    let lower_bits = current & Self::LOWER_63_MASK;
                     assert!(lower_bits != 0);
                     lower_bits - 1
                 } else {
@@ -111,11 +108,11 @@ pub struct S2NMetricRecord {
     sample_count: AtomicU64,
 
     // negotiated
-    protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
-    ciphers: [AtomicU64; CIPHER_COUNT],
-    groups: [AtomicU64; GROUP_COUNT],
-    signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
-    sig_hash: [AtomicU64; SIG_HASH_COUNT],
+    pub protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
+    pub ciphers: [AtomicU64; CIPHER_COUNT],
+    pub groups: [AtomicU64; GROUP_COUNT],
+    pub signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
+    pub sig_hash: [AtomicU64; SIG_HASH_COUNT],
 
     // supported
     pub supported_protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
@@ -168,6 +165,10 @@ impl S2NMetricRecord {
         dbg!(event);
         self.ciphers[static_lists::cipher_ossl_name_to_index(event.cipher()).unwrap()]
             .fetch_add(1, Ordering::Relaxed);
+        self.protocols[TlsParam::Version
+            .iana_name_to_metric_index(event.protocol_version().to_static_string())
+            .unwrap()]
+        .fetch_add(1, Ordering::Relaxed);
         // Assumption: durations are less than 500,000 years, otherwise this cast
         // will panic
         self.handshake_compute.fetch_add(
@@ -186,8 +187,8 @@ impl S2NMetricRecord {
             freeze_time: SystemTime::now(),
             sample_count: self.sample_count.load(Ordering::SeqCst),
             protocols: relaxed_freeze(&self.protocols),
-            ciphers: relaxed_freeze(&self.ciphers),
-            groups: relaxed_freeze(&self.groups),
+            negotiated_ciphers: relaxed_freeze(&self.ciphers),
+            negotiated_groups: relaxed_freeze(&self.groups),
             signature_scheme: relaxed_freeze(&self.signature_scheme),
             sig_hash: relaxed_freeze(&self.sig_hash),
             supported_protocols: relaxed_freeze(&self.supported_protocols),
@@ -209,8 +210,8 @@ pub struct FrozenS2NMetricRecord {
 
     // negotiated parameters
     pub protocols: [u64; PROTOCOL_VERSION_COUNT],
-    pub ciphers: [u64; CIPHER_COUNT],
-    pub groups: [u64; GROUP_COUNT],
+    pub negotiated_ciphers: [u64; CIPHER_COUNT],
+    pub negotiated_groups: [u64; GROUP_COUNT],
     pub signature_scheme: [u64; SIGNATURE_SCHEME_COUNT],
     pub sig_hash: [u64; SIG_HASH_COUNT],
 
@@ -229,12 +230,39 @@ impl metrique_writer::Entry for FrozenS2NMetricRecord {
         writer.timestamp(self.freeze_time);
 
         for (list, parameter, state) in [
+            // protocols
+            (
+                self.protocols.as_slice(),
+                TlsParam::Version,
+                State::Negotiated,
+            ),
+            (
+                self.supported_protocols.as_slice(),
+                TlsParam::Version,
+                State::Supported,
+            ),
             // ciphers
-            (self.ciphers.as_slice(), TlsParam::Cipher, State::Negotiated),
-            (self.supported_ciphers.as_slice(), TlsParam::Cipher, State::Supported),
+            (
+                self.negotiated_ciphers.as_slice(),
+                TlsParam::Cipher,
+                State::Negotiated,
+            ),
+            (
+                self.supported_ciphers.as_slice(),
+                TlsParam::Cipher,
+                State::Supported,
+            ),
             // groups
-            (self.groups.as_slice(), TlsParam::Group, State::Negotiated),
-            (self.supported_groups.as_slice(), TlsParam::Group, State::Supported),
+            (
+                self.negotiated_groups.as_slice(),
+                TlsParam::Group,
+                State::Negotiated,
+            ),
+            (
+                self.supported_groups.as_slice(),
+                TlsParam::Group,
+                State::Supported,
+            ),
         ] {
             list.iter()
                 .enumerate()
@@ -247,7 +275,7 @@ impl metrique_writer::Entry for FrozenS2NMetricRecord {
                 });
         }
 
-        // timing information
+        writer.value("sample_count", &self.sample_count);
         writer.value("handshake_duration", &self.handshake_duration);
         writer.value("handshake_compute", &self.handshake_compute);
     }

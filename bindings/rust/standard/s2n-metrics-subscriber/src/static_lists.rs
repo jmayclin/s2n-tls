@@ -8,153 +8,66 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
+pub trait ToStaticString {
+    fn to_static_string(&self) -> &'static str;
+}
+
+impl ToStaticString for s2n_tls::enums::Version {
+    fn to_static_string(&self) -> &'static str {
+        match self {
+            s2n_tls::enums::Version::SSLV3 => "SSLv3",
+            s2n_tls::enums::Version::TLS10 => "TLSv1_0",
+            s2n_tls::enums::Version::TLS11 => "TLSv1_1",
+            s2n_tls::enums::Version::TLS12 => "TLSv1_2",
+            s2n_tls::enums::Version::TLS13 => "TLSv1_3",
+            _ => "unknown",
+        }
+    }
+}
+
+pub const VERSIONS_AVAILABLE_IN_S2N: &[&'static str] =
+    &["SSLv3", "TLSv1_0", "TLSv1_1", "TLSv1_2", "TLSv1_3"];
+
 /// we use the nasty openssl naming, bc that's what s2n-tls currently returns from it's
 /// APIs
+#[rustfmt::skip]
 pub const CIPHERS_AVAILABLE_IN_S2N: &[(&'static str, [u8; 2], &'static str)] = &[
-    (
-        "AES128-GCM-SHA256",
-        [0, 156],
-        "TLS_RSA_WITH_AES_128_GCM_SHA256",
-    ),
+    ("AES128-GCM-SHA256", [0, 156], "TLS_RSA_WITH_AES_128_GCM_SHA256"),
     ("AES128-SHA", [0, 47], "TLS_RSA_WITH_AES_128_CBC_SHA"),
     ("AES128-SHA256", [0, 60], "TLS_RSA_WITH_AES_128_CBC_SHA256"),
-    (
-        "AES256-GCM-SHA384",
-        [0, 157],
-        "TLS_RSA_WITH_AES_256_GCM_SHA384",
-    ),
+    ("AES256-GCM-SHA384", [0, 157], "TLS_RSA_WITH_AES_256_GCM_SHA384"),
     ("AES256-SHA", [0, 53], "TLS_RSA_WITH_AES_256_CBC_SHA"),
     ("AES256-SHA256", [0, 61], "TLS_RSA_WITH_AES_256_CBC_SHA256"),
     ("DES-CBC3-SHA", [0, 10], "TLS_RSA_WITH_3DES_EDE_CBC_SHA"),
-    (
-        "DHE-RSA-AES128-GCM-SHA256",
-        [0, 158],
-        "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
-    ),
-    (
-        "DHE-RSA-AES128-SHA",
-        [0, 51],
-        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA",
-    ),
-    (
-        "DHE-RSA-AES128-SHA256",
-        [0, 103],
-        "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256",
-    ),
-    (
-        "DHE-RSA-AES256-GCM-SHA384",
-        [0, 159],
-        "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
-    ),
-    (
-        "DHE-RSA-AES256-SHA",
-        [0, 57],
-        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA",
-    ),
-    (
-        "DHE-RSA-AES256-SHA256",
-        [0, 107],
-        "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256",
-    ),
-    (
-        "DHE-RSA-CHACHA20-POLY1305",
-        [204, 170],
-        "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
-    ),
-    (
-        "DHE-RSA-DES-CBC3-SHA",
-        [0, 22],
-        "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA",
-    ),
-    (
-        "ECDHE-ECDSA-AES128-GCM-SHA256",
-        [192, 43],
-        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-    ),
-    (
-        "ECDHE-ECDSA-AES128-SHA",
-        [192, 9],
-        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
-    ),
-    (
-        "ECDHE-ECDSA-AES128-SHA256",
-        [192, 35],
-        "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
-    ),
-    (
-        "ECDHE-ECDSA-AES256-GCM-SHA384",
-        [192, 44],
-        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
-    ),
-    (
-        "ECDHE-ECDSA-AES256-SHA",
-        [192, 10],
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
-    ),
-    (
-        "ECDHE-ECDSA-AES256-SHA384",
-        [192, 36],
-        "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384",
-    ),
-    (
-        "ECDHE-ECDSA-CHACHA20-POLY1305",
-        [204, 169],
-        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
-    ),
-    (
-        "ECDHE-RSA-AES128-GCM-SHA256",
-        [192, 47],
-        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-    ),
-    (
-        "ECDHE-RSA-AES128-SHA",
-        [192, 19],
-        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
-    ),
-    (
-        "ECDHE-RSA-AES128-SHA256",
-        [192, 39],
-        "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
-    ),
-    (
-        "ECDHE-RSA-AES256-GCM-SHA384",
-        [192, 48],
-        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-    ),
-    (
-        "ECDHE-RSA-AES256-SHA",
-        [192, 20],
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
-    ),
-    (
-        "ECDHE-RSA-AES256-SHA384",
-        [192, 40],
-        "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384",
-    ),
-    (
-        "ECDHE-RSA-CHACHA20-POLY1305",
-        [204, 168],
-        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
-    ),
-    (
-        "ECDHE-RSA-DES-CBC3-SHA",
-        [192, 18],
-        "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA",
-    ),
-    (
-        "ECDHE-RSA-RC4-SHA",
-        [192, 17],
-        "TLS_ECDHE_RSA_WITH_RC4_128_SHA",
-    ),
+    ("DHE-RSA-AES128-GCM-SHA256", [0, 158], "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256"),
+    ("DHE-RSA-AES128-SHA", [0, 51], "TLS_DHE_RSA_WITH_AES_128_CBC_SHA"),
+    ("DHE-RSA-AES128-SHA256", [0, 103], "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"),
+    ("DHE-RSA-AES256-GCM-SHA384", [0, 159], "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384"),
+    ("DHE-RSA-AES256-SHA", [0, 57], "TLS_DHE_RSA_WITH_AES_256_CBC_SHA"),
+    ("DHE-RSA-AES256-SHA256", [0, 107], "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256"),
+    ("DHE-RSA-CHACHA20-POLY1305", [204, 170], "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256"),
+    ("DHE-RSA-DES-CBC3-SHA", [0, 22], "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA"),
+    ("ECDHE-ECDSA-AES128-GCM-SHA256", [192, 43], "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"),
+    ("ECDHE-ECDSA-AES128-SHA", [192, 9], "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"),
+    ("ECDHE-ECDSA-AES128-SHA256", [192, 35], "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256"),
+    ("ECDHE-ECDSA-AES256-GCM-SHA384", [192, 44], "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"),
+    ("ECDHE-ECDSA-AES256-SHA", [192, 10], "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"),
+    ("ECDHE-ECDSA-AES256-SHA384", [192, 36], "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384"),
+    ("ECDHE-ECDSA-CHACHA20-POLY1305", [204, 169], "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"),
+    ("ECDHE-RSA-AES128-GCM-SHA256", [192, 47], "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"),
+    ("ECDHE-RSA-AES128-SHA", [192, 19], "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"),
+    ("ECDHE-RSA-AES128-SHA256", [192, 39], "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"),
+    ("ECDHE-RSA-AES256-GCM-SHA384", [192, 48], "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"),
+    ("ECDHE-RSA-AES256-SHA", [192, 20], "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"),
+    ("ECDHE-RSA-AES256-SHA384", [192, 40], "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384"),
+    ("ECDHE-RSA-CHACHA20-POLY1305", [204, 168], "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"),
+    ("ECDHE-RSA-DES-CBC3-SHA", [192, 18], "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA"),
+    ("ECDHE-RSA-RC4-SHA", [192, 17], "TLS_ECDHE_RSA_WITH_RC4_128_SHA"),
     ("RC4-MD5", [0, 4], "TLS_RSA_WITH_RC4_128_MD5"),
     ("RC4-SHA", [0, 5], "TLS_RSA_WITH_RC4_128_SHA"),
     ("TLS_AES_128_GCM_SHA256", [19, 1], "TLS_AES_128_GCM_SHA256"),
     ("TLS_AES_256_GCM_SHA384", [19, 2], "TLS_AES_256_GCM_SHA384"),
-    (
-        "TLS_CHACHA20_POLY1305_SHA256",
-        [19, 3],
-        "TLS_CHACHA20_POLY1305_SHA256",
-    ),
+    ("TLS_CHACHA20_POLY1305_SHA256", [19, 3], "TLS_CHACHA20_POLY1305_SHA256"),
 ];
 
 pub const GROUPS_AVAILABLE_IN_S2N: &[&'static str] = &[
@@ -228,7 +141,6 @@ impl Prefixer {
     }
 }
 
-
 // pub static NEGOTIATED_CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
 //     LazyLock::new(|| Prefixer::new("n.cipher."));
 // pub static SUPPORTED_CIPHER_PREFIXER: LazyLock<Prefixer<&'static str>> =
@@ -255,7 +167,7 @@ pub enum TlsParam {
 impl TlsParam {
     pub fn index_to_iana_name(&self, index: usize) -> Option<&'static str> {
         match self {
-            TlsParam::Version => todo!(),
+            TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N.get(index).map(|name| *name),
             TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).2),
             TlsParam::Group => GROUPS_AVAILABLE_IN_S2N.get(index).map(|name| *name),
             TlsParam::SignatureScheme => todo!(),
@@ -264,7 +176,9 @@ impl TlsParam {
 
     pub fn iana_name_to_metric_index(&self, name: &'static str) -> Option<usize> {
         match self {
-            TlsParam::Version => todo!(),
+            TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N
+                .iter()
+                .position(|version| *version == name),
             TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N
                 .iter()
                 .position(|cipher| cipher.2 == name),
@@ -622,6 +536,9 @@ mod tests {
     #[test]
     fn all_ciphers_in_static_list() {
         let ciphers = all_available_ciphers();
+        for c in ciphers.iter() {
+            println!("{c:?}");
+        }
         assert_eq!(&ciphers, CIPHERS_AVAILABLE_IN_S2N);
     }
 

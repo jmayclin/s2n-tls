@@ -1,10 +1,7 @@
-use std::{
-    sync::{
-        atomic::{AtomicPtr, AtomicU64, Ordering},
-        mpsc::{self, Receiver, SyncSender},
-        Arc, Mutex,
-    },
-    time::SystemTime,
+use std::sync::{
+    atomic::{AtomicPtr, Ordering},
+    mpsc::{self},
+    Arc, Mutex,
 };
 
 // consider a platform service, offering resources A, B, and C
@@ -17,7 +14,7 @@ mod static_lists;
 
 use brass_aphid_wire_messages::{
     codec::DecodeValue,
-    protocol::{extensions::ClientHelloExtensionData, ClientHello, HandshakeMessageHeader},
+    protocol::{extensions::ClientHelloExtensionData, ClientHello},
 };
 use s2n_tls::events::EventSubscriber;
 
@@ -124,9 +121,7 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
         if let Some(groups) = supported_groups {
             groups
                 .iter()
-                .filter_map(|group| {
-                    TlsParam::Group.iana_name_to_metric_index(group.description)
-                })
+                .filter_map(|group| TlsParam::Group.iana_name_to_metric_index(group.description))
                 .for_each(|index| {
                     current_record.supported_groups[index].fetch_add(1, Ordering::SeqCst);
                 });
