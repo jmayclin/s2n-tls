@@ -1,7 +1,7 @@
 /* CSS for UI elements (a.k.a. chrome) */
 
 html {
-    scrollbar-color: var(--scrollbar) var(--bg);
+    scrollbar-color: var(--scrollbar) transparent;
 }
 #mdbook-searchresults a,
 .content a:link,
@@ -534,6 +534,11 @@ html:not(.sidebar-resizing) .sidebar {
     cursor: col-resize;
     width: calc(var(--sidebar-resize-indicator-width) - var(--sidebar-resize-indicator-space));
 }
+
+html:not(.js) .sidebar-resize-handle {
+    display: none;
+}
+
 /* sidebar-hidden */
 #mdbook-sidebar-toggle-anchor:not(:checked) ~ .sidebar {
     transform: translateX(calc(0px - var(--sidebar-width) - var(--sidebar-resize-indicator-width)));
