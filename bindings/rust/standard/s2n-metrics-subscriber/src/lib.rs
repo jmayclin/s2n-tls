@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicPtr, Ordering},
-    mpsc::{self},
+    mpsc::{self, Receiver, Sender},
     Arc, Mutex,
 };
 
@@ -11,7 +11,9 @@ use std::sync::{
 mod cloudwatchlogs_exporter;
 mod record;
 mod static_lists;
+mod emf_emitter;
 
+use arc_swap::ArcSwap;
 use brass_aphid_wire_messages::{
     codec::DecodeValue,
     protocol::{extensions::ClientHelloExtensionData, ClientHello},
@@ -23,50 +25,76 @@ use crate::{
     static_lists::TlsParam,
 };
 
+#[derive(Debug)]
+struct ExportPipeline<E> {
+    metric_receiver: Receiver<FrozenS2NMetricRecord>,
+    exporter: E,
+}
+
+/// The AggregatedMetricSubscriber can be used to aggregate events over some period
+/// of time, and then export them using some [`Exporter`].
+/// 
+/// The [`s2n_tls::events::EventSubscriber`] may be invoked concurrently, which 
+/// means that multiple threads might be incrementing the current record. To handle
+/// this and ensure that the `S2NMetricRecord` is never flushed while an update 
+/// is in progress we use an [`arc_swap::ArcSwap`].
+/// 
+/// ArcSwap is basically an `Atomic<Arc<S2NMetricRecord>>`
+/// 
+/// We use this as a relatively intuitive form of synchronization. Once there
+/// are no references to the S2NMetricRecord (e.g. no threads updating it) then
+/// its [`S2NMetricRecord::drop`] will write it to the channel, where it can then
+/// be read by the export pipeline.
 #[derive(Debug, Clone)]
 pub struct AggregatedMetricsSubscriber<E: Send + Sync> {
-    current_record: Arc<AtomicPtr<S2NMetricRecord>>,
-    exporter: Arc<Mutex<E>>,
+    current_record: Arc<ArcSwap<S2NMetricRecord>>,
+    /// This handle is not directly used, but is used when constructing new S2NMetricRecord
+    /// items
+    tx_handle: Arc<Sender<FrozenS2NMetricRecord>>,
+
+    export_pipeline: Arc<Mutex<ExportPipeline<E>>>,
 }
 
 impl<E: Exporter + Send + Sync> AggregatedMetricsSubscriber<E> {
-    const CHANNEL_CAPACITY: usize = 1024;
+    pub fn new(exporter: E) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
 
-    fn new(exporter: E) -> Self {
-        let heap_allocated_record = {
-            let record = S2NMetricRecord::default();
-            let record = Box::new(record);
-            Box::into_raw(record)
+        let record = S2NMetricRecord::new(tx.clone());
+
+        let export_pipe = ExportPipeline {
+            metric_receiver: rx,
+            exporter,
         };
-
         Self {
-            current_record: Arc::new(AtomicPtr::new(heap_allocated_record)),
-            exporter: Arc::new(Mutex::new(exporter)),
+            current_record: Arc::new(ArcSwap::new(Arc::new(record))),
+            tx_handle: Arc::new(tx),
+            export_pipeline: Arc::new(Mutex::new(export_pipe)),
         }
     }
 
-    /// export the record to the channel, and reset all counters to zero.
-    ///
-    /// Todo -> it feels like this should return an optional future to be polled
+    /// Finish aggregation of the record and export it.
+    /// 
+    /// Note that this method will block until all other in-flight updates of the
+    /// metric record are complete. This is generally very fast because updates
+    /// only consist of atomic integer updates, but latency-sensitive applications
+    /// should avoid calling this method in a tokio runtime, and using `spawn_blocking`
+    /// instead.
     pub fn export(&self) {
-        let mut export_lock = self.exporter.lock().unwrap();
+        let mut export_lock = self.export_pipeline.lock().unwrap();
 
-        let heap_allocated_record = {
-            let record = S2NMetricRecord::default();
-            let record = Box::new(record);
-            Box::into_raw(record)
-        };
-        let populated_record = self
-            .current_record
-            .swap(heap_allocated_record, Ordering::SeqCst);
+        let new_record = Arc::new(S2NMetricRecord::new(
+            self.tx_handle.as_ref().clone(),
+        ));
 
-        let populated_record = unsafe {
-            // SAFETY: all records are created from Box::into_raw.
-            Box::from_raw(populated_record)
-        };
+        let old_record = self.current_record.swap(new_record);
+        // On drop, the record will be "frozen" and written to the channel
+        // This might not happen immediately because other threads might also hold
+        // a reference to the metric record
+        drop(old_record);
 
-        let record = populated_record.freeze();
-        export_lock.export(record)
+        // This will block the thread until the record is received.
+        let record = export_lock.metric_receiver.recv().unwrap();
+        export_lock.exporter.export(record);
     }
 }
 
@@ -76,8 +104,8 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
         connection: &s2n_tls::connection::Connection,
         event: &s2n_tls::events::HandshakeEvent,
     ) {
-        // s2n-tls does not have convenient methods to extra the supported parameter,
-        // so we just directly extra them from the client hello
+        // s2n-tls does not have convenient methods to extract the supported parameter,
+        // so we just directly extract them from the client hello
         let client_hello = {
             let client_hello_bytes = connection.client_hello().unwrap().raw_message().unwrap();
             let buffer = &client_hello_bytes;
@@ -99,18 +127,7 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
             })
             .flatten();
 
-        let current_record = {
-            let mut record_ptr;
-            loop {
-                record_ptr = self.current_record.load(Ordering::Relaxed);
-                if let Ok(_) = (unsafe { &*record_ptr }).updates_in_flight.start_update() {
-                    break;
-                }
-                // else err -> the flush has started, we should fetch the "fresh" record
-                // which is not held in the pointer
-            }
-            unsafe { &*record_ptr }
-        };
+        let current_record = self.current_record.load_full();
 
         supported_ciphers
             .iter()
@@ -127,24 +144,23 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
                 });
         }
         current_record.update(event);
-        current_record.updates_in_flight.finish_update();
 
         tracing::debug!("handshake event invoked : {event:?}");
     }
 }
 
-trait Exporter {
+pub trait Exporter {
     /// export a record to some sink.
     ///
     /// Most metrics API will have some synchronous call where drop appends it to
     /// some queue which is written in the background.
     ///
     /// E.g. this might call CloudWatch
-    fn export(&mut self, metric_record: FrozenS2NMetricRecord);
+    fn export(&self, metric_record: FrozenS2NMetricRecord);
 }
 
 impl Exporter for mpsc::Sender<FrozenS2NMetricRecord> {
-    fn export(&mut self, metric_record: FrozenS2NMetricRecord) {
+    fn export(&self, metric_record: FrozenS2NMetricRecord) {
         self.send(metric_record).unwrap()
     }
 }

@@ -97,13 +97,12 @@ impl UpdatesInFlight {
     }
 }
 
-// TODO, this should have +1 for unrecognized things
+/// The S2NMetricRecord stores various metrics 
 #[derive(Debug)]
 pub struct S2NMetricRecord {
-    // writer_count -> are any updates in flight? We don't want to *freeze* the
-    // metrics until none are in flight.
-    // we also use this
-    pub updates_in_flight: UpdatesInFlight,
+    /// This is used to send a frozen version back to the Aggregator, after which
+    /// point it can be exported. This is only used in the drop impl.
+    exporter: std::sync::mpsc::Sender<FrozenS2NMetricRecord>,
 
     sample_count: AtomicU64,
 
@@ -127,13 +126,17 @@ pub struct S2NMetricRecord {
     handshake_compute: AtomicU64,
 }
 
-impl Default for S2NMetricRecord {
-    fn default() -> Self {
+fn relaxed_freeze<const T: usize>(array: &[AtomicU64; T]) -> [u64; T] {
+    array
+        .each_ref()
+        .map(|counter| counter.load(Ordering::Relaxed))
+}
+
+impl S2NMetricRecord {
+    pub fn new(exporter: std::sync::mpsc::Sender<FrozenS2NMetricRecord>) -> Self {
         let ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         let supported_ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         Self {
-            updates_in_flight: Default::default(),
-
             sample_count: Default::default(),
 
             groups: Default::default(),
@@ -150,17 +153,10 @@ impl Default for S2NMetricRecord {
 
             handshake_duration_us: Default::default(),
             handshake_compute: Default::default(),
+            exporter,
         }
     }
-}
 
-fn relaxed_freeze<const T: usize>(array: &[AtomicU64; T]) -> [u64; T] {
-    array
-        .each_ref()
-        .map(|counter| counter.load(Ordering::Relaxed))
-}
-
-impl S2NMetricRecord {
     pub fn update(&self, event: &s2n_tls::events::HandshakeEvent) {
         dbg!(event);
         self.ciphers[static_lists::cipher_ossl_name_to_index(event.cipher()).unwrap()]
@@ -181,8 +177,6 @@ impl S2NMetricRecord {
 
     /// make a copy of this record to be exported, and zero all entries
     pub fn freeze(&self) -> FrozenS2NMetricRecord {
-        self.updates_in_flight.freeze();
-
         FrozenS2NMetricRecord {
             freeze_time: SystemTime::now(),
             sample_count: self.sample_count.load(Ordering::SeqCst),
@@ -199,6 +193,14 @@ impl S2NMetricRecord {
             handshake_duration: self.handshake_duration_us.load(Ordering::SeqCst),
             handshake_compute: self.handshake_compute.load(Ordering::SeqCst),
         }
+    }
+}
+
+impl Drop for S2NMetricRecord {
+    fn drop(&mut self) {
+        let frozen = self.freeze();
+        // no available way to report error
+        let _ = self.exporter.send(frozen);
     }
 }
 

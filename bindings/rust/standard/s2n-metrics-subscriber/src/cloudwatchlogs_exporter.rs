@@ -11,18 +11,18 @@ use crate::record::{FrozenS2NMetricRecord, MetricWithAttribution};
 
 use metrique_writer::format::Format;
 
-struct BufferedEmfExporter {
+struct BufferedEmfEmitter {
     record_receiver: std::sync::mpsc::Receiver<FrozenS2NMetricRecord>,
     emf_formatter: Emf,
 }
 
-impl BufferedEmfExporter {
+impl BufferedEmfEmitter {
     /// write a single record to the specified destination
     fn write(&mut self, mut destination: &mut [u8]) -> std::io::Result<usize> {
         match self.record_receiver.try_recv() {
             Ok(record) => {
                 let mut buffer = Vec::new();
-                self.emf_formatter.format(&record, &mut buffer).unwrap();
+                let result = self.emf_formatter.format(&record, &mut buffer);
                 destination.write(&buffer)
             }
             Err(TryRecvError::Disconnected) => Err(std::io::Error::new(

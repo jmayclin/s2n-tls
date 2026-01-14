@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # aws-sdk-cloudwatch = "1.78.0"
-s2n-tls = { version = "=0.3.33", path = "../../extended/s2n-tls", features = ["unstable-events"] }
+s2n-tls = { version = "=0.3.33", path = "../../extended/s2n-tls", features = ["unstable-events", "unstable-testing"] }
 s2n-tls-tokio = { version = "=0.3.33", path = "../../extended/s2n-tls-tokio" }
 tracing = "0.1.43"
 
@@ -19,6 +19,7 @@ tokio = { version = "1", features = [ "io-std", "io-util", "macros", "net", "rt-
 aws-config = "1.8.7"
 aws-sdk-cloudwatchlogs = "1.104.0"
 brass-aphid-wire-messages = "0.0.1"
+arc-swap = "1.8.0"
 
 
 
