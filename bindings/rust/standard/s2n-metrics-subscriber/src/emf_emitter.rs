@@ -45,9 +45,12 @@ impl BufferedEmfEmitter {
         (emitter, tx)
     }
 }
-// F: metrique_writer::format::Format
+
 impl BufferedEmfEmitter {
     /// write a single record to the specified destination
+    /// 
+    /// If there are no records to write, an error of type [`std::io::ErrorKind::WouldBlock`]
+    /// will be returned.
     fn write(&mut self, destination: &mut impl std::io::Write) -> std::io::Result<()> {
         match self.record_receiver.try_recv() {
             Ok(record) => match self.emf_formatter.format(&record, destination) {
