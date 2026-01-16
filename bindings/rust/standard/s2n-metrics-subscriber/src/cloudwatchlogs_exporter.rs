@@ -1,41 +1,20 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{
     io::{ErrorKind, Write},
-    sync::mpsc::{Receiver, TryRecvError},
+    sync::mpsc::{Receiver, Sender, TryRecvError},
     time::SystemTime,
 };
 
 use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client};
 use metrique_writer_format_emf::Emf;
 
-use crate::record::{FrozenS2NMetricRecord, MetricWithAttribution};
+use crate::{
+    emf_emitter::EmfEmitter, record::MetricRecord,
+};
 
 use metrique_writer::format::Format;
-
-struct BufferedEmfEmitter {
-    record_receiver: std::sync::mpsc::Receiver<FrozenS2NMetricRecord>,
-    emf_formatter: Emf,
-}
-
-impl BufferedEmfEmitter {
-    /// write a single record to the specified destination
-    fn write(&mut self, mut destination: &mut [u8]) -> std::io::Result<usize> {
-        match self.record_receiver.try_recv() {
-            Ok(record) => {
-                let mut buffer = Vec::new();
-                let result = self.emf_formatter.format(&record, &mut buffer);
-                destination.write(&buffer)
-            }
-            Err(TryRecvError::Disconnected) => Err(std::io::Error::new(
-                ErrorKind::BrokenPipe,
-                TryRecvError::Disconnected,
-            )),
-            Err(TryRecvError::Empty) => Err(std::io::Error::new(
-                ErrorKind::WouldBlock,
-                TryRecvError::Empty,
-            )),
-        }
-    }
-}
 
 /// This is a very inefficient metric uploader for CloudWatch
 ///
@@ -46,120 +25,70 @@ impl BufferedEmfEmitter {
 /// flushed.
 pub struct CloudWatchExporter {
     /// The cloudwatch logs client, used to "put-metric-events"
-    record_receiver: std::sync::mpsc::Receiver<FrozenS2NMetricRecord>,
-    pub resource: Option<String>,
-    emf_formatter: Emf,
+    emf: EmfEmitter,
     cloudwatch_logs_client: Client,
 }
 
 impl CloudWatchExporter {
-    pub async fn initialize(rx: Receiver<FrozenS2NMetricRecord>) -> Self {
+    pub async fn initialize(
+        service_name: String,
+        resource: Option<String>,
+    ) -> (Self, Sender<MetricRecord>) {
         // load AWS credentials from the environments
         let config = aws_config::load_from_env().await;
         let client = aws_sdk_cloudwatchlogs::Client::new(&config);
-        let emf = Emf::builder("tls/s2n-tls".to_string(), vec![vec![]]).build();
 
-        CloudWatchExporter {
+        let (emitter, tx) = EmfEmitter::new(service_name, resource);
+
+        let value = CloudWatchExporter {
             cloudwatch_logs_client: client,
-            resource: None,
-            emf_formatter: emf,
-            record_receiver: rx,
-        }
+            emf: emitter,
+        };
+        (value, tx)
     }
 
     fn current_timestamp() -> i64 {
         SystemTime::UNIX_EPOCH.elapsed().unwrap().as_millis() as i64
     }
 
-    pub fn to_text(&mut self) -> Option<String> {
-        if let Ok(record) = self.record_receiver.try_recv() {
-            let emf_record = {
-                let mut buffer = Vec::new();
-                if let Some(resource) = self.resource.as_ref() {
-                    let with_attribution = MetricWithAttribution::new(record, resource.clone());
-                    self.emf_formatter
-                        .format(&with_attribution, &mut buffer)
-                        .unwrap();
-                } else {
-                    self.emf_formatter.format(&record, &mut buffer).unwrap();
-                }
-                buffer
-            };
-            Some(String::from_utf8(emf_record).unwrap())
-        } else {
-            None
-        }
-    }
-
     pub async fn try_write(&mut self) -> bool {
-        if let Ok(record) = self.record_receiver.try_recv() {
-            let emf_record = {
-                let mut buffer = Vec::new();
-                if let Some(resource) = self.resource.as_ref() {
-                    let with_attribution = MetricWithAttribution::new(record, resource.clone());
-                    self.emf_formatter
-                        .format(&with_attribution, &mut buffer)
-                        .unwrap();
-                } else {
-                    self.emf_formatter.format(&record, &mut buffer).unwrap();
-                }
-                buffer
-            };
-            // let formatted = self.emf_formatter.format(&record);
-            let event = InputLogEvent::builder()
-                .message(String::from_utf8(emf_record).unwrap())
-                .timestamp(Self::current_timestamp())
-                .build()
-                .unwrap();
-            let result = self
-                .cloudwatch_logs_client
-                .put_log_events()
-                .log_group_name("s2n-tls-metric-development")
-                .log_stream_name("stream1")
-                .log_events(event)
-                .send()
-                .await
-                .unwrap();
-            true
-        } else {
-            false
-        }
+        let mut buffer: [u8; 5_000] = [0; 5_000];
+        let mut buffer_slize = buffer.as_mut_slice();
+        // let mut buffer = Vec::new();
+        let written_length = match self.emf.write(&mut buffer_slize) {
+            Ok(()) => {
+                println!("remaining length?: {:?}", buffer_slize.len());
+                let written_length = 5000 - buffer_slize.len();
+                written_length
+            }
+            Err(e) => {
+                tracing::error!("{e:?}");
+                return false;
+            }
+        };
+
+        let record = &buffer[0..written_length];
+
+        println!("{}", String::from_utf8(record.to_owned()).unwrap());
+
+        let event = InputLogEvent::builder()
+            .message(String::from_utf8(record.to_owned()).unwrap())
+            .timestamp(Self::current_timestamp())
+            .build()
+            .unwrap();
+        let result = self
+            .cloudwatch_logs_client
+            .put_log_events()
+            .log_group_name("s2n-tls-metric-development")
+            .log_stream_name("stream1")
+            .log_events(event)
+            .send()
+            .await
+            .unwrap();
+        println!("PUT THE EVENT: {result:?}");
+        true
     }
 }
-
-// impl EventSubscriber for CloudWatchExporter {
-//     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-//         let handshake = HandshakeMetrics::from_event(event);
-//         ServiceMetrics::append(handshake);
-//         resumption.map(|event| ServiceMetrics::append(event));
-//     }
-// }
-
-// pub struct RollingFileExporter(AttachHandle);
-
-// impl RollingFileExporter {
-//     fn service_metrics_init() -> Self {
-//         let attach_handle = ServiceMetrics::attach_to_stream(
-//             Emf::builder("tls/s2n-tls".to_string(), vec![vec![]])
-//                 .build()
-//                 .output_to_makewriter(RollingFileAppender::new(
-//                     Rotation::HOURLY,
-//                     "logs",
-//                     "s2n.log",
-//                 )),
-//         );
-//         RollingFileExporter(attach_handle)
-//     }
-// }
-
-// impl EventSubscriber for RollingFileExporter {
-//     fn on_handshake_event(&self, event: &s2n_tls_sys::s2n_event_handshake) {
-//         let handshake = HandshakeMetrics::from_event(event);
-//         let resumption = ResumptionMetrics::from_event(&event.resumption_event);
-//         ServiceMetrics::append(handshake);
-//         resumption.map(|event| ServiceMetrics::append(event));
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,47 @@
+{
+    "_aws": {
+        "CloudWatchMetrics": [
+            {
+                "Namespace": "tls/s2n-tls",
+                "Dimensions": [
+                    [
+                        "service_name"
+                    ]
+                ],
+                "Metrics": [
+                    {
+                        "Name": "Negotiated.version.TLSv1_3"
+                    },
+                    {
+                        "Name": "Negotiated.cipher.TLS_AES_128_GCM_SHA256"
+                    },
+                    {
+                        "Name": "Negotiated.group.secp256r1"
+                    },
+                    {
+                        "Name": "Negotiated.signature_scheme.rsa_pss_rsae_sha256"
+                    },
+                    {
+                        "Name": "sample_count"
+                    },
+                    {
+                        "Name": "handshake_duration"
+                    },
+                    {
+                        "Name": "handshake_compute"
+                    }
+                ]
+            }
+        ],
+        "Timestamp": 1768532394094
+    },
+    "Negotiated.version.TLSv1_3": 2,
+    "Negotiated.cipher.TLS_AES_128_GCM_SHA256": 2,
+    "Negotiated.group.secp256r1": 2,
+    "Negotiated.signature_scheme.rsa_pss_rsae_sha256": 2,
+    "sample_count": 2,
+    "handshake_duration": 13779,
+    "handshake_compute": 12594,
+    "service_name": "test_server",
+    "resource": "cute-kitten"
+}

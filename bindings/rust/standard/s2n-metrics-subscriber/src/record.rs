@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
@@ -5,120 +8,57 @@ use std::{
 
 use crate::static_lists::{
     self, Prefixer, State, TlsParam, ToStaticString, CIPHERS_AVAILABLE_IN_S2N,
-    GROUPS_AVAILABLE_IN_S2N,
+    GROUPS_AVAILABLE_IN_S2N, SIGNATURE_SCHEMES_AVAILABLE_IN_S2N, VERSIONS_AVAILABLE_IN_S2N,
 };
 
 const GROUP_COUNT: usize = GROUPS_AVAILABLE_IN_S2N.len();
 const CIPHER_COUNT: usize = CIPHERS_AVAILABLE_IN_S2N.len();
-const SIGNATURE_SCHEME_COUNT: usize = 5;
-const SIG_HASH_COUNT: usize = 5;
-/// SSLv3 -> TLS 1.3
-const PROTOCOL_VERSION_COUNT: usize = 5;
+const SIGNATURE_COUNT: usize = SIGNATURE_SCHEMES_AVAILABLE_IN_S2N.len();
+const PROTOCOL_COUNT: usize = VERSIONS_AVAILABLE_IN_S2N.len();
 
-// TODO: "updaters" should refer to the people adding things
-#[derive(Debug, Default)]
-pub struct UpdatesInFlight(AtomicU64);
+/// Metric Record is an opaque type which implements [`metrique_writer::Entry`].
+///
+/// This is the preferred type for public s2n-tls-metric-subscriber traits and
+/// interfaces.
+// This currently just holds a single struct. In the future we will
+// likely rely on an enum to handle different record types, e.g. SessionResumptionFailure.
+#[derive(Debug, Clone)]
+pub struct MetricRecord {
+    handshake: HandshakeRecord,
+}
 
-impl UpdatesInFlight {
-    const FLUSHING_MASK: u64 = 1 << 63;
-    const LOWER_63_MASK: u64 = Self::FLUSHING_MASK - 1;
-    /// This is called to indicate that the record update is starting.
-    ///
-    /// This will fail if a flusher has indicated that the record is about to be
-    /// flushed.
-    pub fn start_update(&self) -> Result<(), ()> {
-        loop {
-            let current = self.0.load(Ordering::SeqCst);
-            if current & Self::FLUSHING_MASK != 0 {
-                // a flush is in progress, we should not modify the values
-                return Err(());
-            }
-            assert!(current + 1 < Self::LOWER_63_MASK);
-            if let Ok(_) =
-                self.0
-                    .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
-            {
-                return Ok(());
-            }
-            // else err -> this means that a different thread updated the in flight
-            // we just need to retry
-        }
-    }
-
-    /// This is called indicate that the record update is finished
-    pub fn finish_update(&self) {
-        loop {
-            let current = self.0.load(Ordering::SeqCst);
-            let minus_one = {
-                if current & Self::FLUSHING_MASK != 0 {
-                    // we need careful subtraction, bc we need to keep the flushing
-                    // bit set
-                    let lower_bits = current & Self::LOWER_63_MASK;
-                    assert!(lower_bits != 0);
-                    lower_bits - 1
-                } else {
-                    current - 1
-                }
-            };
-            if let Ok(_) =
-                self.0
-                    .compare_exchange(current, minus_one, Ordering::SeqCst, Ordering::SeqCst)
-            {
-                return;
-            }
-        }
-    }
-
-    /// This is called by the flusher.
-    ///
-    /// It will continue to fail until
-    pub fn freeze(&self) {
-        // set the flushing bit
-        loop {
-            let current = self.0.load(Ordering::SeqCst);
-            if let Ok(_) = self.0.compare_exchange(
-                current,
-                current | Self::FLUSHING_MASK,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                break;
-            }
-        }
-
-        // wait for the remaining threads to finish
-        loop {
-            let current = self.0.load(Ordering::SeqCst);
-            let in_progress = current & Self::LOWER_63_MASK;
-            if in_progress == 0 {
-                break;
-            }
-        }
+impl MetricRecord {
+    pub(crate) fn new(handshake: HandshakeRecord) -> Self {
+        Self { handshake }
     }
 }
 
-/// The S2NMetricRecord stores various metrics 
+impl metrique_writer::Entry for MetricRecord {
+    fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
+        self.handshake.write(writer)
+    }
+}
+
+/// The S2NMetricRecord stores various metrics
 #[derive(Debug)]
-pub struct S2NMetricRecord {
+pub(crate) struct HandshakeRecordInProgress {
     /// This is used to send a frozen version back to the Aggregator, after which
     /// point it can be exported. This is only used in the drop impl.
-    exporter: std::sync::mpsc::Sender<FrozenS2NMetricRecord>,
+    exporter: std::sync::mpsc::Sender<HandshakeRecord>,
 
     sample_count: AtomicU64,
 
     // negotiated
-    pub protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
+    pub protocols: [AtomicU64; PROTOCOL_COUNT],
     pub ciphers: [AtomicU64; CIPHER_COUNT],
     pub groups: [AtomicU64; GROUP_COUNT],
-    pub signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
-    pub sig_hash: [AtomicU64; SIG_HASH_COUNT],
+    pub signatures: [AtomicU64; SIGNATURE_COUNT],
 
     // supported
-    pub supported_protocols: [AtomicU64; PROTOCOL_VERSION_COUNT],
+    pub supported_protocols: [AtomicU64; PROTOCOL_COUNT],
     pub supported_ciphers: [AtomicU64; CIPHER_COUNT],
     pub supported_groups: [AtomicU64; GROUP_COUNT],
-    pub supported_signature_scheme: [AtomicU64; SIGNATURE_SCHEME_COUNT],
-    pub supported_sig_hash: [AtomicU64; SIG_HASH_COUNT],
+    pub supported_signatures: [AtomicU64; SIGNATURE_COUNT],
 
     /// sum of handshake duration
     handshake_duration_us: AtomicU64,
@@ -132,8 +72,9 @@ fn relaxed_freeze<const T: usize>(array: &[AtomicU64; T]) -> [u64; T] {
         .map(|counter| counter.load(Ordering::Relaxed))
 }
 
-impl S2NMetricRecord {
-    pub fn new(exporter: std::sync::mpsc::Sender<FrozenS2NMetricRecord>) -> Self {
+impl HandshakeRecordInProgress {
+    pub fn new(exporter: std::sync::mpsc::Sender<HandshakeRecord>) -> Self {
+        // default is not implemented for arrays this large
         let ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         let supported_ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         Self {
@@ -141,15 +82,13 @@ impl S2NMetricRecord {
 
             groups: Default::default(),
             ciphers,
-            signature_scheme: Default::default(),
-            sig_hash: Default::default(),
             protocols: Default::default(),
+            signatures: Default::default(),
 
             supported_protocols: Default::default(),
             supported_ciphers,
             supported_groups: Default::default(),
-            supported_signature_scheme: Default::default(),
-            supported_sig_hash: Default::default(),
+            supported_signatures: Default::default(),
 
             handshake_duration_us: Default::default(),
             handshake_compute: Default::default(),
@@ -157,14 +96,52 @@ impl S2NMetricRecord {
         }
     }
 
-    pub fn update(&self, event: &s2n_tls::events::HandshakeEvent) {
-        dbg!(event);
-        self.ciphers[static_lists::cipher_ossl_name_to_index(event.cipher()).unwrap()]
-            .fetch_add(1, Ordering::Relaxed);
-        self.protocols[TlsParam::Version
-            .iana_name_to_metric_index(event.protocol_version().to_static_string())
-            .unwrap()]
-        .fetch_add(1, Ordering::Relaxed);
+    pub fn update(
+        &self,
+        conn: &s2n_tls::connection::Connection,
+        event: &s2n_tls::events::HandshakeEvent,
+    ) {
+        ////////////////////////////////////////////////////////////////////////
+        /////////////////////   fields from connection   ///////////////////////
+        ////////////////////////////////////////////////////////////////////////
+
+        if let Some(s) = conn.selected_signature_scheme() {
+            let index = SIGNATURE_SCHEMES_AVAILABLE_IN_S2N
+                .iter()
+                .position(|s2n_sig| s2n_sig.description() == s);
+            match index {
+                Some(index) => {
+                    self.signatures[index].fetch_add(1, Ordering::SeqCst);
+                }
+                None => {
+                    // this should never happen, but we prefer to drop metrics
+                    // rather than panic
+                    tracing::error!("{s} was not a recognized s2n-tls signature");
+                }
+            }
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        //////////////////////   fields from event   ///////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+
+        self.sample_count.fetch_add(1, Ordering::SeqCst);
+
+        TlsParam::Version
+            .name_to_metric_index(event.protocol_version().to_static_string())
+            .and_then(|index| self.protocols.get(index))
+            .map(|counter| counter.fetch_add(1, Ordering::SeqCst));
+
+        static_lists::cipher_ossl_name_to_index(event.cipher())
+            .and_then(|index| self.ciphers.get(index))
+            .map(|counter| counter.fetch_add(1, Ordering::SeqCst));
+
+        event
+            .group()
+            .and_then(|name| TlsParam::Group.name_to_metric_index(name))
+            .and_then(|index| self.groups.get(index))
+            .map(|counter| counter.fetch_add(1, Ordering::SeqCst));
+
         // Assumption: durations are less than 500,000 years, otherwise this cast
         // will panic
         self.handshake_compute.fetch_add(
@@ -175,59 +152,55 @@ impl S2NMetricRecord {
             .fetch_add(event.duration().as_micros() as u64, Ordering::SeqCst);
     }
 
-    /// make a copy of this record to be exported, and zero all entries
-    pub fn freeze(&self) -> FrozenS2NMetricRecord {
-        FrozenS2NMetricRecord {
+    /// make a copy of this record to be exported.
+    fn finish(&self) -> HandshakeRecord {
+        HandshakeRecord {
             freeze_time: SystemTime::now(),
             sample_count: self.sample_count.load(Ordering::SeqCst),
             protocols: relaxed_freeze(&self.protocols),
             negotiated_ciphers: relaxed_freeze(&self.ciphers),
             negotiated_groups: relaxed_freeze(&self.groups),
-            signature_scheme: relaxed_freeze(&self.signature_scheme),
-            sig_hash: relaxed_freeze(&self.sig_hash),
+            negotiated_signatures: relaxed_freeze(&self.signatures),
             supported_protocols: relaxed_freeze(&self.supported_protocols),
             supported_ciphers: relaxed_freeze(&self.supported_ciphers),
             supported_groups: relaxed_freeze(&self.supported_groups),
-            supported_signature_scheme: relaxed_freeze(&self.supported_signature_scheme),
-            supported_sig_hash: relaxed_freeze(&self.supported_sig_hash),
+            supported_signatures: relaxed_freeze(&self.supported_signatures),
             handshake_duration: self.handshake_duration_us.load(Ordering::SeqCst),
             handshake_compute: self.handshake_compute.load(Ordering::SeqCst),
         }
     }
 }
 
-impl Drop for S2NMetricRecord {
+impl Drop for HandshakeRecordInProgress {
     fn drop(&mut self) {
-        let frozen = self.freeze();
+        let frozen = self.finish();
         // no available way to report error
         let _ = self.exporter.send(frozen);
     }
 }
 
-#[derive(Debug)]
-pub struct FrozenS2NMetricRecord {
+#[derive(Debug, Clone)]
+pub(crate) struct HandshakeRecord {
     pub freeze_time: SystemTime,
 
     sample_count: u64,
 
     // negotiated parameters
-    pub protocols: [u64; PROTOCOL_VERSION_COUNT],
+    pub protocols: [u64; PROTOCOL_COUNT],
     pub negotiated_ciphers: [u64; CIPHER_COUNT],
     pub negotiated_groups: [u64; GROUP_COUNT],
-    pub signature_scheme: [u64; SIGNATURE_SCHEME_COUNT],
-    pub sig_hash: [u64; SIG_HASH_COUNT],
+    pub negotiated_signatures: [u64; SIGNATURE_COUNT],
 
-    pub supported_protocols: [u64; PROTOCOL_VERSION_COUNT],
+    pub supported_protocols: [u64; PROTOCOL_COUNT],
     pub supported_ciphers: [u64; CIPHER_COUNT],
     pub supported_groups: [u64; GROUP_COUNT],
-    pub supported_signature_scheme: [u64; SIGNATURE_SCHEME_COUNT],
-    pub supported_sig_hash: [u64; SIG_HASH_COUNT],
+    pub supported_signatures: [u64; SIGNATURE_COUNT],
 
     pub handshake_duration: u64,
     pub handshake_compute: u64,
 }
 
-impl metrique_writer::Entry for FrozenS2NMetricRecord {
+impl metrique_writer::Entry for HandshakeRecord {
     fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
         writer.timestamp(self.freeze_time);
 
@@ -265,14 +238,30 @@ impl metrique_writer::Entry for FrozenS2NMetricRecord {
                 TlsParam::Group,
                 State::Supported,
             ),
+            // signatures
+            (
+                self.negotiated_signatures.as_slice(),
+                TlsParam::SignatureScheme,
+                State::Negotiated,
+            ),
+            (
+                self.supported_signatures.as_slice(),
+                TlsParam::SignatureScheme,
+                State::Supported,
+            ),
         ] {
             list.iter()
                 .enumerate()
                 .filter(|(_index, count)| **count > 0)
-                .for_each(|(index, count)| {
-                    let iana_cipher_name = parameter.index_to_iana_name(index).unwrap();
-                    let prefixed_label =
-                        Prefixer::get_with_prefix(iana_cipher_name, parameter, state);
+                .filter_map(|(index, count)| match parameter.index_to_name(index) {
+                    Some(name) => Some((name, count)),
+                    None => {
+                        debug_assert!(false, "failed to get name for {index} of {parameter:?}");
+                        None
+                    }
+                })
+                .for_each(|(name, count)| {
+                    let prefixed_label = Prefixer::get_with_prefix(name, parameter, state);
                     writer.value(prefixed_label, count);
                 });
         }
@@ -280,23 +269,5 @@ impl metrique_writer::Entry for FrozenS2NMetricRecord {
         writer.value("sample_count", &self.sample_count);
         writer.value("handshake_duration", &self.handshake_duration);
         writer.value("handshake_compute", &self.handshake_compute);
-    }
-}
-
-pub struct MetricWithAttribution<E> {
-    entry: E,
-    resource: String,
-}
-
-impl<E> MetricWithAttribution<E> {
-    pub fn new(entry: E, resource: String) -> Self {
-        Self { entry, resource }
-    }
-}
-
-impl<E: metrique_writer::Entry> metrique_writer::Entry for MetricWithAttribution<E> {
-    fn write<'a>(&'a self, writer: &mut impl metrique_writer::EntryWriter<'a>) {
-        self.entry.write(writer);
-        writer.value("resource", &self.resource);
     }
 }

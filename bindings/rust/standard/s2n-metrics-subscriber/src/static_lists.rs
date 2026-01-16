@@ -75,16 +75,16 @@ pub enum TlsParam {
 }
 
 impl TlsParam {
-    pub fn index_to_iana_name(&self, index: usize) -> Option<&'static str> {
+    pub fn index_to_name(&self, index: usize) -> Option<&'static str> {
         match self {
             TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N.get(index).map(|name| *name),
             TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
             TlsParam::Group => GROUPS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
-            TlsParam::SignatureScheme => todo!(),
+            TlsParam::SignatureScheme => SIGNATURE_SCHEMES_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
         }
     }
 
-    pub fn iana_name_to_metric_index(&self, name: &'static str) -> Option<usize> {
+    pub fn name_to_metric_index(&self, name: &'static str) -> Option<usize> {
         match self {
             TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N
                 .iter()
@@ -154,7 +154,7 @@ unsafe fn static_memory_to_str(value: *const u8) -> &'static str {
     CStr::from_ptr(value).to_str().unwrap()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Cipher {
     iana_description: &'static str,
     iana_value: [u8; 2],
@@ -172,6 +172,14 @@ impl Cipher {
             iana_description,
             iana_value,
         }
+    }
+
+    pub fn iana_id(&self) -> [u8; 2] {
+        self.iana_value
+    }
+
+    pub fn unknown(id: [u8; 2]) -> Cipher {
+        Cipher { iana_description: "unknown", iana_value: id, openssl_name: "unknown" }
     }
 
     #[cfg(test)]
@@ -234,6 +242,10 @@ impl SignatureScheme {
             iana_description,
             iana_value,
         }
+    }
+
+    pub fn description(&self) -> &'static str {
+        self.iana_description
     }
 
     #[cfg(test)]
