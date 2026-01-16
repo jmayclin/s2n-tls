@@ -121,14 +121,11 @@ impl EmfDimension {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AggregatedMetricsSubscriber, test_utils::TestEndpointWithEmitter};
-    use metrique_writer::FormatExt;
-    use metrique_writer_format_emf::EmfBuilder;
+    use crate::{test_utils::TestEndpointWithEmitter, AggregatedMetricsSubscriber};
     use s2n_tls::{
         security::{DEFAULT, DEFAULT_TLS13},
         testing::{build_config, config_builder, TestPair},
     };
-    use std::sync::mpsc;
 
     /// Sanity check, we get a result
     #[test]
@@ -191,14 +188,32 @@ mod tests {
         let mut snapshot_json: serde_json::Value = serde_json::from_str(snapshot).unwrap();
 
         // Remove the dynamic fields (timestamp + timers)
-        result_json.as_object_mut().unwrap()["_aws"].as_object_mut().unwrap().remove("Timestamp");
-        snapshot_json.as_object_mut().unwrap()["_aws"].as_object_mut().unwrap().remove("Timestamp");
+        result_json.as_object_mut().unwrap()["_aws"]
+            .as_object_mut()
+            .unwrap()
+            .remove("Timestamp");
+        snapshot_json.as_object_mut().unwrap()["_aws"]
+            .as_object_mut()
+            .unwrap()
+            .remove("Timestamp");
 
-        result_json.as_object_mut().unwrap().remove("handshake_compute");
-        result_json.as_object_mut().unwrap().remove("handshake_duration");
-        snapshot_json.as_object_mut().unwrap().remove("handshake_compute");
-        snapshot_json.as_object_mut().unwrap().remove("handshake_duration");
-        
+        result_json
+            .as_object_mut()
+            .unwrap()
+            .remove("handshake_compute");
+        result_json
+            .as_object_mut()
+            .unwrap()
+            .remove("handshake_duration");
+        snapshot_json
+            .as_object_mut()
+            .unwrap()
+            .remove("handshake_compute");
+        snapshot_json
+            .as_object_mut()
+            .unwrap()
+            .remove("handshake_duration");
+
         assert_eq!(result_json, snapshot_json);
     }
 

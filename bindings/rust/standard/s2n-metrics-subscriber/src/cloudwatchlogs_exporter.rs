@@ -2,19 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    io::{ErrorKind, Write},
-    sync::mpsc::{Receiver, Sender, TryRecvError},
+    io::Write,
+    sync::mpsc::Sender,
     time::SystemTime,
 };
 
+use aws_config::BehaviorVersion;
 use aws_sdk_cloudwatchlogs::{types::InputLogEvent, Client};
-use metrique_writer_format_emf::Emf;
 
-use crate::{
-    emf_emitter::EmfEmitter, record::MetricRecord,
-};
+use crate::{emf_emitter::EmfEmitter, record::MetricRecord};
 
-use metrique_writer::format::Format;
 
 /// This is a very inefficient metric uploader for CloudWatch
 ///
@@ -35,7 +32,7 @@ impl CloudWatchExporter {
         resource: Option<String>,
     ) -> (Self, Sender<MetricRecord>) {
         // load AWS credentials from the environments
-        let config = aws_config::load_from_env().await;
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
         let client = aws_sdk_cloudwatchlogs::Client::new(&config);
 
         let (emitter, tx) = EmfEmitter::new(service_name, resource);
@@ -58,8 +55,8 @@ impl CloudWatchExporter {
         let written_length = match self.emf.write(&mut buffer_slize) {
             Ok(()) => {
                 println!("remaining length?: {:?}", buffer_slize.len());
-                let written_length = 5000 - buffer_slize.len();
-                written_length
+                
+                5000 - buffer_slize.len()
             }
             Err(e) => {
                 tracing::error!("{e:?}");

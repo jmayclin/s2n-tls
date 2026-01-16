@@ -2,20 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::{
-    atomic::{AtomicPtr, Ordering},
     mpsc::{self, Receiver, Sender},
     Arc, Mutex,
 };
 
-use crate::{
-    record::{HandshakeRecord, HandshakeRecordInProgress, MetricRecord},
-    static_lists::TlsParam,
-};
+use crate::record::{HandshakeRecord, HandshakeRecordInProgress, MetricRecord};
 use arc_swap::ArcSwap;
-use brass_aphid_wire_messages::{
-    codec::DecodeValue,
-    protocol::{extensions::ClientHelloExtensionData, ClientHello},
-};
+use brass_aphid_wire_messages::codec::DecodeValue;
 use s2n_tls::events::EventSubscriber;
 
 #[derive(Debug)]
@@ -105,50 +98,8 @@ impl<E: Send + Sync + 'static> EventSubscriber for AggregatedMetricsSubscriber<E
         connection: &s2n_tls::connection::Connection,
         event: &s2n_tls::events::HandshakeEvent,
     ) {
-        // s2n-tls does not have convenient methods to extract the supported parameter,
-        // so we just directly extract them from the client hello
-        // let client_hello = {
-        //     let client_hello_bytes = connection.client_hello().unwrap().raw_message().unwrap();
-        //     let buffer = &client_hello_bytes;
-        //     ClientHello::decode_from_exact(buffer).unwrap()
-        // };
-
-        // let supported_ciphers = client_hello.offered_ciphers.list();
-        // let supported_groups = client_hello
-        //     .extensions
-        //     .as_ref()
-        //     .map(|list| {
-        //         list.list().iter().find_map(|ext| {
-        //             if let ClientHelloExtensionData::SupportedGroups(groups) = &ext.extension_data {
-        //                 Some(groups.named_curve_list.list())
-        //             } else {
-        //                 None
-        //             }
-        //         })
-        //     })
-        //     .flatten();
-
-
-
-        // supported_ciphers
-        //     .iter()
-        //     .filter_map(|c| TlsParam::Cipher.iana_name_to_metric_index(c.description))
-        //     .for_each(|index| {
-        //         current_record.supported_ciphers[index].fetch_add(1, Ordering::SeqCst);
-        //     });
-        // if let Some(groups) = supported_groups {
-        //     groups
-        //         .iter()
-        //         .filter_map(|group| TlsParam::Group.iana_name_to_metric_index(group.description))
-        //         .for_each(|index| {
-        //             current_record.supported_groups[index].fetch_add(1, Ordering::SeqCst);
-        //         });
-        // }
         let current_record = self.inner.current_record.load_full();
-
         current_record.update(connection, event);
-
-        tracing::debug!("handshake event invoked : {event:?}");
     }
 }
 

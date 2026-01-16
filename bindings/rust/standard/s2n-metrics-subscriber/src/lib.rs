@@ -14,5 +14,5 @@ mod subscriber;
 mod test_utils;
 
 pub use crate::record::MetricRecord;
-pub use subscriber::AggregatedMetricsSubscriber;
 pub use emf_emitter::EmfEmitter;
+pub use subscriber::AggregatedMetricsSubscriber;

@@ -12,7 +12,15 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum State {
     Negotiated,
-    Supported,
+    // Supported,
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Negotiated => write!(f, "negotiated"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -32,7 +40,7 @@ impl PrefixKey {
     }
 
     fn value(&self) -> String {
-        format!("{:?}.{}.{}", self.state, self.parameter, self.item)
+        format!("{}.{}.{}", self.state, self.parameter, self.item)
     }
 }
 
@@ -77,10 +85,16 @@ pub enum TlsParam {
 impl TlsParam {
     pub fn index_to_name(&self, index: usize) -> Option<&'static str> {
         match self {
-            TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N.get(index).map(|name| *name),
-            TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
-            TlsParam::Group => GROUPS_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
-            TlsParam::SignatureScheme => SIGNATURE_SCHEMES_AVAILABLE_IN_S2N.get(index).map(|name| (*name).iana_description),
+            TlsParam::Version => VERSIONS_AVAILABLE_IN_S2N.get(index).copied(),
+            TlsParam::Cipher => CIPHERS_AVAILABLE_IN_S2N
+                .get(index)
+                .map(|name| name.iana_description),
+            TlsParam::Group => GROUPS_AVAILABLE_IN_S2N
+                .get(index)
+                .map(|name| name.iana_description),
+            TlsParam::SignatureScheme => SIGNATURE_SCHEMES_AVAILABLE_IN_S2N
+                .get(index)
+                .map(|name| name.iana_description),
         }
     }
 
@@ -118,7 +132,11 @@ pub fn cipher_ossl_name_to_index(name: &'static str) -> Option<usize> {
         .position(|current_cipher| *current_cipher.openssl_name == *name)
 }
 
-use std::{collections::HashMap, fmt::Display, sync::{LazyLock, Mutex}};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    sync::{LazyLock, Mutex},
+};
 
 #[cfg(test)]
 use s2n_tls_sys_internal::{
@@ -179,7 +197,11 @@ impl Cipher {
     }
 
     pub fn unknown(id: [u8; 2]) -> Cipher {
-        Cipher { iana_description: "unknown", iana_value: id, openssl_name: "unknown" }
+        Cipher {
+            iana_description: "unknown",
+            iana_value: id,
+            openssl_name: "unknown",
+        }
     }
 
     #[cfg(test)]

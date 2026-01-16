@@ -54,8 +54,7 @@ pub struct TestEndpointWithEmitter {
 
 impl TestEndpointWithEmitter {
     pub fn new(resource: &str, policy: &Policy) -> Self {
-        let (exporter, tx) =
-            EmfEmitter::new("test_server".to_owned(), Some(resource.to_owned()));
+        let (exporter, tx) = EmfEmitter::new("test_server".to_owned(), Some(resource.to_owned()));
         let subscriber = AggregatedMetricsSubscriber::new(tx);
 
         let config = {

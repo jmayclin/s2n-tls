@@ -54,12 +54,6 @@ pub(crate) struct HandshakeRecordInProgress {
     pub groups: [AtomicU64; GROUP_COUNT],
     pub signatures: [AtomicU64; SIGNATURE_COUNT],
 
-    // supported
-    pub supported_protocols: [AtomicU64; PROTOCOL_COUNT],
-    pub supported_ciphers: [AtomicU64; CIPHER_COUNT],
-    pub supported_groups: [AtomicU64; GROUP_COUNT],
-    pub supported_signatures: [AtomicU64; SIGNATURE_COUNT],
-
     /// sum of handshake duration
     handshake_duration_us: AtomicU64,
     /// sum of handshake compute
@@ -84,11 +78,6 @@ impl HandshakeRecordInProgress {
             ciphers,
             protocols: Default::default(),
             signatures: Default::default(),
-
-            supported_protocols: Default::default(),
-            supported_ciphers,
-            supported_groups: Default::default(),
-            supported_signatures: Default::default(),
 
             handshake_duration_us: Default::default(),
             handshake_compute: Default::default(),
@@ -161,10 +150,6 @@ impl HandshakeRecordInProgress {
             negotiated_ciphers: relaxed_freeze(&self.ciphers),
             negotiated_groups: relaxed_freeze(&self.groups),
             negotiated_signatures: relaxed_freeze(&self.signatures),
-            supported_protocols: relaxed_freeze(&self.supported_protocols),
-            supported_ciphers: relaxed_freeze(&self.supported_ciphers),
-            supported_groups: relaxed_freeze(&self.supported_groups),
-            supported_signatures: relaxed_freeze(&self.supported_signatures),
             handshake_duration: self.handshake_duration_us.load(Ordering::SeqCst),
             handshake_compute: self.handshake_compute.load(Ordering::SeqCst),
         }
@@ -191,11 +176,6 @@ pub(crate) struct HandshakeRecord {
     pub negotiated_groups: [u64; GROUP_COUNT],
     pub negotiated_signatures: [u64; SIGNATURE_COUNT],
 
-    pub supported_protocols: [u64; PROTOCOL_COUNT],
-    pub supported_ciphers: [u64; CIPHER_COUNT],
-    pub supported_groups: [u64; GROUP_COUNT],
-    pub supported_signatures: [u64; SIGNATURE_COUNT],
-
     pub handshake_duration: u64,
     pub handshake_compute: u64,
 }
@@ -205,49 +185,25 @@ impl metrique_writer::Entry for HandshakeRecord {
         writer.timestamp(self.freeze_time);
 
         for (list, parameter, state) in [
-            // protocols
             (
                 self.protocols.as_slice(),
                 TlsParam::Version,
                 State::Negotiated,
             ),
             (
-                self.supported_protocols.as_slice(),
-                TlsParam::Version,
-                State::Supported,
-            ),
-            // ciphers
-            (
                 self.negotiated_ciphers.as_slice(),
                 TlsParam::Cipher,
                 State::Negotiated,
             ),
-            (
-                self.supported_ciphers.as_slice(),
-                TlsParam::Cipher,
-                State::Supported,
-            ),
-            // groups
             (
                 self.negotiated_groups.as_slice(),
                 TlsParam::Group,
                 State::Negotiated,
             ),
             (
-                self.supported_groups.as_slice(),
-                TlsParam::Group,
-                State::Supported,
-            ),
-            // signatures
-            (
                 self.negotiated_signatures.as_slice(),
                 TlsParam::SignatureScheme,
                 State::Negotiated,
-            ),
-            (
-                self.supported_signatures.as_slice(),
-                TlsParam::SignatureScheme,
-                State::Supported,
             ),
         ] {
             list.iter()
