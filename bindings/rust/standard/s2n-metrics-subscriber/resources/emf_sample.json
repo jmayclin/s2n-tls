@@ -1,0 +1,59 @@
+{
+  "_aws": {
+    "CloudWatchMetrics": [
+      {
+        "Dimensions": [
+          [
+            "service_name"
+          ]
+        ],
+        "Metrics": [
+          {
+            "Name": "negotiated.version.TLSv1_2"
+          },
+          {
+            "Name": "negotiated.version.TLSv1_3"
+          },
+          {
+            "Name": "negotiated.cipher.TLS_AES_128_GCM_SHA256"
+          },
+          {
+            "Name": "negotiated.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+          },
+          {
+            "Name": "negotiated.group.secp256r1"
+          },
+          {
+            "Name": "negotiated.signature_scheme.rsa_pkcs1_sha256"
+          },
+          {
+            "Name": "negotiated.signature_scheme.rsa_pss_rsae_sha256"
+          },
+          {
+            "Name": "handshake_count"
+          },
+          {
+            "Name": "handshake_duration_us"
+          },
+          {
+            "Name": "handshake_compute_us"
+          }
+        ],
+        "Namespace": "tls/s2n-tls"
+      }
+    ],
+    "Timestamp": 1770591486718
+  },
+  "handshake_compute_us": 12519,
+  "handshake_count": 2,
+  "handshake_duration_us": 13678,
+  "negotiated.cipher.TLS_AES_128_GCM_SHA256": 1,
+  "negotiated.cipher.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": 1,
+  "negotiated.group.secp256r1": 2,
+  "negotiated.signature_scheme.rsa_pkcs1_sha256": 1,
+  "negotiated.signature_scheme.rsa_pss_rsae_sha256": 1,
+  "negotiated.version.TLSv1_2": 1,
+  "negotiated.version.TLSv1_3": 1,
+  "resource": "cute-kitten",
+  "service_name": "test_server"
+}
