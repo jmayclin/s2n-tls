@@ -25,7 +25,7 @@ s2n-tls = { path = "../../extended/s2n-tls", features = ["unstable-testing", "un
 s2n-tls-hyper = { path = "../s2n-tls-hyper" }
 s2n-tls-tokio = { path = "../../extended/s2n-tls-tokio" }
 s2n-tls-sys = { path = "../../extended/s2n-tls-sys", features = ["unstable-async_offload", "unstable-renegotiate"] }
-aws-lc-sys = "*"
+aws-lc-sys.workspace = true
 tls-harness = { path = "../tls-harness" }
 
 [dev-dependencies]
@@ -33,6 +33,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1", features = ["macros", "test-util"] }
 tokio-openssl = { version = "0.6.5" }
 rustls = "0.23"
+aws-lc-rs = "=1.16.0"
 
 brass-aphid-wire-decryption = "0.0.2"
 brass-aphid-wire-messages = "0.0.2"
