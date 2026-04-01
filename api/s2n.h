@@ -2545,6 +2545,31 @@ struct s2n_session_ticket;
 typedef int (*s2n_session_ticket_fn)(struct s2n_connection *conn, void *ctx, struct s2n_session_ticket *ticket);
 
 /**
+ * Callback function for receiving event log messages from s2n-tls.
+ *
+ * This function will be called whenever s2n-tls emits a log event.
+ *
+ * @param level The log level: `TRACE`, `DEBUG`, `INFO`, `WARN`, or `ERROR`.
+ * @param file The source file that emitted the event.
+ * @param line The line number in the source file.
+ * @param function The function that emitted the event.
+ * @param description A human-readable description of the event.
+ */
+typedef int (*s2n_event_log_fn)(const char *level, const char *file, int line,
+        const char *function, const char *description);
+
+/**
+ * Sets a global callback for receiving event log messages from s2n-tls.
+ *
+ * A default callback that prints to stdout (filtering out TRACE and DEBUG) is
+ * installed during `s2n_init()`. Call this to override it.
+ *
+ * @param callback The function that should be called for each event.
+ * @returns S2N_SUCCESS on success, S2N_FAILURE on failure.
+ */
+S2N_API extern int s2n_global_set_event_log_cb(s2n_event_log_fn callback);
+
+/**
  * Sets a session ticket callback to be called when a client receives a new session ticket.
  *
  * # Safety

@@ -28,6 +28,7 @@
 #include "tls/s2n_post_handshake.h"
 #include "tls/s2n_record.h"
 #include "tls/s2n_resume.h"
+#include "utils/s2n_event.h"
 #include "tls/s2n_tls.h"
 #include "tls/s2n_tls13.h"
 #include "tls/s2n_tls13_handshake.h"
@@ -1449,6 +1450,7 @@ static int s2n_handshake_message_process(struct s2n_connection *conn, uint8_t re
         POSIX_ENSURE(!CONNECTION_IS_WRITER(conn), S2N_ERR_BAD_MESSAGE);
 
         /* Call the relevant handler */
+        S2N_LOG_DEBUG("processing %s", message_names[ACTIVE_MESSAGE(conn)]);
         WITH_ERROR_BLINDING(conn, POSIX_GUARD(ACTIVE_STATE(conn).handler[conn->mode](conn)));
 
         /* Advance the state machine */

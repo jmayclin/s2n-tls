@@ -105,6 +105,8 @@ fn build_vendored() {
                 .flag_if_supported("-flto")
                 .flag_if_supported("-ffat-lto-objects");
         }
+    } else {
+        build.define("S2N_EVENT_LOG_DEBUG", "1");
     }
 
     let out_dir = PathBuf::from(env("OUT_DIR"));

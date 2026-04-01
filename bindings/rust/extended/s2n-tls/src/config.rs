@@ -15,9 +15,10 @@ use crate::{
     security,
 };
 use core::{convert::TryInto, ptr::NonNull};
+use libc::c_char;
 use s2n_tls_sys::*;
 use std::{
-    ffi::{c_void, CString},
+    ffi::{c_void, CStr, CString},
     path::Path,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
@@ -180,6 +181,39 @@ pub struct Builder {
     pub(crate) config: Config,
     load_system_certs: bool,
     enable_ocsp: bool,
+}
+
+unsafe extern "C" fn rust_default_event_cb(
+    level: *const c_char,
+    file: *const c_char,
+    line: libc::c_int,
+    function: *const c_char,
+    description: *const c_char,
+) -> libc::c_int {
+    let level = CStr::from_ptr(level).to_str();
+    let file = CStr::from_ptr(file).to_str();
+    let function = CStr::from_ptr(function).to_str();
+    let description = CStr::from_ptr(description).to_str();
+    let (level, file, function, description) =
+        match (level, file, function, description) {
+            (Ok(l), Ok(f), Ok(func), Ok(d)) => (l, f, func, d),
+            _ => {
+                tracing::error!("failed to parse event log arguments");
+                return 0;
+            }
+        };
+
+    match level {
+        "TRACE" => tracing::trace!(%file, line, %function, description),
+        "DEBUG" => tracing::debug!(%file, line, %function, description),
+        "INFO" => tracing::info!(%file, line, %function, description),
+        "WARN" => tracing::warn!(%file, line, %function, description),
+        "ERROR" => tracing::error!(%file, line, %function, description),
+        unrecognized_level => {
+            tracing::error!("event with unrecognized level: {unrecognized_level}, {description}")
+        }
+    };
+    0
 }
 
 impl Builder {
