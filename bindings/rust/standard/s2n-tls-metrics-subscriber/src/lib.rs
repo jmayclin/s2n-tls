@@ -13,7 +13,7 @@ pub mod telemetry_sink;
 mod test_utils;
 
 pub use attribution::Attribution;
-pub use format::SerializationFormat;
 pub use record::MetricRecord;
-pub use subscriber::{AggregatedMetricsSubscriber, PeriodicExportHandle};
+pub use subscriber::AggregatedMetricsSubscriber;
+pub use subscriber::MetricRecordSink;
 pub use telemetry_sink::TelemetrySink;

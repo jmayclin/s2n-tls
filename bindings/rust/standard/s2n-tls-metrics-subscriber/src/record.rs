@@ -56,10 +56,6 @@ impl metrique_writer::Entry for MetricRecord {
 /// information - e.g. negotiated parameters.
 #[derive(Debug)]
 pub(crate) struct HandshakeRecordInProgress {
-    /// This is used to send a frozen version back to the Aggregator, after which
-    /// point it can be exported. This is only used in the drop impl.
-    exporter: std::sync::mpsc::Sender<FrozenHandshakeRecord>,
-
     /// the total number of handshakes that this record represents.
     handshake_count: AtomicU64,
 
@@ -93,7 +89,7 @@ fn relaxed_freeze<const T: usize>(array: &[AtomicU64; T]) -> [u64; T] {
 }
 
 impl HandshakeRecordInProgress {
-    pub fn new(exporter: std::sync::mpsc::Sender<FrozenHandshakeRecord>) -> Self {
+    pub fn new() -> Self {
         // default is not implemented for arrays this large
         let negotiated_ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
         let supported_ciphers = [0; CIPHER_COUNT].map(|_| AtomicU64::default());
@@ -113,7 +109,6 @@ impl HandshakeRecordInProgress {
 
             handshake_duration_us: Default::default(),
             handshake_compute_us: Default::default(),
-            exporter,
         }
     }
 
@@ -225,7 +220,7 @@ impl HandshakeRecordInProgress {
     /// Simple Intuition: This function takes a `&mut`. Therefore the rust compiler
     /// enforces that there are no other references to this memory and there isn't
     /// anything to actually synchronize. So a Relaxed load is fine.
-    fn finish(&mut self) -> FrozenHandshakeRecord {
+    pub(crate) fn finish(&mut self) -> FrozenHandshakeRecord {
         FrozenHandshakeRecord {
             freeze_time: SystemTime::now(),
             handshake_count: self.handshake_count.load(Ordering::Relaxed),
@@ -243,14 +238,6 @@ impl HandshakeRecordInProgress {
             handshake_duration_us: self.handshake_duration_us.load(Ordering::Relaxed),
             handshake_compute_us: self.handshake_compute_us.load(Ordering::Relaxed),
         }
-    }
-}
-
-impl Drop for HandshakeRecordInProgress {
-    fn drop(&mut self) {
-        let frozen = self.finish();
-        // no available way to report error
-        let _ = self.exporter.send(frozen);
     }
 }
 
@@ -376,17 +363,16 @@ impl metrique_writer::Entry for FrozenHandshakeRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{ARBITRARY_POLICY_1, cbor_endpoint, deserialize_cbor};
+    use crate::test_utils::{ARBITRARY_POLICY_1, TestEndpoint};
 
     #[test]
     fn record_contents_negotiated_parameters() {
-        let endpoint = cbor_endpoint();
+        let endpoint = TestEndpoint::new();
 
         let result = endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let record: MetricRecord = deserialize_cbor(&records[0]);
-        let record = record.handshake;
+        let record = records[0].handshake.clone();
 
         assert_eq!(record.handshake_count, 1);
         assert_eq!(record.negotiated_ciphers.iter().sum::<u64>(), 1);
@@ -460,13 +446,12 @@ mod tests {
             "rsa_pss_pss_sha512",
         ];
 
-        let endpoint = cbor_endpoint();
+        let endpoint = TestEndpoint::new();
 
         let _ = endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let record: MetricRecord = deserialize_cbor(&records[0]);
-        let record = record.handshake;
+        let record = records[0].handshake.clone();
 
         let expected_version: Vec<usize> = EXPECTED_VERSIONS
             .iter()
@@ -530,7 +515,7 @@ mod tests {
 
     #[test]
     fn multiple_records() {
-        let endpoint = cbor_endpoint();
+        let endpoint = TestEndpoint::new();
 
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
@@ -538,8 +523,7 @@ mod tests {
 
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let record: MetricRecord = deserialize_cbor(&records[0]);
-        let record = record.handshake;
+        let record = records[0].handshake.clone();
 
         assert_eq!(record.handshake_count, 3);
         assert_eq!(record.negotiated_ciphers.iter().sum::<u64>(), 3);
@@ -551,12 +535,11 @@ mod tests {
     /// A record with no handshakes should be entirely empty/default.
     #[test]
     fn empty_record() {
-        let endpoint = cbor_endpoint();
+        let endpoint = TestEndpoint::new();
 
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let record: MetricRecord = deserialize_cbor(&records[0]);
-        let mut record = record.handshake;
+        let mut record = records[0].handshake.clone();
 
         // ignore the freeze time, since that "default" value is set to the Unix Epoch.
         record.freeze_time = SystemTime::UNIX_EPOCH;
@@ -569,13 +552,12 @@ mod tests {
     /// This provides some confidence that we are correctly e.g. adding amounts
     #[test]
     fn timers() {
-        let endpoint = cbor_endpoint();
+        let endpoint = TestEndpoint::new();
 
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let single_handshake: MetricRecord = deserialize_cbor(&records[0]);
-        let single_handshake = single_handshake.handshake;
+        let single_handshake = records[0].handshake.clone();
         drop(records);
 
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
@@ -583,8 +565,7 @@ mod tests {
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.subscriber.finish_record();
         let records = endpoint.sink.records.lock().unwrap();
-        let multiple_handshakes: MetricRecord = deserialize_cbor(&records[1]);
-        let multiple_handshakes = multiple_handshakes.handshake;
+        let multiple_handshakes = records[1].handshake.clone();
 
         assert!(single_handshake.handshake_compute_us <= single_handshake.handshake_duration_us);
         assert!(

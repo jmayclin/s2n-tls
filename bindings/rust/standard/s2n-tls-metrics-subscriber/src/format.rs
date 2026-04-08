@@ -5,42 +5,6 @@ use crate::record::MetricRecord;
 use metrique_writer::format::Format;
 use std::fmt;
 
-/// Determines how a [`MetricRecord`] is serialized before being written to a Sink.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SerializationFormat {
-    /// JSON format via `metrique_writer::Entry` and the JSON formatter.
-    ///
-    /// Produces human-readable JSON with named metric keys like
-    /// `"cipher.negotiated.TLS_AES_128_GCM_SHA256": 3`.
-    Json,
-    /// CBOR binary format (via `ciborium` / serde `Serialize`).
-    Cbor,
-}
-
-impl SerializationFormat {
-    /// Serialize a `MetricRecord` into bytes using this format.
-    pub(crate) fn serialize(&self, record: &MetricRecord) -> Result<Vec<u8>, SerializationError> {
-        match self {
-            SerializationFormat::Json => {
-                let mut json_fmt = metrique_writer_format_json::Json::new();
-                let mut buf = Vec::new();
-                json_fmt.format(record, &mut buf).map_err(|e| match e {
-                    metrique_writer::IoStreamError::Io(io) => SerializationError::Io(io),
-                    metrique_writer::IoStreamError::Validation(v) => SerializationError::Io(
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, v),
-                    ),
-                })?;
-                Ok(buf)
-            }
-            SerializationFormat::Cbor => {
-                let mut buf = Vec::new();
-                ciborium::ser::into_writer(record, &mut buf).map_err(SerializationError::Cbor)?;
-                Ok(buf)
-            }
-        }
-    }
-}
-
 /// Errors that can occur during metric record serialization.
 #[derive(Debug)]
 pub enum SerializationError {
@@ -68,13 +32,30 @@ impl std::error::Error for SerializationError {
     }
 }
 
+/// Serialize a `MetricRecord` to JSON bytes using the `metrique_writer::Entry` impl.
+pub fn serialize_json(record: &MetricRecord) -> Result<Vec<u8>, SerializationError> {
+    let mut json_fmt = metrique_writer_format_json::Json::new();
+    let mut buf = Vec::new();
+    json_fmt.format(record, &mut buf).map_err(|e| match e {
+        metrique_writer::IoStreamError::Io(io) => SerializationError::Io(io),
+        metrique_writer::IoStreamError::Validation(v) => {
+            SerializationError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, v))
+        }
+    })?;
+    Ok(buf)
+}
+
+/// Serialize a `MetricRecord` to CBOR bytes via serde.
+pub fn serialize_cbor(record: &MetricRecord) -> Result<Vec<u8>, SerializationError> {
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(record, &mut buf).map_err(SerializationError::Cbor)?;
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{
-        format::SerializationFormat,
-        record::MetricRecord,
-        test_utils::{ARBITRARY_POLICY_1, ARBITRARY_POLICY_2, TestEndpoint},
-    };
+    use super::*;
+    use crate::test_utils::{ARBITRARY_POLICY_1, ARBITRARY_POLICY_2, TestEndpoint};
 
     /// Verify the JSON wire format contains named metric keys
     /// produced by the metrique_writer Entry implementation.
@@ -85,8 +66,8 @@ mod tests {
         endpoint.subscriber.finish_record();
 
         let records = endpoint.sink.records.lock().unwrap();
-        let output = String::from_utf8(records[0].clone()).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let output = serialize_json(&records[0]).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
         let obj = json.as_object().unwrap();
 
         // Top-level structure: timestamp, metrics, properties
@@ -151,16 +132,9 @@ mod tests {
         endpoint.subscriber.finish_record();
 
         let records = endpoint.sink.records.lock().unwrap();
-        let output = String::from_utf8(records[0].clone()).unwrap();
+        let output = serialize_json(&records[0]).unwrap();
 
-        // Uncomment to update snapshot:
-        // {
-        //     let json: serde_json::Value = serde_json::from_str(&output).unwrap();
-        //     let pretty = serde_json::to_string_pretty(&json).unwrap();
-        //     std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/json_sample.json"), pretty).unwrap();
-        // }
-
-        let mut result: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let mut result: serde_json::Value = serde_json::from_slice(&output).unwrap();
         let mut expected: serde_json::Value = serde_json::from_str(snapshot).unwrap();
 
         strip_dynamic_json(&mut result);
@@ -175,20 +149,16 @@ mod tests {
     fn cbor_snapshot() {
         let snapshot_bytes = include_bytes!("../resources/cbor_sample.bin");
 
-        let endpoint = TestEndpoint::with_format(SerializationFormat::Cbor);
+        let endpoint = TestEndpoint::new();
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.client_handshake(&ARBITRARY_POLICY_2);
         endpoint.subscriber.finish_record();
 
         let records = endpoint.sink.records.lock().unwrap();
-
-        // Uncomment to update snapshot:
-        // {
-        //     std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/cbor_sample.bin"), &records[0]).unwrap();
-        // }
+        let cbor_bytes = serialize_cbor(&records[0]).unwrap();
 
         // Deserialize both and compare as JSON with dynamic fields stripped
-        let result_record: MetricRecord = ciborium::from_reader(&records[0][..]).unwrap();
+        let result_record: MetricRecord = ciborium::from_reader(&cbor_bytes[..]).unwrap();
         let snapshot_record: MetricRecord = ciborium::from_reader(&snapshot_bytes[..]).unwrap();
 
         let mut result_json = serde_json::to_value(&result_record).unwrap();
@@ -204,16 +174,17 @@ mod tests {
     /// and confirm the record is preserved.
     #[test]
     fn cbor_roundtrip() {
-        let endpoint = TestEndpoint::with_format(SerializationFormat::Cbor);
+        let endpoint = TestEndpoint::new();
         endpoint.client_handshake(&ARBITRARY_POLICY_1);
         endpoint.subscriber.finish_record();
 
         let records = endpoint.sink.records.lock().unwrap();
-        let cbor_record: MetricRecord = ciborium::from_reader(&records[0][..]).unwrap();
+        let cbor_bytes = serialize_cbor(&records[0]).unwrap();
+        let cbor_record: MetricRecord = ciborium::from_reader(&cbor_bytes[..]).unwrap();
 
         // Re-serialize and deserialize to confirm stability
-        let cbor_bytes = SerializationFormat::Cbor.serialize(&cbor_record).unwrap();
-        let roundtripped: MetricRecord = ciborium::from_reader(&cbor_bytes[..]).unwrap();
+        let cbor_bytes2 = serialize_cbor(&cbor_record).unwrap();
+        let roundtripped: MetricRecord = ciborium::from_reader(&cbor_bytes2[..]).unwrap();
 
         assert_eq!(cbor_record, roundtripped);
     }

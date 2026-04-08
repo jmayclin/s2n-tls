@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use s2n_tls::{
     security::{DEFAULT_TLS13, Policy},
@@ -9,8 +10,8 @@ use s2n_tls::{
 };
 
 use crate::{
-    AggregatedMetricsSubscriber, MetricRecord, attribution::Attribution,
-    format::SerializationFormat, telemetry_sink::TelemetrySink,
+    AggregatedMetricsSubscriber, attribution::Attribution, record::MetricRecord,
+    telemetry_sink::TelemetrySink,
 };
 
 pub(crate) static ARBITRARY_POLICY_1: LazyLock<Policy> =
@@ -18,10 +19,10 @@ pub(crate) static ARBITRARY_POLICY_1: LazyLock<Policy> =
 pub(crate) static ARBITRARY_POLICY_2: LazyLock<Policy> =
     LazyLock::new(|| Policy::from_version("20190214").unwrap());
 
-/// A test helper that implements [`TelemetrySink`] by collecting serialized bytes into a Vec.
+/// A test helper that implements [`TelemetrySink`] by collecting records into a Vec.
 #[derive(Debug, Clone)]
 pub(crate) struct VecSink {
-    pub(crate) records: Arc<Mutex<Vec<Vec<u8>>>>,
+    pub(crate) records: Arc<Mutex<Vec<MetricRecord>>>,
 }
 
 impl VecSink {
@@ -33,8 +34,8 @@ impl VecSink {
 }
 
 impl TelemetrySink for VecSink {
-    fn write_record(&self, record: &[u8]) -> std::io::Result<()> {
-        self.records.lock().unwrap().push(record.to_vec());
+    fn write_record(&self, record: &MetricRecord) -> std::io::Result<()> {
+        self.records.lock().unwrap().push(record.clone());
         Ok(())
     }
 }
@@ -56,16 +57,13 @@ impl<S: TelemetrySink> TestEndpoint<S> {
 
 impl TestEndpoint<VecSink> {
     pub fn new() -> Self {
-        Self::with_format(SerializationFormat::Json)
-    }
-
-    pub fn with_format(format: SerializationFormat) -> Self {
         let sink = VecSink::new();
         let attribution = Attribution {
             service: "test_server".to_owned(),
             resource: "test_resource".to_owned(),
         };
-        let subscriber = AggregatedMetricsSubscriber::new(sink.clone(), format, attribution);
+        let subscriber =
+            AggregatedMetricsSubscriber::new(sink.clone(), attribution, Duration::from_secs(3600));
         let server_config = {
             let mut config = config_builder(&DEFAULT_TLS13).unwrap();
             config.set_event_subscriber(subscriber.clone()).unwrap();
@@ -84,7 +82,7 @@ impl TestEndpoint<VecSink> {
 pub(crate) struct FailingSink;
 
 impl TelemetrySink for FailingSink {
-    fn write_record(&self, _record: &[u8]) -> std::io::Result<()> {
+    fn write_record(&self, _record: &MetricRecord) -> std::io::Result<()> {
         Err(std::io::Error::new(
             std::io::ErrorKind::BrokenPipe,
             "simulated sink failure",
@@ -100,7 +98,7 @@ impl TestEndpoint<FailingSink> {
             resource: "test_resource".to_owned(),
         };
         let subscriber =
-            AggregatedMetricsSubscriber::new(sink.clone(), SerializationFormat::Json, attribution);
+            AggregatedMetricsSubscriber::new(sink.clone(), attribution, Duration::from_secs(3600));
         let server_config = {
             let mut config = config_builder(&DEFAULT_TLS13).unwrap();
             config.set_event_subscriber(subscriber.clone()).unwrap();
@@ -112,14 +110,4 @@ impl TestEndpoint<FailingSink> {
             sink,
         }
     }
-}
-
-/// Create a test endpoint using CBOR format for structural deserialization tests.
-pub(crate) fn cbor_endpoint() -> TestEndpoint<VecSink> {
-    TestEndpoint::with_format(SerializationFormat::Cbor)
-}
-
-/// Deserialize a MetricRecord from CBOR bytes.
-pub(crate) fn deserialize_cbor(bytes: &[u8]) -> MetricRecord {
-    ciborium::from_reader(bytes).unwrap()
 }

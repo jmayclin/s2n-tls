@@ -7,7 +7,7 @@
 //! The subscriber is tagged with an `Attribution` so that the exported record
 //! identifies which service and resource produced the metrics.
 
-use std::io::{self, Write};
+use std::{io, time::Duration};
 
 use s2n_tls::{
     security::DEFAULT_TLS13,
@@ -15,21 +15,20 @@ use s2n_tls::{
 };
 
 use s2n_tls_metrics_subscriber::{
-    AggregatedMetricsSubscriber, Attribution, SerializationFormat, TelemetrySink,
+    AggregatedMetricsSubscriber, Attribution, MetricRecord, TelemetrySink,
 };
 
-/// Example TelemetrySink that writes each record to stdout.
+/// Example TelemetrySink that serializes each record as JSON to stdout.
 /// Applications can implement TelemetrySink to route records to any
 /// destination: a file, network socket, S3, Kinesis, etc.
-struct StdoutSink;
+struct StdoutJsonSink;
 
-impl TelemetrySink for StdoutSink {
-    fn write_record(&self, record: &[u8]) -> io::Result<()> {
-        let stdout = io::stdout();
-        let mut handle = stdout.lock();
-        handle.write_all(record)?;
-        handle.write_all(b"\n")?;
-        handle.flush()
+impl TelemetrySink for StdoutJsonSink {
+    fn write_record(&self, record: &MetricRecord) -> io::Result<()> {
+        let json = serde_json::to_string(record)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        println!("{json}");
+        Ok(())
     }
 }
 
@@ -38,8 +37,11 @@ fn main() {
         service: "my-service".to_owned(),
         resource: "test-resource".to_owned(),
     };
-    let subscriber =
-        AggregatedMetricsSubscriber::new(StdoutSink, SerializationFormat::Json, attribution);
+    let subscriber = AggregatedMetricsSubscriber::new(
+        StdoutJsonSink,
+        attribution,
+        Duration::from_secs(3600),
+    );
 
     // Wire the subscriber into a server config so handshake events flow into it.
     let server_config = {

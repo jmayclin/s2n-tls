@@ -3,35 +3,58 @@
 
 use crate::{
     attribution::Attribution,
-    format::SerializationFormat,
-    record::{FrozenHandshakeRecord, HandshakeRecordInProgress, MetricRecord},
+    record::{HandshakeRecordInProgress, MetricRecord},
     telemetry_sink::TelemetrySink,
 };
 use arc_swap::ArcSwap;
 use s2n_tls::events::EventSubscriber;
 use std::{
-    sync::{
-        Arc, Condvar, Mutex,
-        mpsc::{self, Receiver, Sender},
-    },
-    thread::JoinHandle,
-    time::Duration,
+    fmt,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
-#[derive(Debug)]
-struct ExportPipeline<S: TelemetrySink> {
-    metric_receiver: Receiver<FrozenHandshakeRecord>,
-    sink: S,
-    format: SerializationFormat,
+/// Holds a [`HandshakeRecordInProgress`] together with a sink and attribution.
+///
+/// When the last `Arc<MetricRecordSink>` reference is dropped (i.e. no more
+/// in-flight handshake updates), the record is frozen into a [`MetricRecord`]
+/// and flushed to the [`TelemetrySink`].
+pub struct MetricRecordSink<S: TelemetrySink> {
+    record: HandshakeRecordInProgress,
+    sink: Arc<S>,
+    attribution: Attribution,
+}
+
+impl<S: TelemetrySink> fmt::Debug for MetricRecordSink<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetricRecordSink").finish_non_exhaustive()
+    }
+}
+
+impl<S: TelemetrySink> Drop for MetricRecordSink<S> {
+    fn drop(&mut self) {
+        let frozen = self.record.finish();
+        let metric_record = MetricRecord::new(frozen, self.attribution.clone());
+        if let Err(e) = self.sink.write_record(&metric_record) {
+            tracing::error!("failed to write metric to sink: {e}");
+        }
+    }
 }
 
 /// The AggregatedMetricSubscriber can be used to aggregate events over some period
 /// of time, and then export them using a [`TelemetrySink`].
+///
+/// When `finish_record` is called (or the export interval elapses), the current
+/// record is swapped out. Once all in-flight handshake updates complete, the
+/// [`MetricRecordSink`] is dropped, which freezes the record and writes it to
+/// the sink.
 #[derive(Debug)]
 pub struct AggregatedMetricsSubscriber<S: TelemetrySink> {
     inner: Arc<MetricSubscriberInner<S>>,
 }
 
+/// Manual Clone impl: the sink `S` does not need to implement Clone because it
+/// is behind an `Arc`.
 impl<S: TelemetrySink> Clone for AggregatedMetricsSubscriber<S> {
     fn clone(&self) -> Self {
         Self {
@@ -42,50 +65,45 @@ impl<S: TelemetrySink> Clone for AggregatedMetricsSubscriber<S> {
 
 /// The [`s2n_tls::events::EventSubscriber`] may be invoked concurrently, which
 /// means that multiple threads might be incrementing the current record. To handle
-/// this and ensure that the `HandshakeRecordInProgress` is never flushed while
-/// an update is in progress we use an [`arc_swap::ArcSwap`].
+/// this and ensure that the `MetricRecordSink` is never dropped while an update
+/// is in progress we use an [`arc_swap::ArcSwap`].
 ///
-/// ArcSwap is basically an `Atomic<Arc<HandshakeRecordInProgress>>`
+/// ArcSwap is basically an `Atomic<Arc<MetricRecordSink>>`
 ///
 /// We use this as a relatively intuitive form of synchronization. Once there
-/// are no references to the HandshakeRecordInProgress (e.g. no threads updating
-/// it) then its `drop` implementation will write it to the channel, where it can
-/// then be read by the export pipeline.
+/// are no references to the MetricRecordSink (e.g. no threads updating it)
+/// then its `drop` implementation will freeze the record and flush it to the sink.
 #[derive(Debug)]
 struct MetricSubscriberInner<S: TelemetrySink> {
-    current_record: ArcSwap<HandshakeRecordInProgress>,
-    /// This handle is not directly used, but is used when constructing new
-    /// HandshakeRecordInProgress items.
-    tx_handle: Sender<FrozenHandshakeRecord>,
-
-    // the mutex is necessary because s2n-tls callbacks must be Send + Sync
-    export_pipeline: Mutex<ExportPipeline<S>>,
+    current_record: ArcSwap<MetricRecordSink<S>>,
+    sink: Arc<S>,
     attribution: Attribution,
+    export_interval: Duration,
+    last_export: std::sync::Mutex<Instant>,
 }
 
 impl<S: TelemetrySink> AggregatedMetricsSubscriber<S> {
-    pub fn new(sink: S, format: SerializationFormat, attribution: Attribution) -> Self {
-        let (tx, rx) = mpsc::channel();
-
-        let record = HandshakeRecordInProgress::new(tx.clone());
-
-        let export_pipe = ExportPipeline {
-            metric_receiver: rx,
-            sink,
-            format,
+    pub fn new(sink: S, attribution: Attribution, export_interval: Duration) -> Self {
+        let sink = Arc::new(sink);
+        let record_sink = MetricRecordSink {
+            record: HandshakeRecordInProgress::new(),
+            sink: sink.clone(),
+            attribution: attribution.clone(),
         };
         let inner = MetricSubscriberInner {
-            current_record: ArcSwap::new(Arc::new(record)),
-            tx_handle: tx,
-            export_pipeline: Mutex::new(export_pipe),
+            current_record: ArcSwap::new(Arc::new(record_sink)),
+            sink,
             attribution,
+            export_interval,
+            last_export: std::sync::Mutex::new(Instant::now()),
         };
         Self {
             inner: Arc::new(inner),
         }
     }
 
-    /// Finish aggregation of the record and export it.
+    /// Swap out the current record. The old record will be frozen and flushed
+    /// to the sink once all in-flight handshake updates complete.
     ///
     /// Note that this method will block until all other in-flight updates of the
     /// metric record are complete. This is generally very fast because updates
@@ -93,26 +111,26 @@ impl<S: TelemetrySink> AggregatedMetricsSubscriber<S> {
     /// should avoid calling this method in a tokio runtime, and using `spawn_blocking`
     /// instead.
     pub fn finish_record(&self) {
-        let export_pipeline = self.inner.export_pipeline.lock().unwrap();
-        let new_record = Arc::new(HandshakeRecordInProgress::new(self.inner.tx_handle.clone()));
+        let new_record = Arc::new(MetricRecordSink {
+            record: HandshakeRecordInProgress::new(),
+            sink: self.inner.sink.clone(),
+            attribution: self.inner.attribution.clone(),
+        });
+        // The old Arc<MetricRecordSink> is returned. When all references to it
+        // are dropped, its Drop impl freezes the record and writes to the sink.
+        let _old = self.inner.current_record.swap(new_record);
+        *self.inner.last_export.lock().unwrap() = Instant::now();
+    }
 
-        let old_record = self.inner.current_record.swap(new_record);
-        // On drop, the record will be "frozen" and written to the channel
-        // This might not happen immediately because other threads might also hold
-        // a reference to the metric record
-        drop(old_record);
-
-        // This will block the thread until the record is received.
-        let handshake = export_pipeline.metric_receiver.recv().unwrap();
-        let record = MetricRecord::new(handshake, self.inner.attribution.clone());
-        match export_pipeline.format.serialize(&record) {
-            Ok(bytes) => {
-                if let Err(e) = export_pipeline.sink.write_record(&bytes) {
-                    tracing::error!("failed to write metric to sink: {e}");
-                }
-            }
-            Err(e) => {
-                tracing::error!("failed to serialize metric record: {e}");
+    /// Check whether the export interval has elapsed and, if so, flush.
+    /// Called passively from the handshake path so no background thread is needed.
+    fn maybe_export(&self) {
+        // Use try_lock to avoid blocking the handshake thread if another
+        // thread is already exporting.
+        if let Ok(last) = self.inner.last_export.try_lock() {
+            if last.elapsed() >= self.inner.export_interval {
+                drop(last);
+                self.finish_record();
             }
         }
     }
@@ -125,70 +143,15 @@ impl<S: TelemetrySink> EventSubscriber for AggregatedMetricsSubscriber<S> {
         event: &s2n_tls::events::HandshakeEvent,
     ) {
         let current_record = self.inner.current_record.load_full();
-        let res = current_record.update(connection, event);
+        let res = current_record.record.update(connection, event);
         // we never expect this to fail, but if it fails in production there is
         // no meaningful way to handle the failure
         debug_assert!(res.is_ok());
         if let Err(e) = res {
             tracing::error!("failed to update handshake record: {e}");
         }
-    }
-}
 
-/// A handle to a background thread that periodically calls `finish_record()`
-/// on the associated subscriber.
-///
-/// When dropped, the handle signals the background thread to stop, joins it,
-/// and performs a final `finish_record()` call to flush any accumulated metrics.
-pub struct PeriodicExportHandle<S: TelemetrySink> {
-    subscriber: AggregatedMetricsSubscriber<S>,
-    stop: Arc<(Mutex<bool>, Condvar)>,
-    handle: Option<JoinHandle<()>>,
-}
-
-impl<S: TelemetrySink> AggregatedMetricsSubscriber<S> {
-    /// Start a background thread that calls `finish_record()` at the given interval.
-    ///
-    /// The returned handle must be kept alive for the periodic export to continue.
-    /// Dropping the handle stops the background thread and performs a final flush.
-    pub fn start_periodic_export(&self, interval: Duration) -> PeriodicExportHandle<S> {
-        let stop = Arc::new((Mutex::new(false), Condvar::new()));
-        let stop_clone = stop.clone();
-        let subscriber = self.clone();
-        let handle = std::thread::spawn(move || {
-            let (lock, cvar) = &*stop_clone;
-            loop {
-                let guard = lock.lock().unwrap();
-                let result = cvar.wait_timeout(guard, interval).unwrap();
-                if *result.0 {
-                    break;
-                }
-                drop(result);
-                subscriber.finish_record();
-            }
-        });
-        PeriodicExportHandle {
-            subscriber: self.clone(),
-            stop,
-            handle: Some(handle),
-        }
-    }
-
-    /// Start periodic export with the default interval of one hour.
-    pub fn start_periodic_export_default(&self) -> PeriodicExportHandle<S> {
-        self.start_periodic_export(Duration::from_secs(3600))
-    }
-}
-
-impl<S: TelemetrySink> Drop for PeriodicExportHandle<S> {
-    fn drop(&mut self) {
-        let (lock, cvar) = &*self.stop;
-        *lock.lock().unwrap() = true;
-        cvar.notify_one();
-        if let Some(handle) = self.handle.take() {
-            handle.join().ok();
-        }
-        self.subscriber.finish_record();
+        self.maybe_export();
     }
 }
 
@@ -206,7 +169,6 @@ mod tests {
 
         let records = endpoint.sink.records.lock().unwrap();
         assert_eq!(records.len(), 1);
-        assert!(!records[0].is_empty());
     }
 
     /// Verify that finish_record blocks while another thread holds a reference
@@ -221,23 +183,24 @@ mod tests {
         let held_record = endpoint.subscriber.inner.current_record.load_full();
 
         let subscriber = endpoint.subscriber.clone();
+        let sink = endpoint.sink.clone();
         let handle = std::thread::spawn(move || {
             subscriber.finish_record();
         });
 
-        // The finish_record call should be blocked because we hold a reference
-        // Give it a moment to ensure it's actually blocked
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        assert!(
-            !handle.is_finished(),
-            "finish_record should block while record reference is held"
-        );
-
-        // Drop the held reference to unblock finish_record
-        drop(held_record);
+        // The finish_record call should complete quickly (it just swaps the Arc),
+        // but the old record won't flush until we drop our reference.
         handle.join().unwrap();
 
+        // Record hasn't flushed yet because we hold a reference
         let records = endpoint.sink.records.lock().unwrap();
+        assert_eq!(records.len(), 0);
+        drop(records);
+
+        // Drop the held reference to trigger the flush
+        drop(held_record);
+
+        let records = sink.records.lock().unwrap();
         assert_eq!(records.len(), 1);
     }
 
@@ -266,19 +229,14 @@ mod tests {
             "expected 3 records from 3 finish_record calls"
         );
 
-        // All records should be non-empty (even the empty-handshake one has structure)
-        for (i, record) in records.iter().enumerate() {
-            assert!(!record.is_empty(), "record {i} should not be empty");
-        }
+        // Verify handshake counts via the MetricRecord's serde representation
+        let r0 = serde_json::to_value(&records[0]).unwrap();
+        let r1 = serde_json::to_value(&records[1]).unwrap();
+        let r2 = serde_json::to_value(&records[2]).unwrap();
 
-        // Verify handshake counts via JSON deserialization
-        let r0: serde_json::Value = serde_json::from_slice(&records[0]).unwrap();
-        let r1: serde_json::Value = serde_json::from_slice(&records[1]).unwrap();
-        let r2: serde_json::Value = serde_json::from_slice(&records[2]).unwrap();
-
-        assert_eq!(r0["metrics"]["handshake_count"]["value"], 2);
-        assert_eq!(r1["metrics"]["handshake_count"]["value"], 1);
-        assert_eq!(r2["metrics"]["handshake_count"]["value"], 0);
+        assert_eq!(r0["handshake"]["handshake_count"], 2);
+        assert_eq!(r1["handshake"]["handshake_count"], 1);
+        assert_eq!(r2["handshake"]["handshake_count"], 0);
     }
 
     /// When the sink returns an error, finish_record should not panic.

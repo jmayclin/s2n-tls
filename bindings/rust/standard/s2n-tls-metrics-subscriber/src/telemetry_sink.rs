@@ -1,20 +1,24 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io, sync::Arc};
+use crate::record::MetricRecord;
+use std::sync::Arc;
 
-/// Trait abstracting the write destination for serialized metric records.
+/// Trait abstracting the write destination for metric records.
 ///
-/// Implementations receive raw bytes (a complete serialized `MetricRecord`
-/// in the format configured on the subscriber) and write them to a
-/// destination such as stdout, a file, or a network socket.
+/// Implementations receive a [`MetricRecord`] (which implements `Serialize` and
+/// `metrique_writer::Entry`) and decide how to serialize and deliver it — for
+/// example as JSON to stdout, CBOR to S3, etc.
 pub trait TelemetrySink: Send + Sync + 'static {
-    /// Write a single serialized metric record.
-    fn write_record(&self, record: &[u8]) -> io::Result<()>;
+    /// Write a single metric record.
+    fn write_record(&self, record: &MetricRecord) -> std::io::Result<()>;
 }
 
+/// Blanket impl so that an `Arc<T>` can be used wherever a `TelemetrySink` is
+/// expected. This is necessary because the subscriber stores the sink inside an
+/// `Arc` and needs to call `write_record` through it.
 impl<T: TelemetrySink> TelemetrySink for Arc<T> {
-    fn write_record(&self, record: &[u8]) -> io::Result<()> {
+    fn write_record(&self, record: &MetricRecord) -> std::io::Result<()> {
         (**self).write_record(record)
     }
 }
