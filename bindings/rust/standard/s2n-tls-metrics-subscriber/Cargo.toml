@@ -25,8 +25,8 @@ serde_json = "1.0.141"
 serde-big-array = "0.5"
 ciborium = "0.2"
 # we at least need 0.3.33, because that is when the event APIs were introduced
-s2n-tls = { version = "0.3.33", path = "../../extended/s2n-tls", features = ["unstable-events", "unstable-testing"] }
-s2n-tls-sys = { version = "0.3.33", path = "../../extended/s2n-tls-sys"}
+s2n-tls = { version = "0.3.33", features = ["unstable-events", "unstable-testing"] }
+s2n-tls-sys = { version = "0.3.33"}
 
 [dev-dependencies]
 s2n-tls-sys-internal = { path = "../s2n-tls-sys-internal" }
