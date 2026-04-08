@@ -16,7 +16,7 @@ tracing = "0.1.43"
 metrique = "0.1.6"
 metrique-writer-format-emf = "0.1.6"
 metrique-writer-format-json = "0.1.1"
-metrique-writer = "0.1.19"
+metrique-writer = "0.1.18"
 
 arc-swap = "1.8.0"
 # minimum versions set for workspace-wide cargo minimal-versions compatibility
