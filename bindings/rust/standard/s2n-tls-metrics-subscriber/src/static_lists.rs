@@ -164,6 +164,14 @@ pub(crate) struct Cipher(pub(crate) [u8; 2]);
 impl Cipher {
     pub(crate) const TLS_EMPTY_RENEGOTIATION_INFO_SCSV: Self = Cipher([0, 255]);
 
+    pub(crate) const TLS_AES_128_GCM_SHA256: Self = Cipher([0x13, 0x01]);
+    pub(crate) const TLS_AES_256_GCM_SHA384: Self = Cipher([0x13, 0x02]);
+    pub(crate) const TLS_CHACHA20_POLY1305_SHA256: Self = Cipher([0x13, 0x03]);
+    pub(crate) const TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: Self = Cipher([0xC0, 0x2B]);
+    pub(crate) const TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: Self = Cipher([0xC0, 0x2C]);
+    pub(crate) const TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: Self = Cipher([0xC0, 0x2F]);
+    pub(crate) const TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: Self = Cipher([0xC0, 0x30]);
+
     /// e.g. "TLS_AES_256_GCM_SHA384"
     ///
     /// `None` if the cipher is not supported by s2n-tls
@@ -179,7 +187,25 @@ impl Cipher {
 #[repr(C)]
 pub(crate) struct Signature(pub(crate) s2n_codec::zerocopy::U16);
 
+// we allow non-upper case globals to let the constants exactly match the IANA description
+#[allow(non_upper_case_globals)]
 impl Signature {
+    pub(crate) const rsa_pss_rsae_sha256: Self = Signature(U16::new(0x0804));
+    pub(crate) const rsa_pss_rsae_sha384: Self = Signature(U16::new(0x0805));
+    pub(crate) const rsa_pss_rsae_sha512: Self = Signature(U16::new(0x0806));
+
+    pub(crate) const rsa_pss_pss_sha256: Self = Signature(U16::new(0x0809));
+    pub(crate) const rsa_pss_pss_sha384: Self = Signature(U16::new(0x080A));
+    pub(crate) const rsa_pss_pss_sha512: Self = Signature(U16::new(0x080B));
+
+    pub(crate) const ecdsa_secp256r1_sha256: Self = Signature(U16::new(0x0403));
+    pub(crate) const ecdsa_secp384r1_sha384: Self = Signature(U16::new(0x0503));
+    pub(crate) const ecdsa_secp521r1_sha512: Self = Signature(U16::new(0x0603));
+
+    pub(crate) const mldsa44: Self = Signature(U16::new(0x0904));
+    pub(crate) const mldsa65: Self = Signature(U16::new(0x0905));
+    pub(crate) const mldsa87: Self = Signature(U16::new(0x0906));
+
     pub fn known_description(&self) -> Option<&'static str> {
         SIGNATURE_SCHEMES_AVAILABLE_IN_S2N
             .iter()
@@ -192,7 +218,22 @@ impl Signature {
 #[repr(C)]
 pub(crate) struct Group(pub(crate) s2n_codec::zerocopy::U16);
 
+// we allow non-upper case globals to let the constants exactly match the IANA description
+#[allow(non_upper_case_globals)]
 impl Group {
+    pub(crate) const x25519: Self = Group(U16::new(29));
+    pub(crate) const secp256r1: Self = Group(U16::new(23));
+    pub(crate) const secp384r1: Self = Group(U16::new(24));
+    pub(crate) const secp521r1: Self = Group(U16::new(25));
+
+    pub(crate) const SecP256r1MLKEM768: Self = Group(U16::new(4587));
+    pub(crate) const X25519MLKEM768: Self = Group(U16::new(4588));
+    pub(crate) const SecP384r1MLKEM1024: Self = Group(U16::new(4589));
+
+    pub(crate) const MLKEM512: Self = Group(U16::new(512));
+    pub(crate) const MLKEM768: Self = Group(U16::new(513));
+    pub(crate) const MLKEM1024: Self = Group(U16::new(514));
+
     /// e.g. "secp256r1"
     ///
     /// `None` if the group is not supported by s2n-tls
