@@ -7,7 +7,6 @@ mod parsing;
 mod record;
 mod static_lists;
 mod subscriber;
-mod cert;
 #[cfg(test)]
 mod test_utils;
 

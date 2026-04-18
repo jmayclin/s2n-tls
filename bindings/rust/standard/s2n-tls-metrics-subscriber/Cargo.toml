@@ -22,14 +22,6 @@ arc-swap = "1.8.0"
 s2n-tls = { version = "0.3.33", path = "../../extended/s2n-tls", features = ["unstable-events", "unstable-testing"] }
 s2n-tls-sys = { version = "0.3.33", path = "../../extended/s2n-tls-sys"}
 
-x509-parser = "0.16.0"
-x509-cert = { version = "0.2.5", features = ["std"] }
-der = "0.7"
-openssl = "0.10.77"
-openssl-sys = { version = "0.9", features = ["aws-lc"] }
-rustls-webpki = { version = "0.103", default-features = false, features = ["alloc"] }
-rustls-pki-types = "1"
-
 [dev-dependencies]
 s2n-tls-sys-internal = { path = "../s2n-tls-sys-internal" }
 serde_json = "1.0"

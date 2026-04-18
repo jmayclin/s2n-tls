@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod messages;
+pub(crate) mod cert;
 
 /// This struct provides utility methods to access the supported parameters from
 /// a client hello
