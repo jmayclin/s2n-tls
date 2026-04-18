@@ -17,8 +17,8 @@ use crate::{
     static_lists::{Cipher, Group, Signature, Version},
 };
 
-mod messages;
 pub(crate) mod cert;
+mod messages;
 
 /// This struct provides utility methods to access the supported parameters from
 /// a client hello

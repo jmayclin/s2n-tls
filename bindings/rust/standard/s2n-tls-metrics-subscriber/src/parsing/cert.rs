@@ -543,7 +543,38 @@ mod tests {
     fn parse_cert_rejects_truncated() {
         let cert = CertKeyPair::from_path("rsa_2048_sha256_client_", "cert", "key", "cert");
         let der = handshake_leaf_der(&cert);
-        // truncate to half
         assert!(parse_cert(&der[..der.len() / 2]).is_err());
+    }
+
+    #[test]
+    fn benchmark() {
+        use std::time::Instant;
+
+        let cert = CertKeyPair::from_path("rsa_4096_sha512_client_", "cert", "key", "cert");
+        let der = handshake_leaf_der(&cert);
+
+        const N: u32 = 1000;
+
+        let start = Instant::now();
+        for _ in 0..N {
+            let _ = parse_cert(&der).unwrap();
+        }
+        let cert_dur = start.elapsed();
+
+        let start = Instant::now();
+        for _ in 0..N {
+            let _ = parse_leaf(&der).unwrap();
+        }
+        let leaf_dur = start.elapsed();
+
+        eprintln!(
+            "\n--- s2n-codec cert parse ({N} iterations) ---\n\
+             parse_cert: {:?} ({:?}/cert)\n\
+             parse_leaf: {:?} ({:?}/cert)",
+            cert_dur,
+            cert_dur / N,
+            leaf_dur,
+            leaf_dur / N,
+        );
     }
 }
