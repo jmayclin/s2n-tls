@@ -17,7 +17,7 @@ use crate::{
     static_lists::{Cipher, Group, Signature, Version},
 };
 
-pub(crate) mod cert;
+pub mod cert;
 mod messages;
 
 /// This struct provides utility methods to access the supported parameters from

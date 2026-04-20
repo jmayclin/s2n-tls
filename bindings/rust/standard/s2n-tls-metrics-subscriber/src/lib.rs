@@ -3,7 +3,7 @@
 
 mod emf_emitter;
 mod label;
-mod parsing;
+pub mod parsing;
 mod record;
 mod static_lists;
 mod subscriber;

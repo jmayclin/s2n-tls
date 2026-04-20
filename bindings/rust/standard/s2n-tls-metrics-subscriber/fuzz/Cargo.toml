@@ -1,0 +1,24 @@
+[package]
+name = "s2n-tls-metrics-subscriber-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Prevent this from being included in the parent workspace
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.s2n-tls-metrics-subscriber]
+path = ".."
+
+[[bin]]
+name = "fuzz_cert_parse"
+path = "fuzz_targets/fuzz_cert_parse.rs"
+test = false
+doc = false
+bench = false
