@@ -25,14 +25,13 @@
 //! |    Parser   | Per-cert |
 //! |-------------|----------|
 //! | webpki      |  0.333µs (no key/sig) |
-//! | s2n-codec   |  0.769µs |
-//! | manual-der  |  0.794µs |
+//! | s2n-codec   |  0.222µs |
 //! | x509-parser |  5.7µs |
 //! | x509-cert   | 13.8µs |
 //! | aws-lc      | 21.7µs |
 //!
-//! Existing cert parsing libraries are roughly 6x slower than this custom implementation.
-//! webpki is super speedy, but doesn't pull out the key/signature information that
+//! Existing cert parsing libraries are roughly 25x slower than this custom implementation.
+//! webpki is very speedy, but doesn't pull out the key/signature information that
 //! we need.
 //!
 //! While 5.7 us may seem pretty fast, in an mTLS case we might end up parsing 6
@@ -84,26 +83,26 @@ pub enum SignatureAlgorithm {
 }
 
 impl SignatureAlgorithm {
-    const OID_RSA_PKCS_SHA1: &str = "1.2.840.113549.1.1.5";
-    const OID_RSA_PKCS_SHA256: &str = "1.2.840.113549.1.1.11";
-    const OID_RSA_PKCS_SHA384: &str = "1.2.840.113549.1.1.12";
-    const OID_RSA_PKCS_SHA512: &str = "1.2.840.113549.1.1.13";
-    const OID_RSA_PSS: &str = "1.2.840.113549.1.1.10";
-    const OID_ECDSA_SHA256: &str = "1.2.840.10045.4.3.2";
-    const OID_ECDSA_SHA384: &str = "1.2.840.10045.4.3.3";
-    const OID_ECDSA_SHA512: &str = "1.2.840.10045.4.3.4";
-
-    fn from_oid(oid: &str) -> Self {
-        match oid {
-            Self::OID_RSA_PKCS_SHA1 => Self::RsaPkcsSha1,
-            Self::OID_RSA_PKCS_SHA256 => Self::RsaPkcsSha256,
-            Self::OID_RSA_PKCS_SHA384 => Self::RsaPkcsSha384,
-            Self::OID_RSA_PKCS_SHA512 => Self::RsaPkcsSha512,
-            Self::OID_RSA_PSS => Self::RsaPss,
-            Self::OID_ECDSA_SHA256 => Self::EcdsaSha256,
-            Self::OID_ECDSA_SHA384 => Self::EcdsaSha384,
-            Self::OID_ECDSA_SHA512 => Self::EcdsaSha512,
-            _ => Self::Unknown,
+    fn from_oid(oid: &[u8]) -> Self {
+        use der_codec::*;
+        if oid == OID_RSA_PKCS_SHA1.as_bytes() {
+            Self::RsaPkcsSha1
+        } else if oid == OID_RSA_PKCS_SHA256.as_bytes() {
+            Self::RsaPkcsSha256
+        } else if oid == OID_RSA_PKCS_SHA384.as_bytes() {
+            Self::RsaPkcsSha384
+        } else if oid == OID_RSA_PKCS_SHA512.as_bytes() {
+            Self::RsaPkcsSha512
+        } else if oid == OID_RSA_PSS.as_bytes() {
+            Self::RsaPss
+        } else if oid == OID_ECDSA_SHA256.as_bytes() {
+            Self::EcdsaSha256
+        } else if oid == OID_ECDSA_SHA384.as_bytes() {
+            Self::EcdsaSha384
+        } else if oid == OID_ECDSA_SHA512.as_bytes() {
+            Self::EcdsaSha512
+        } else {
+            Self::Unknown
         }
     }
 }
@@ -112,15 +111,36 @@ mod der_codec {
     use core::mem::size_of;
     use s2n_codec::{DecoderBuffer, DecoderBufferResult, DecoderError, DecoderValue};
 
+    use const_oid::ObjectIdentifier;
+
     // DER tag constants
     const TAG_SEQUENCE: u8 = 0x30;
     const TAG_OID: u8 = 0x06;
     const TAG_BIT_STRING: u8 = 0x03;
     const TAG_CONTEXT_0: u8 = 0xa0; // [0] EXPLICIT (certificate version)
 
-    // OID varint encoding
-    const HIGH_BIT_MASK: u8 = 0b10000000;
-    const LOWER_BIT_MASK: u8 = 0b01111111;
+    // Signature algorithm OIDs
+    pub const OID_RSA_PKCS_SHA1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.5");
+    pub const OID_RSA_PKCS_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+    pub const OID_RSA_PKCS_SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.12");
+    pub const OID_RSA_PKCS_SHA512: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.13");
+    pub const OID_RSA_PSS: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.10");
+    pub const OID_ECDSA_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2");
+    pub const OID_ECDSA_SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.3");
+    pub const OID_ECDSA_SHA512: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.4");
+
+    // Key algorithm OIDs
+    const OID_RSA_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
+    const OID_RSA_PSS_KEY: ObjectIdentifier = OID_RSA_PSS;
+    const OID_EC_PUBLIC_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+
+    // EC named curve OIDs
+    const OID_SECP256R1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
+    const OID_SECP384R1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
+    const OID_SECP521R1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.35");
+
+    // Common Name OID
+    const OID_CN: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.4.3");
 
     /// A DER-encoded length field.
     ///
@@ -213,91 +233,13 @@ mod der_codec {
         }
     }
 
-    /// A base-128 varint component of a DER OID. High bit is a continuation flag,
-    /// low 7 bits are payload.
-    struct OidComponent(u32);
-
-    impl<'a> DecoderValue<'a> for OidComponent {
-        fn decode(buffer: DecoderBuffer<'a>) -> DecoderBufferResult<'a, Self> {
-            let mut acc = 0u32;
-            let mut buffer = buffer;
-            loop {
-                let (byte, rest) = buffer.decode::<u8>()?;
-                acc = acc
-                    .checked_shl(7)
-                    .and_then(|a| a.checked_add((byte & LOWER_BIT_MASK) as u32))
-                    .ok_or(s2n_codec::decoder::DecoderError::LengthCapacityExceeded)?;
-                buffer = rest;
-                let continuation = byte & HIGH_BIT_MASK != 0;
-                if !continuation {
-                    return Ok((OidComponent(acc), buffer));
-                }
-            }
+    /// Helper: decode an OID TLV and return the raw content bytes.
+    fn decode_oid_tlv<'a>(buffer: DecoderBuffer<'a>) -> DecoderBufferResult<'a, &'a [u8]> {
+        let (tlv, buffer) = buffer.decode::<Tlv<'a>>()?;
+        if tlv.tag != TAG_OID {
+            return Err(DecoderError::InvariantViolation("expected OID tag"));
         }
-    }
-
-    /// OidComponents are variable length, so this might consume multiple bytes.
-    /// The first OidComponent has a special interpretation, because it
-    /// actually packs together two Oids. Hence we refer to this as the OidRoot
-    /// to distinguish that it actually contains _two_ components.
-    ///
-    /// The packing scheme is as follows
-    /// - combined < 40:  arc 0, second = combined
-    /// - combined < 80:  arc 1, second = combined - 40
-    /// - combined >= 80: arc 2, second = combined - 80
-    struct OidRoot {
-        first: u32,
-        second: u32,
-    }
-
-    impl<'a> DecoderValue<'a> for OidRoot {
-        fn decode(buffer: DecoderBuffer<'a>) -> DecoderBufferResult<'a, Self> {
-            let (OidComponent(combined), buffer) = buffer.decode::<OidComponent>()?;
-            let (first, second) = if combined < 40 {
-                (0, combined)
-            } else if combined < 80 {
-                (1, combined - 40)
-            } else {
-                (2, combined - 80)
-            };
-            Ok((OidRoot { first, second }, buffer))
-        }
-    }
-
-    /// A DER-encoded OID element (tag 0x06 + length + content), decoded into
-    /// dotted-decimal notation. Validates the tag during decode, eliminating
-    /// the need for manual TAG_OID assertions at each call site.
-    pub struct Oid(pub String);
-
-    impl<'a> DecoderValue<'a> for Oid {
-        fn decode(buffer: DecoderBuffer<'a>) -> DecoderBufferResult<'a, Self> {
-            let (tlv, buffer) = buffer.decode::<Tlv<'a>>()?;
-            if tlv.tag != TAG_OID {
-                return Err(DecoderError::InvariantViolation("expected OID tag"));
-            }
-
-            let mut content = DecoderBuffer::new(tlv.content);
-            let mut parts = Vec::new();
-
-            let (root, rest) = content.decode::<OidRoot>()?;
-            parts.push(root.first);
-            parts.push(root.second);
-            content = rest;
-
-            while !content.is_empty() {
-                let (OidComponent(val), rest) = content.decode::<OidComponent>()?;
-                parts.push(val);
-                content = rest;
-            }
-
-            let oid = parts
-                .iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<_>>()
-                .join(".");
-
-            Ok((Oid(oid), buffer))
-        }
+        Ok((tlv.content, buffer))
     }
 
     /// The RSA public key decoded from a BIT STRING containing
@@ -339,53 +281,43 @@ mod der_codec {
         fn decode(buffer: DecoderBuffer<'a>) -> DecoderBufferResult<'a, Self> {
             use super::KeyType;
 
-            // Key algorithm OIDs
-            const OID_RSA: &str = "1.2.840.113549.1.1.1";
-            const OID_RSA_PSS: &str = "1.2.840.113549.1.1.10";
-            const OID_EC_PUBLIC_KEY: &str = "1.2.840.10045.2.1";
-
-            // EC named curve OIDs
-            const OID_SECP256R1: &str = "1.2.840.10045.3.1.7";
-            const OID_SECP384R1: &str = "1.3.132.0.34";
-            const OID_SECP521R1: &str = "1.3.132.0.35";
-
             // AlgorithmIdentifier SEQUENCE
             let (key_alg_tlv, rest) = buffer.decode::<Tlv<'a>>()?;
-            let (Oid(key_oid), key_alg_rest) =
-                DecoderBuffer::new(key_alg_tlv.content).decode::<Oid>()?;
+            let (key_oid, key_alg_rest) =
+                decode_oid_tlv(DecoderBuffer::new(key_alg_tlv.content))?;
 
-            match key_oid.as_str() {
-                // EC — curve OID in parameters fully determines the key type
-                OID_EC_PUBLIC_KEY => {
-                    let (Oid(curve_oid), _) = key_alg_rest.decode::<Oid>()?;
-                    let key_type = match curve_oid.as_str() {
-                        OID_SECP256R1 => KeyType::Secp256r1,
-                        OID_SECP384R1 => KeyType::Secp384r1,
-                        OID_SECP521R1 => KeyType::Secp521r1,
-                        _ => KeyType::Unknown,
-                    };
-                    Ok((key_type, rest))
-                }
+            let key_oid = key_oid;
+            if key_oid == OID_EC_PUBLIC_KEY.as_bytes() {
+                let (curve_oid, _) = decode_oid_tlv(key_alg_rest)?;
+                let key_type = if curve_oid == OID_SECP256R1.as_bytes() {
+                    KeyType::Secp256r1
+                } else if curve_oid == OID_SECP384R1.as_bytes() {
+                    KeyType::Secp384r1
+                } else if curve_oid == OID_SECP521R1.as_bytes() {
+                    KeyType::Secp521r1
+                } else {
+                    KeyType::Unknown
+                };
+                Ok((key_type, rest))
+            } else if key_oid == OID_RSA_KEY.as_bytes()
+                || key_oid == OID_RSA_PSS_KEY.as_bytes()
+            {
+                let (rsa_key, buffer) = rest.decode::<RsaPublicKey<'_>>()?;
+                let is_pss = key_oid == OID_RSA_PSS_KEY.as_bytes();
 
-                // RSA/RSA-PSS — parse BIT STRING to extract modulus size
-                OID_RSA | OID_RSA_PSS => {
-                    let (rsa_key, buffer) = rest.decode::<RsaPublicKey<'_>>()?;
-
-                    let key_type = match (key_oid.as_str(), rsa_key.modulus.len() * 8) {
-                        (OID_RSA, 1024) => KeyType::Rsa1024,
-                        (OID_RSA, 2048) => KeyType::Rsa2048,
-                        (OID_RSA, 3072) => KeyType::Rsa3072,
-                        (OID_RSA, 4096) => KeyType::Rsa4096,
-                        (OID_RSA_PSS, 2048) => KeyType::RsaPss2048,
-                        (OID_RSA_PSS, 3072) => KeyType::RsaPss3072,
-                        (OID_RSA_PSS, 4096) => KeyType::RsaPss4096,
-                        _ => KeyType::Unknown,
-                    };
-                    Ok((key_type, buffer))
-                }
-
-                // Ed25519/Ed448 and other unknown key types
-                _ => Ok((KeyType::Unknown, buffer)),
+                let key_type = match (is_pss, rsa_key.modulus.len() * 8) {
+                    (false, 1024) => KeyType::Rsa1024,
+                    (false, 2048) => KeyType::Rsa2048,
+                    (false, 3072) => KeyType::Rsa3072,
+                    (false, 4096) => KeyType::Rsa4096,
+                    (true, 2048) => KeyType::RsaPss2048,
+                    (true, 3072) => KeyType::RsaPss3072,
+                    (true, 4096) => KeyType::RsaPss4096,
+                    _ => KeyType::Unknown,
+                };
+                Ok((key_type, buffer))
+            } else {
+                Ok((KeyType::Unknown, buffer))
             }
         }
     }
@@ -396,14 +328,6 @@ mod der_codec {
     ///
     /// Returns an empty string if no CN is found.
     fn decode_common_name(content: &[u8]) -> Result<String, DecoderError> {
-        /// Raw DER bytes of the CN OID (2.5.4.3)
-        /// 
-        /// We compare against these hard coded bytes because OID decoding into 
-        /// a dotted string is relatively expensive. Actually decoding OIDs here
-        /// resulted in ~3.07 us to parse a cert. With the hard coded bytes it's
-        /// only ~1.15 us to parse a cert.
-        const CN_OID_BYTES: &[u8] = &[0x55, 0x04, 0x03];
-
         let mut buffer = DecoderBuffer::new(content);
         while !buffer.is_empty() {
             let (set_tlv, rest) = buffer.decode::<Tlv<'_>>()?;
@@ -413,7 +337,7 @@ mod der_codec {
                 let (oid_tlv, val_buf) =
                     DecoderBuffer::new(attr_tlv.content).decode::<Tlv<'_>>()?;
                 let (val_tlv, _) = val_buf.decode::<Tlv<'_>>()?;
-                if oid_tlv.tag == TAG_OID && oid_tlv.content == CN_OID_BYTES {
+                if oid_tlv.tag == TAG_OID && oid_tlv.content == OID_CN.as_bytes() {
                     let cn = core::str::from_utf8(val_tlv.content).unwrap_or("invalid utf8");
                     return Ok(cn.to_string());
                 }
@@ -444,7 +368,7 @@ mod der_codec {
 
             // signature AlgorithmIdentifier
             let (sig_alg_tlv, buffer) = buffer.decode::<Tlv<'a>>()?;
-            let (Oid(sig_oid), _) = DecoderBuffer::new(sig_alg_tlv.content).decode::<Oid>()?;
+            let (sig_oid, _) = decode_oid_tlv(DecoderBuffer::new(sig_alg_tlv.content))?;
 
             // issuer
             let (issuer_tlv, buffer) = buffer.decode::<Tlv<'a>>()?;
@@ -465,7 +389,7 @@ mod der_codec {
                     issuer: decode_common_name(issuer_tlv.content)?,
                     subject: decode_common_name(subject_tlv.content)?,
                     key_type,
-                    signature: super::SignatureAlgorithm::from_oid(&sig_oid),
+                    signature: super::SignatureAlgorithm::from_oid(sig_oid),
                 },
                 DecoderBuffer::new(&[]),
             ))
@@ -482,6 +406,8 @@ pub fn parse(der: &[u8]) -> Result<ParsedCert, DecoderError> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use s2n_tls::testing::{CertKeyPair, TestPair};
 
@@ -683,7 +609,7 @@ mod tests {
 
         let der = handshake_leaf_der("rsa_4096_sha512_client_");
 
-        const N: u32 = 1000;
+        const N: u32 = 10_000;
         let start = Instant::now();
         for _ in 0..N {
             let _ = parse(&der).unwrap();
