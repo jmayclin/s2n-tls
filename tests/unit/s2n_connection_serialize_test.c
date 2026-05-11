@@ -76,8 +76,12 @@ static S2N_RESULT s2n_test_deserialize_with_version(const uint8_t *serialized_da
     RESULT_ENSURE_REF(serialized_data);
 
     /* Create test data buffer and modify protocol version bytes (at offset 8 and 9) */
-    uint8_t test_data[S2N_SERIALIZED_CONN_TLS12_SIZE] = { 0 };
-    RESULT_CHECKED_MEMCPY(test_data, serialized_data, sizeof(test_data));
+    uint8_t test_data[S2N_SERIALIZED_CONN_TLS10_SIZE] = { 0 };
+    uint32_t test_data_size = S2N_SERIALIZED_CONN_TLS12_SIZE;
+    if (version <= S2N_TLS10) {
+        test_data_size = S2N_SERIALIZED_CONN_TLS10_SIZE;
+    }
+    RESULT_CHECKED_MEMCPY(test_data, serialized_data, S2N_SERIALIZED_CONN_TLS12_SIZE);
     test_data[8] = version / 10;
     test_data[9] = version % 10;
 
@@ -85,7 +89,7 @@ static S2N_RESULT s2n_test_deserialize_with_version(const uint8_t *serialized_da
             s2n_connection_ptr_free);
     RESULT_ENSURE_REF(conn);
 
-    int result = s2n_connection_deserialize(conn, test_data, sizeof(test_data));
+    int result = s2n_connection_deserialize(conn, test_data, test_data_size);
 
     if (should_succeed) {
         RESULT_ENSURE(result == S2N_SUCCESS, S2N_ERR_TEST_ASSERTION);

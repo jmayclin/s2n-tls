@@ -44,6 +44,8 @@ int s2n_connection_serialization_length(struct s2n_connection *conn, uint32_t *l
         uint8_t secret_size = 0;
         POSIX_GUARD(s2n_hmac_digest_size(conn->secure->cipher_suite->prf_alg, &secret_size));
         *length = S2N_SERIALIZED_CONN_FIXED_SIZE + (secret_size * 3);
+    } else if (conn->actual_protocol_version <= S2N_TLS10) {
+        *length = S2N_SERIALIZED_CONN_TLS10_SIZE;
     } else {
         *length = S2N_SERIALIZED_CONN_TLS12_SIZE;
     }
@@ -79,6 +81,15 @@ static S2N_RESULT s2n_connection_serialize_secrets(struct s2n_connection *conn, 
             S2N_TLS_RANDOM_DATA_LEN));
     RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(output, conn->handshake_params.server_random,
             S2N_TLS_RANDOM_DATA_LEN));
+
+    if (conn->actual_protocol_version <= S2N_TLS10) {
+        RESULT_ENSURE_REF(conn->secure);
+        RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(output, conn->secure->client_implicit_iv,
+                S2N_TLS_MAX_IV_LEN));
+        RESULT_GUARD_POSIX(s2n_stuffer_write_bytes(output, conn->secure->server_implicit_iv,
+                S2N_TLS_MAX_IV_LEN));
+    }
+
     return S2N_RESULT_OK;
 }
 
@@ -160,6 +171,8 @@ struct s2n_connection_deserialize {
             uint8_t master_secret[S2N_TLS_SECRET_LEN];
             uint8_t client_random[S2N_TLS_RANDOM_DATA_LEN];
             uint8_t server_random[S2N_TLS_RANDOM_DATA_LEN];
+            uint8_t client_implicit_iv[S2N_TLS_MAX_IV_LEN];
+            uint8_t server_implicit_iv[S2N_TLS_MAX_IV_LEN];
         } tls12;
         struct {
             uint8_t secret_size;
@@ -197,6 +210,11 @@ static S2N_RESULT s2n_connection_deserialize_secrets(struct s2n_stuffer *input,
     RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(input, parsed_values->version.tls12.master_secret, S2N_TLS_SECRET_LEN));
     RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(input, parsed_values->version.tls12.client_random, S2N_TLS_RANDOM_DATA_LEN));
     RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(input, parsed_values->version.tls12.server_random, S2N_TLS_RANDOM_DATA_LEN));
+
+    if (parsed_values->protocol_version <= S2N_TLS10) {
+        RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(input, parsed_values->version.tls12.client_implicit_iv, S2N_TLS_MAX_IV_LEN));
+        RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(input, parsed_values->version.tls12.server_implicit_iv, S2N_TLS_MAX_IV_LEN));
+    }
 
     return S2N_RESULT_OK;
 }
@@ -335,6 +353,16 @@ static S2N_RESULT s2n_restore_secrets(struct s2n_connection *conn, struct s2n_co
     RESULT_CHECKED_MEMCPY(conn->handshake_params.server_random, parsed_values->version.tls12.server_random,
             S2N_TLS_RANDOM_DATA_LEN);
     RESULT_GUARD_POSIX(s2n_prf_key_expansion(conn));
+
+    /* For TLS 1.0, the implicit IV chains between records, so we must restore
+     * the current IV state rather than using the initial IVs from key expansion. */
+    if (parsed_values->protocol_version <= S2N_TLS10) {
+        RESULT_ENSURE_REF(conn->secure);
+        RESULT_CHECKED_MEMCPY(conn->secure->client_implicit_iv, parsed_values->version.tls12.client_implicit_iv,
+                S2N_TLS_MAX_IV_LEN);
+        RESULT_CHECKED_MEMCPY(conn->secure->server_implicit_iv, parsed_values->version.tls12.server_implicit_iv,
+                S2N_TLS_MAX_IV_LEN);
+    }
 
     return S2N_RESULT_OK;
 }
