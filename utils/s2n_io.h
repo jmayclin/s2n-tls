@@ -15,6 +15,46 @@
 #pragma once
 
 #include "utils/s2n_result.h"
+#include "stuffer/s2n_stuffer.h"
+
+// I think that these is also likely a need for a higher level IO construct. This
+// would track read/write closed status, and also abstract away the recv buffering
+// etc
+
+
+/**
+ * This struct is a thin handle to the outside world. 
+ * 
+ * All reading or writing of bytes must go through this IO provider
+ */
+struct s2n_io_provider {
+    /*
+     * a "true" value indicates s2n managed socket-based IO
+     * 
+     * In this scenario, it means that s2n-tls has allocated state for the socket
+     * based IO and it must be freed when the io provider is cleaned up
+     */
+    bool managed_send;
+    bool managed_recv;
+
+    s2n_send_fn *send;
+    void* send_ctx;
+
+    s2n_recv_fn *recv;
+    void* recv_ctx;
+};
+
+S2N_RESULT s2n_io_provider_read_bytes(
+    struct s2n_io_provider* io,
+    struct s2n_stuffer* buffer,
+    size_t read_size
+);
+
+S2N_RESULT s2n_io_provider_write_bytes(
+    struct s2n_io_provider* io,
+    struct s2n_stuffer* buffer,
+    size_t write_size
+);
 
 /* While we shouldn't need to reset errno before executing `action`,
  * we do so just in case action doesn't set errno properly on failure.
