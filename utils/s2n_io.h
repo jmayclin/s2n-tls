@@ -28,7 +28,7 @@
  * All reading or writing of bytes must go through this IO provider
  */
 struct s2n_io_provider {
-    /*
+    /**
      * a "true" value indicates s2n managed socket-based IO
      * 
      * In this scenario, it means that s2n-tls has allocated state for the socket
@@ -37,6 +37,15 @@ struct s2n_io_provider {
     bool managed_send;
     bool managed_recv;
 
+    /* set to `true` when a send call returns EPIPE */
+    bool transport_send_closed;
+    /* set to `true` when a read call returns 0 */
+    bool transport_recv_closed;
+
+    /* book keeping */
+    size_t wire_bytes_in;
+    size_t wire_bytes_out;
+
     s2n_send_fn *send;
     void* send_ctx;
 
@@ -44,16 +53,16 @@ struct s2n_io_provider {
     void* recv_ctx;
 };
 
-S2N_RESULT s2n_io_provider_read_bytes(
+int s2n_io_provider_read_bytes(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
-    size_t read_size
+    uint32_t length
 );
 
-S2N_RESULT s2n_io_provider_write_bytes(
+int s2n_io_provider_write(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
-    size_t write_size
+    uint32_t length
 );
 
 /* While we shouldn't need to reset errno before executing `action`,

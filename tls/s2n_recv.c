@@ -52,6 +52,7 @@ S2N_RESULT s2n_recv_in_init(struct s2n_connection *conn, uint32_t written, uint3
     return S2N_RESULT_OK;
 }
 
+/* Retrieve bytes from the network */
 S2N_RESULT s2n_read_in_bytes(struct s2n_connection *conn, struct s2n_stuffer *output, uint32_t length)
 {
     while (s2n_stuffer_data_available(output) < length) {

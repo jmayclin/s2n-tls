@@ -61,6 +61,10 @@ typedef enum {
 } s2n_session_ticket_status;
 
 struct s2n_connection {
+    /**************************************************************************/
+    /***************************     IO members     ***************************/
+    /**************************************************************************/
+
     /* Is this connection using CORK/SO_RCVLOWAT optimizations? Only valid when the connection is using
      * managed_send_io
      */
@@ -74,16 +78,13 @@ struct s2n_connection {
     unsigned managed_send_io : 1;
     unsigned managed_recv_io : 1;
 
-
     /* Marks if kTLS has been enabled for this connection. */
     unsigned ktls_send_enabled : 1;
     unsigned ktls_recv_enabled : 1;
 
-
     /* Buffer multiple records before flushing them.
      * This allows multiple records to be written with one socket send. */
     unsigned multirecord_send : 1;
-
 
     /* The send and receive callbacks don't have to be the same (e.g. two pipes) */
     s2n_send_fn *send;
@@ -93,13 +94,18 @@ struct s2n_connection {
     void *send_io_context;
     void *recv_io_context;
 
-
     /* Our workhorse stuffers, used for buffering the plaintext
      * and encrypted data in both directions.
      */
     uint8_t header_in_data[S2N_TLS_RECORD_HEADER_LENGTH];
+    /* header_in just stores the TLS record header. The underlying blob is the 
+     * stack allocated `header_in_data` */
     struct s2n_stuffer header_in;
+    /* `buffer_in` stores the raw bytes from the network. It may have partial records
+     * etc. `buffer_in` points to an allocated blob */
     struct s2n_stuffer buffer_in;
+    /* `in` is a view into `buffer_in`, where the view is well-sized to represent
+     * exactly one TLS record. */
     struct s2n_stuffer in;
     struct s2n_stuffer out;
     enum {
@@ -130,7 +136,6 @@ struct s2n_connection {
     /* Receiving error or close_notify alerts changes the behavior of s2n_shutdown_send */
     s2n_atomic_flag error_alert_received;
     s2n_atomic_flag close_notify_received;
-
 
     /* Maximum outgoing fragment size for this connection. Does not limit
      * incoming record size.
@@ -166,6 +171,10 @@ struct s2n_connection {
      */
     s2n_atomic_flag read_closed;
     s2n_atomic_flag write_closed;
+
+    /**************************************************************************/
+    /**********************     other configuration    ************************/
+    /**************************************************************************/
 
     /* Session resumption indicator on client side */
     unsigned client_session_resumed : 1;
@@ -330,12 +339,9 @@ struct s2n_connection {
     /* Our handshake state machine */
     struct s2n_handshake handshake;
 
-
     /* Negotiated TLS extension Maximum Fragment Length code.
      * If set, the client and server have both agreed to fragment their records to the given length. */
     uint8_t negotiated_mfl_code;
-
-
 
     /* TLS extension data */
     char server_name[S2N_MAX_SERVER_NAME + 1];
