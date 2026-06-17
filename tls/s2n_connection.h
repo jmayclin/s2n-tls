@@ -418,9 +418,6 @@ typedef enum {
 bool s2n_connection_check_io_status(struct s2n_connection *conn, s2n_io_status status);
 S2N_RESULT s2n_connection_set_closed(struct s2n_connection *conn);
 
-/* Send/recv a stuffer to/from a connection */
-int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
-
 S2N_RESULT s2n_connection_wipe_all_keyshares(struct s2n_connection *conn);
 
 /* If dynamic buffers are enabled, the IO buffers may be freed if they are completely consumed */

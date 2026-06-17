@@ -1477,28 +1477,6 @@ int s2n_connection_set_verify_host_callback(struct s2n_connection *conn, s2n_ver
     return 0;
 }
 
-int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len)
-{
-    POSIX_ENSURE_REF(conn);
-    POSIX_ENSURE_REF(conn->io.send);
-    if (conn->io.transport_send_closed) {
-        POSIX_BAIL(S2N_ERR_SEND_STUFFER_TO_CONN);
-    }
-    /* Make sure we even have the data */
-    S2N_ERROR_IF(s2n_stuffer_data_available(stuffer) < len, S2N_ERR_STUFFER_OUT_OF_DATA);
-
-    int w = 0;
-    S2N_IO_RETRY_EINTR(w,
-            conn->io.send(conn->io.send_ctx, stuffer->blob.data + stuffer->read_cursor, len));
-    if (w < 0 && errno == EPIPE) {
-        conn->io.transport_send_closed = 1;
-    }
-    POSIX_ENSURE(w >= 0, S2N_ERR_SEND_STUFFER_TO_CONN);
-
-    POSIX_GUARD(s2n_stuffer_skip_read(stuffer, w));
-    return w;
-}
-
 int s2n_connection_is_managed_corked(const struct s2n_connection *s2n_connection)
 {
     POSIX_ENSURE_REF(s2n_connection);

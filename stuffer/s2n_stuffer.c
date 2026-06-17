@@ -404,6 +404,10 @@ static int s2n_stuffer_copy_impl(struct s2n_stuffer *from, struct s2n_stuffer *t
     return S2N_SUCCESS;
 }
 
+/* More accurately, this is "make space". 
+ * We prefer to "shift" the data, dropping bytes that have already been read
+ * If that is insufficient we allocate new data
+ */
 int s2n_stuffer_reserve_space(struct s2n_stuffer *stuffer, uint32_t n)
 {
     POSIX_PRECONDITION(s2n_stuffer_validate(stuffer));

@@ -152,17 +152,18 @@ int s2n_io_provider_write_impl(
     struct s2n_stuffer* buffer,
     uint32_t length
 ) {
+    /* we defensively reset the ERRNO, although it shouldn't be necessary. Additionally,
+     * it's necessary to clear it before we do any of the ENSURE checks */
+    errno = 0;
+
     POSIX_ENSURE_REF(io);
     POSIX_ENSURE(io->send != NULL, S2N_ERR_IO);
-    errno = 0;
     POSIX_ENSURE(!io->transport_send_closed, S2N_ERR_IO);
     POSIX_ENSURE_REF(buffer);
 
     /* Make sure we even have the data */
     POSIX_ENSURE(s2n_stuffer_data_available(buffer) >= length, S2N_ERR_STUFFER_OUT_OF_DATA);
 
-    /* we defensively reset the ERRNO, although it shouldn't be necessary */
-    errno = 0;
     int result = io->send(io->send_ctx, buffer->blob.data + buffer->read_cursor, length);
     if (result < 0 && errno == EPIPE) {
         io->transport_send_closed = true;
@@ -198,121 +199,3 @@ S2N_RESULT s2n_io_provider_write(
     }
     return S2N_RESULT_OK;
 }
-
-
-// int s2n_connection_set_write_fd(struct s2n_connection *conn, int wfd)
-// {
-//     struct s2n_blob ctx_mem = { 0 };
-//     struct s2n_socket_write_io_context *peer_socket_ctx = NULL;
-
-//     POSIX_ENSURE_REF(conn);
-//     POSIX_GUARD(s2n_alloc(&ctx_mem, sizeof(struct s2n_socket_write_io_context)));
-
-//     peer_socket_ctx = (struct s2n_socket_write_io_context *) (void *) ctx_mem.data;
-//     peer_socket_ctx->fd = wfd;
-
-//     POSIX_GUARD(s2n_connection_set_send_cb(conn, s2n_socket_write));
-//     POSIX_GUARD(s2n_connection_set_send_ctx(conn, peer_socket_ctx));
-//     conn->io.managed_send = true;
-
-//     /* This is only needed if the user is using corked io.
-//      * Take the snapshot in case optimized io is enabled after setting the fd.
-//      */
-//     POSIX_GUARD(s2n_socket_write_snapshot(conn));
-
-//     uint8_t ipv6 = 0;
-//     if (0 == s2n_socket_is_ipv6(wfd, &ipv6)) {
-//         conn->ipv6 = (ipv6 ? 1 : 0);
-//     }
-
-//     conn->io.transport_send_closed = 0;
-
-//     return 0;
-// }
-
-
-// /* Retrieve bytes from the network */
-// S2N_RESULT s2n_read_in_bytes(struct s2n_connection *conn, struct s2n_stuffer *output, uint32_t length)
-// {
-//     while (s2n_stuffer_data_available(output) < length) {
-//         uint32_t remaining = length - s2n_stuffer_data_available(output);
-//         if (conn->recv_buffering) {
-//             remaining = S2N_MAX(remaining, s2n_stuffer_space_remaining(output));
-//         }
-//         errno = 0;
-//         int r = s2n_connection_recv_stuffer(output, conn, remaining);
-//         if (r == 0) {
-//             s2n_atomic_flag_set(&conn->read_closed);
-//         }
-//         RESULT_GUARD(s2n_io_check_read_result(r));
-//         conn->io.wire_bytes_in += r;
-//     }
-
-//     return S2N_RESULT_OK;
-// }
-
-
-// int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len)
-// {
-//     POSIX_ENSURE_REF(conn->recv);
-//     /* Make sure we have enough space to write */
-//     POSIX_GUARD(s2n_stuffer_reserve_space(stuffer, len));
-
-//     int r = 0;
-//     S2N_IO_RETRY_EINTR(r,
-//             conn->recv(conn->io.recv_ctx, stuffer->blob.data + stuffer->write_cursor, len));
-//     POSIX_ENSURE(r >= 0, S2N_ERR_RECV_STUFFER_FROM_CONN);
-
-//     /* Record just how many bytes we have written */
-//     POSIX_GUARD(s2n_stuffer_skip_write(stuffer, r));
-//     return r;
-// }
-
-
-// int s2n_flush(struct s2n_connection *conn, s2n_blocked_status *blocked)
-// {
-//     POSIX_ENSURE_REF(conn);
-//     POSIX_ENSURE_REF(blocked);
-//     *blocked = S2N_BLOCKED_ON_WRITE;
-
-//     /* Write any data that's already pending */
-//     while (s2n_stuffer_data_available(&conn->out)) {
-//         errno = 0;
-//         int w = s2n_connection_send_stuffer(&conn->out, conn, s2n_stuffer_data_available(&conn->out));
-//         POSIX_GUARD_RESULT(s2n_io_check_write_result(w));
-//         conn->io.wire_bytes_out += w;
-//     }
-//     POSIX_GUARD(s2n_stuffer_rewrite(&conn->out));
-
-//     if (conn->reader_warning_out) {
-//         POSIX_GUARD_RESULT(s2n_alerts_write_warning(conn));
-//         conn->reader_warning_out = 0;
-//         POSIX_GUARD(s2n_flush(conn, blocked));
-//     }
-
-//     *blocked = S2N_NOT_BLOCKED;
-//     return 0;
-// }
-
-
-// int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len)
-// {
-//     POSIX_ENSURE_REF(conn);
-//     POSIX_ENSURE_REF(conn->send);
-//     if (conn->io.transport_send_closed) {
-//         POSIX_BAIL(S2N_ERR_SEND_STUFFER_TO_CONN);
-//     }
-//     /* Make sure we even have the data */
-//     S2N_ERROR_IF(s2n_stuffer_data_available(stuffer) < len, S2N_ERR_STUFFER_OUT_OF_DATA);
-
-//     int w = 0;
-//     S2N_IO_RETRY_EINTR(w,
-//             conn->send(conn->io.send_ctx, stuffer->blob.data + stuffer->read_cursor, len));
-//     if (w < 0 && errno == EPIPE) {
-//         conn->io.transport_send_closed = 1;
-//     }
-//     POSIX_ENSURE(w >= 0, S2N_ERR_SEND_STUFFER_TO_CONN);
-
-//     POSIX_GUARD(s2n_stuffer_skip_read(stuffer, w));
-//     return w;
-// }
