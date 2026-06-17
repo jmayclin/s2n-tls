@@ -450,6 +450,20 @@ int s2n_stuffer_extract_blob(struct s2n_stuffer *stuffer, struct s2n_blob *out)
     return S2N_SUCCESS;
 }
 
+/**
+ * "shift" the data down, discarding previously read data
+ *
+ * ```
+ *                                 rc        wc
+ *                                 v         v 
+ * stuffer before shift: |XXXXXXXXXXXXXXXXXXX---------|
+ * 
+ *                        rc        wc
+ *                        v         v 
+ * stuffer after shift:  |XXXXXXXXXX------------------|
+ * 
+ * ```
+ */
 int s2n_stuffer_shift(struct s2n_stuffer *stuffer)
 {
     POSIX_ENSURE_REF(stuffer);

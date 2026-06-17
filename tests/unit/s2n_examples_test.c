@@ -199,7 +199,7 @@ static S2N_RESULT s2n_test_example_recv_echo(struct s2n_connection *conn,
      * never contains the full data sent, but we can sanity check the number of
      * records and total bytes read.
      */
-    RESULT_ENSURE_GT(conn->wire_bytes_in, input->size);
+    RESULT_ENSURE_GT(conn->io.wire_bytes_in, input->size);
     RESULT_ENSURE_LTE(S2N_TEST_RECORD_COUNT, UINT8_MAX);
     RESULT_ENSURE_GTE(conn->secure->client_sequence_number[S2N_TEST_LAST_SEQ_NUM_BYTE],
             S2N_TEST_RECORD_COUNT);

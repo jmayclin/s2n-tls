@@ -37,12 +37,12 @@ static S2N_RESULT s2n_connection_set_counting_read(struct s2n_connection *reader
         struct s2n_recv_wrapper *wrapper)
 {
     /* We'd need to handle cleanup for managed IO */
-    RESULT_ENSURE(!reader->managed_recv_io, S2N_ERR_SAFETY);
+    RESULT_ENSURE(!reader->io.managed_recv, S2N_ERR_SAFETY);
 
-    wrapper->inner_recv = reader->recv;
-    reader->recv = s2n_counting_read;
-    wrapper->inner_recv_ctx = reader->recv_io_context;
-    reader->recv_io_context = wrapper;
+    wrapper->inner_recv = reader->io.recv;
+    reader->io.recv = s2n_counting_read;
+    wrapper->inner_recv_ctx = reader->io.recv_ctx;
+    reader->io.recv_ctx = wrapper;
     wrapper->count = 0;
     return S2N_RESULT_OK;
 }

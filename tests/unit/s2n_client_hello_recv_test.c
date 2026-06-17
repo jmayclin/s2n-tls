@@ -512,7 +512,7 @@ int main(int argc, char **argv)
     /* Test: Parse fragmented sslv2 client hello.
      *
      * Even if the sslv2 client hello is sent in one packet, there is no requirement
-     * that our first call to conn->recv returns the whole message. sslv2 uses separate
+     * that our first call to conn->io.recv returns the whole message. sslv2 uses separate
      * record parsing code, so we need to ensure that those paths can handle partial reads.
      */
     {

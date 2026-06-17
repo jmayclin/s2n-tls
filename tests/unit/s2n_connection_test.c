@@ -592,25 +592,25 @@ int main(int argc, char **argv)
 
         /* Connection sets up the default socket functions */
         EXPECT_SUCCESS(s2n_connection_set_fd(conn, READFD));
-        EXPECT_NOT_NULL(conn->send);
-        EXPECT_NOT_NULL(conn->recv);
+        EXPECT_NOT_NULL(conn->io.send);
+        EXPECT_NOT_NULL(conn->io.recv);
 
         /* Setting up custom socket contexts will remove default socket functions */
         EXPECT_SUCCESS(s2n_connection_set_send_ctx(conn, socket_ctx));
         EXPECT_SUCCESS(s2n_connection_set_recv_ctx(conn, socket_ctx));
-        EXPECT_NULL(conn->send);
-        EXPECT_NULL(conn->recv);
+        EXPECT_NULL(conn->io.send);
+        EXPECT_NULL(conn->io.recv);
 
         /* Setup default socket functions again */
         EXPECT_SUCCESS(s2n_connection_set_fd(conn, READFD));
-        EXPECT_NOT_NULL(conn->send_io_context);
-        EXPECT_NOT_NULL(conn->recv_io_context);
+        EXPECT_NOT_NULL(conn->io.send_ctx);
+        EXPECT_NOT_NULL(conn->io.recv_ctx);
 
         /* Setting up custom socket functions will remove default socket contexts */
         EXPECT_SUCCESS(s2n_connection_set_send_cb(conn, s2n_noop_send_cb));
         EXPECT_SUCCESS(s2n_connection_set_recv_cb(conn, s2n_noop_recv_cb));
-        EXPECT_NULL(conn->send_io_context);
-        EXPECT_NULL(conn->recv_io_context);
+        EXPECT_NULL(conn->io.send_ctx);
+        EXPECT_NULL(conn->io.recv_ctx);
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
     };
@@ -688,7 +688,7 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(0, s2n_connection_get_wire_bytes_out(conn));
 
         uint64_t magic_number = 123456;
-        conn->wire_bytes_out = magic_number;
+        conn->io.wire_bytes_out = magic_number;
         EXPECT_EQUAL(magic_number, s2n_connection_get_wire_bytes_out(conn));
     };
 

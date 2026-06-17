@@ -69,7 +69,7 @@ int s2n_shutdown_send(struct s2n_connection *conn, s2n_blocked_status *blocked)
      * This should probably be an error, but wasn't in the past so is left as-is
      * for backwards compatibility.
      */
-    if (conn->send == NULL && conn->recv == NULL) {
+    if (conn->io.send == NULL && conn->io.recv == NULL) {
         return S2N_SUCCESS;
     }
 

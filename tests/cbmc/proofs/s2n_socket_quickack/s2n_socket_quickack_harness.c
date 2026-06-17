@@ -16,12 +16,12 @@ void s2n_socket_quickack_harness()
   /* Non-deterministic inputs. */  
   struct s2n_connection *s2n_connection = malloc(sizeof(*s2n_connection));
   if (s2n_connection != NULL) {
-    s2n_connection->recv_io_context = cbmc_allocate_s2n_socket_read_io_context();
+    s2n_connection->io.recv_ctx = cbmc_allocate_s2n_socket_read_io_context();
   }
   
   /* Operation under verification. */
   int result = s2n_socket_quickack(s2n_connection);
 
   /* Post-condition. */
-  assert(S2N_IMPLIES(result == S2N_SUCCESS, (!s2n_connection->managed_recv_io) || (s2n_connection->recv_io_context) != NULL));
+  assert(S2N_IMPLIES(result == S2N_SUCCESS, (!s2n_connection->io.managed_recv) || (s2n_connection->io.recv_ctx) != NULL));
 }

@@ -98,19 +98,19 @@ int s2n_renegotiate_wipe(struct s2n_connection *conn)
 
     /* Save byte tracking.
      * This isn't strictly necessary, but potentially useful. */
-    uint64_t wire_bytes_in = conn->wire_bytes_in;
-    uint64_t wire_bytes_out = conn->wire_bytes_out;
+    uint64_t wire_bytes_in = conn->io.wire_bytes_in;
+    uint64_t wire_bytes_out = conn->io.wire_bytes_out;
 
     /* Save io settings */
-    bool send_managed = conn->managed_send_io;
-    s2n_send_fn *send_fn = conn->send;
-    void *send_ctx = conn->send_io_context;
-    bool recv_managed = conn->managed_recv_io;
-    s2n_recv_fn *recv_fn = conn->recv;
-    void *recv_ctx = conn->recv_io_context;
+    bool send_managed = conn->io.managed_send;
+    s2n_send_fn *send_fn = conn->io.send;
+    void *send_ctx = conn->io.send_ctx;
+    bool recv_managed = conn->io.managed_recv;
+    s2n_recv_fn *recv_fn = conn->io.recv;
+    void *recv_ctx = conn->io.recv_ctx;
     /* Treat IO as unmanaged, since we don't want to clean it up yet */
-    conn->managed_send_io = false;
-    conn->managed_recv_io = false;
+    conn->io.managed_send = false;
+    conn->io.managed_recv = false;
 
     /* Save the secure_renegotiation flag.
      * This flag should always be true, since we don't support insecure renegotiation,
@@ -148,14 +148,14 @@ int s2n_renegotiate_wipe(struct s2n_connection *conn)
     conn->actual_protocol_version = actual_protocol_version;
     conn->server_protocol_version = server_protocol_version;
     conn->client_protocol_version = client_protocol_version;
-    conn->wire_bytes_in = wire_bytes_in;
-    conn->wire_bytes_out = wire_bytes_out;
-    conn->managed_send_io = send_managed;
-    conn->send = send_fn;
-    conn->send_io_context = send_ctx;
-    conn->managed_recv_io = recv_managed;
-    conn->recv = recv_fn;
-    conn->recv_io_context = recv_ctx;
+    conn->io.wire_bytes_in = wire_bytes_in;
+    conn->io.wire_bytes_out = wire_bytes_out;
+    conn->io.managed_send = send_managed;
+    conn->io.send = send_fn;
+    conn->io.send_ctx = send_ctx;
+    conn->io.managed_recv = recv_managed;
+    conn->io.recv = recv_fn;
+    conn->io.recv_ctx = recv_ctx;
     conn->secure_renegotiation = secure_renegotiation;
     conn->buffer_in = buffer_in;
     ZERO_TO_DISABLE_DEFER_CLEANUP(buffer_in);

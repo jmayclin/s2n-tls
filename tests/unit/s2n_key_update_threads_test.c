@@ -98,8 +98,8 @@ static S2N_RESULT s2n_send_and_recv_random_data(struct s2n_connection *conn)
     RESULT_ENSURE_EQ(pthread_join(writer, &writer_return), 0);
     RESULT_ENSURE_REF(writer_return);
 
-    RESULT_ENSURE_GT(conn->wire_bytes_out, S2N_TEST_BYTES_TO_SEND);
-    RESULT_ENSURE_GT(conn->wire_bytes_in, S2N_TEST_BYTES_TO_SEND);
+    RESULT_ENSURE_GT(conn->io.wire_bytes_out, S2N_TEST_BYTES_TO_SEND);
+    RESULT_ENSURE_GT(conn->io.wire_bytes_in, S2N_TEST_BYTES_TO_SEND);
     return S2N_RESULT_OK;
 }
 
@@ -133,7 +133,7 @@ static S2N_RESULT s2n_sanity_check_key_updates_sent(struct s2n_connection *conn)
      * must have been reset, which means that at least one KeyUpdate was sent.
      */
     size_t max_record_size = S2N_TLS13_MAX_RECORD_LEN_FOR(conn->max_outgoing_fragment_length);
-    RESULT_ENSURE_GT(conn->wire_bytes_out, max_record_size * seq_num);
+    RESULT_ENSURE_GT(conn->io.wire_bytes_out, max_record_size * seq_num);
 
     return S2N_RESULT_OK;
 }

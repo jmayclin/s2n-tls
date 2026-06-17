@@ -87,12 +87,7 @@ int s2n_flush(struct s2n_connection *conn, s2n_blocked_status *blocked)
     *blocked = S2N_BLOCKED_ON_WRITE;
 
     /* Write any data that's already pending */
-    while (s2n_stuffer_data_available(&conn->out)) {
-        errno = 0;
-        int w = s2n_connection_send_stuffer(&conn->out, conn, s2n_stuffer_data_available(&conn->out));
-        POSIX_GUARD_RESULT(s2n_io_check_write_result(w));
-        conn->wire_bytes_out += w;
-    }
+    POSIX_GUARD_RESULT(s2n_io_provider_write(&conn->io, &conn->out, s2n_stuffer_data_available(&conn->out)));
     POSIX_GUARD(s2n_stuffer_rewrite(&conn->out));
 
     if (conn->reader_warning_out) {

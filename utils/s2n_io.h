@@ -28,6 +28,9 @@
  * All reading or writing of bytes must go through this IO provider
  */
 struct s2n_io_provider {
+    /* true if this is a managed IO provider using corked IO */
+    bool corked_io;
+
     /**
      * a "true" value indicates s2n managed socket-based IO
      * 
@@ -53,13 +56,25 @@ struct s2n_io_provider {
     void* recv_ctx;
 };
 
-int s2n_io_provider_read_bytes(
+int s2n_io_provider_read_impl(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
     uint32_t length
 );
 
-int s2n_io_provider_write(
+S2N_RESULT s2n_io_provider_greedy_read(
+    struct s2n_io_provider* io,
+    struct s2n_stuffer* buffer,
+    uint32_t min_length
+);
+
+S2N_RESULT s2n_io_provider_read(
+    struct s2n_io_provider* io,
+    struct s2n_stuffer* buffer,
+    uint32_t length
+);
+
+S2N_RESULT s2n_io_provider_write(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
     uint32_t length

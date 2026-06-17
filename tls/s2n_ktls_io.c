@@ -59,7 +59,7 @@ S2N_RESULT s2n_ktls_set_sendmsg_cb(struct s2n_connection *conn, s2n_ktls_sendmsg
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(send_ctx);
     RESULT_ENSURE(s2n_in_test(), S2N_ERR_NOT_IN_TEST);
-    conn->send_io_context = send_ctx;
+    conn->io.send_ctx = send_ctx;
     s2n_sendmsg_fn = send_cb;
     return S2N_RESULT_OK;
 }
@@ -70,7 +70,7 @@ S2N_RESULT s2n_ktls_set_recvmsg_cb(struct s2n_connection *conn, s2n_ktls_recvmsg
     RESULT_ENSURE_REF(conn);
     RESULT_ENSURE_REF(recv_ctx);
     RESULT_ENSURE(s2n_in_test(), S2N_ERR_NOT_IN_TEST);
-    conn->recv_io_context = recv_ctx;
+    conn->io.recv_ctx = recv_ctx;
     s2n_recvmsg_fn = recv_cb;
     return S2N_RESULT_OK;
 }
@@ -363,7 +363,7 @@ ssize_t s2n_ktls_sendv_with_offset(struct s2n_connection *conn, const struct iov
     }
 
     size_t bytes_written = 0;
-    POSIX_GUARD_RESULT(s2n_ktls_sendmsg(conn->send_io_context, TLS_APPLICATION_DATA,
+    POSIX_GUARD_RESULT(s2n_ktls_sendmsg(conn->io.send_ctx, TLS_APPLICATION_DATA,
             bufs, count, blocked, &bytes_written));
 
     POSIX_GUARD_RESULT(s2n_ktls_set_estimated_sequence_number(conn, bytes_written));
@@ -476,7 +476,7 @@ int s2n_ktls_read_full_record(struct s2n_connection *conn, uint8_t *record_type)
     /* Since recvmsg is responsible for decrypting the record in ktls,
      * we apply blinding to the recvmsg call.
      */
-    s2n_result result = s2n_ktls_recvmsg(conn->recv_io_context, record_type,
+    s2n_result result = s2n_ktls_recvmsg(conn->io.recv_ctx, record_type,
             buf, len, &blocked, &bytes_read);
     WITH_ERROR_BLINDING(conn, POSIX_GUARD_RESULT(result));
 

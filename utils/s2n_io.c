@@ -46,10 +46,13 @@ S2N_RESULT s2n_io_check_read_result(ssize_t result)
 }
 
 /**
- * Read bytes from the network (`io`) into `buffer`
+ * Attempt to read `length` bytes from the network (`io`) into `buffer`
  * 
- * It will attempt to read `length` bytes, but a smaller number may be returned.
- * If an exact number of bytes needs to be read, use `s2n_io_provider_read_exact`.
+ * This will call the underlying recv function a single time. Generally this should
+ * be called in a loop, until it blocks or the desired number of bytes are returned.
+ * This functionality is provided in s2n_io_provider_read.
+ * 
+ * This may allocate additional data for `buffer` if it is not large enough.
  * 
  * This will advance the write_cursor of `buffer`.
  * 
@@ -60,30 +63,29 @@ S2N_RESULT s2n_io_check_read_result(ssize_t result)
  *      -> `S2N_ERR_BLOCKED` if the transport layer is blocked
  *      -> others
  */
-int s2n_io_provider_read(
+int s2n_io_provider_read_impl(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
     uint32_t length
 ) {
     POSIX_ENSURE_REF(io);
-    POSIX_ENSURE_REF(io->recv);
+    POSIX_ENSURE(io->recv != NULL, S2N_ERR_IO);
     POSIX_ENSURE(!io->transport_recv_closed, S2N_ERR_CLOSED);
     POSIX_ENSURE_REF(buffer);
 
-    /* Make sure we have enough space to write */
+    /* allocate more space if needed */
     POSIX_GUARD(s2n_stuffer_reserve_space(buffer, length));
 
     /* we defensively reset the ERRNO, although it shouldn't be necessary */
     errno = 0;
     int result = io->recv(io->recv_ctx, buffer->blob.data + buffer->write_cursor, length);
-    POSIX_ENSURE(result >= 0, S2N_ERR_RECV_STUFFER_FROM_CONN);
-    
+
     /* a read result of "0" indicates that the transport layer (e.g. TCP stream) 
      * is closed */
     if (result == 0) {
         io->transport_recv_closed = true;
     }
-
+    
     /* bubble up S2N_ERR_CLOSED or S2N_ERR_BLOCKED as appropriate */
     POSIX_GUARD_RESULT(s2n_io_check_read_result(result));
 
@@ -95,10 +97,7 @@ int s2n_io_provider_read(
 }
 
 /**
- * Read exactly `length` bytes into buffer.
- * 
- * This function will never return `S2N_ERR_BLOCKED`, and will repeatedly call
- * `s2n_io_provider_read` until `length` bytes have been read.
+ * Read bytes from the network into `buffer` until there are `length` bytes available.
  * 
  * Advances the `write_cursor` of `buffer`.
  * 
@@ -106,35 +105,57 @@ int s2n_io_provider_read(
  * - `S2N_RESULT_OK`: when at least `length` bytes were read
  * - `S2N_RESULT_ERR`: Callers should then check the errno set by the underlying IO call
  *     -> `S2N_ERR_CLOSED` is returned if the transport layer is closed
+ *     -> `S2N_ERR_BLOCKED` is returned if the transport layer is blocked
  */
-S2N_RESULT s2n_io_provider_read_exact(
+S2N_RESULT s2n_io_provider_read(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
     uint32_t length
 ) {
     while (s2n_stuffer_data_available(buffer) < length) {
         uint32_t remaining = length - s2n_stuffer_data_available(buffer);
-        RESULT_GUARD_POSIX(s2n_io_provider_read(io, buffer, remaining));
+        RESULT_GUARD_POSIX(s2n_io_provider_read_impl(io, buffer, remaining));
     }
 
     return S2N_RESULT_OK;
 }
 
 /**
- * Write bytes from `buffer` into the network `io`
+ * Read bytes from the network into `buffer` until there are _at least_ `min_length`
+ * bytes available.
  * 
- * This will advance the read_cursor of `buffer`.
+ * Advances the `write_cursor` of `buffer`.
  * 
- * Will return OK only if `write_size` was successfully written.
+ * Returns:
+ * - `S2N_RESULT_OK`: when at least `length` bytes were read
+ * - `S2N_RESULT_ERR`: Callers should then check the errno set by the underlying IO call
+ *     -> `S2N_ERR_CLOSED` is returned if the transport layer is closed
+ *     -> `S2N_ERR_BLOCKED` is returned if the transport layer is blocked
  */
-int s2n_io_provider_write(
+S2N_RESULT s2n_io_provider_greedy_read(
+    struct s2n_io_provider* io,
+    struct s2n_stuffer* buffer,
+    uint32_t min_length
+) {
+    while (s2n_stuffer_data_available(buffer) < min_length) {
+        uint32_t remaining = min_length - s2n_stuffer_data_available(buffer);
+        uint32_t to_read = S2N_MAX(remaining, s2n_stuffer_space_remaining(buffer));
+        RESULT_GUARD_POSIX(s2n_io_provider_read_impl(io, buffer, to_read));
+    }
+
+    return S2N_RESULT_OK;
+}
+
+
+int s2n_io_provider_write_impl(
     struct s2n_io_provider* io,
     struct s2n_stuffer* buffer,
     uint32_t length
 ) {
     POSIX_ENSURE_REF(io);
-    POSIX_ENSURE_REF(io->send);
-    POSIX_ENSURE(!io->transport_recv_closed, S2N_ERR_IO);
+    POSIX_ENSURE(io->send != NULL, S2N_ERR_IO);
+    errno = 0;
+    POSIX_ENSURE(!io->transport_send_closed, S2N_ERR_IO);
     POSIX_ENSURE_REF(buffer);
 
     /* Make sure we even have the data */
@@ -156,17 +177,24 @@ int s2n_io_provider_write(
     return result;
 }
 
-S2N_RESULT s2n_io_provider_write_exact(
+/**
+ * Write `length` bytes from `buffer` into the network `io`
+ * 
+ * This will advance the read_cursor of `buffer`.
+ * 
+ * Will return OK only if `length` bytes were successfully written.
+ */
+S2N_RESULT s2n_io_provider_write(
     struct s2n_io_provider *io,
     struct s2n_stuffer *buffer,
     uint32_t length
 ) {
     RESULT_ENSURE(s2n_stuffer_data_available(buffer) >= length, S2N_ERR_STUFFER_OUT_OF_DATA);
     /* the amount of data that should be left in the stuffer */
-    uint32_t leftover = s2n_stuffer_data_available(buffer) - length;
-    while (s2n_stuffer_data_available(buffer) > leftover) {
-        uint32_t to_send = s2n_stuffer_data_available(buffer) - leftover;
-        RESULT_GUARD_POSIX(s2n_io_provider_write(io, buffer, to_send));
+    uint32_t left_over = s2n_stuffer_data_available(buffer) - length;
+    while (s2n_stuffer_data_available(buffer) > left_over) {
+        uint32_t to_send = s2n_stuffer_data_available(buffer) - left_over;
+        RESULT_GUARD_POSIX(s2n_io_provider_write_impl(io, buffer, to_send));
     }
     return S2N_RESULT_OK;
 }
@@ -185,7 +213,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 
 //     POSIX_GUARD(s2n_connection_set_send_cb(conn, s2n_socket_write));
 //     POSIX_GUARD(s2n_connection_set_send_ctx(conn, peer_socket_ctx));
-//     conn->managed_send_io = true;
+//     conn->io.managed_send = true;
 
 //     /* This is only needed if the user is using corked io.
 //      * Take the snapshot in case optimized io is enabled after setting the fd.
@@ -197,7 +225,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 //         conn->ipv6 = (ipv6 ? 1 : 0);
 //     }
 
-//     conn->write_fd_broken = 0;
+//     conn->io.transport_send_closed = 0;
 
 //     return 0;
 // }
@@ -217,7 +245,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 //             s2n_atomic_flag_set(&conn->read_closed);
 //         }
 //         RESULT_GUARD(s2n_io_check_read_result(r));
-//         conn->wire_bytes_in += r;
+//         conn->io.wire_bytes_in += r;
 //     }
 
 //     return S2N_RESULT_OK;
@@ -232,7 +260,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 
 //     int r = 0;
 //     S2N_IO_RETRY_EINTR(r,
-//             conn->recv(conn->recv_io_context, stuffer->blob.data + stuffer->write_cursor, len));
+//             conn->recv(conn->io.recv_ctx, stuffer->blob.data + stuffer->write_cursor, len));
 //     POSIX_ENSURE(r >= 0, S2N_ERR_RECV_STUFFER_FROM_CONN);
 
 //     /* Record just how many bytes we have written */
@@ -252,7 +280,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 //         errno = 0;
 //         int w = s2n_connection_send_stuffer(&conn->out, conn, s2n_stuffer_data_available(&conn->out));
 //         POSIX_GUARD_RESULT(s2n_io_check_write_result(w));
-//         conn->wire_bytes_out += w;
+//         conn->io.wire_bytes_out += w;
 //     }
 //     POSIX_GUARD(s2n_stuffer_rewrite(&conn->out));
 
@@ -271,7 +299,7 @@ S2N_RESULT s2n_io_provider_write_exact(
 // {
 //     POSIX_ENSURE_REF(conn);
 //     POSIX_ENSURE_REF(conn->send);
-//     if (conn->write_fd_broken) {
+//     if (conn->io.transport_send_closed) {
 //         POSIX_BAIL(S2N_ERR_SEND_STUFFER_TO_CONN);
 //     }
 //     /* Make sure we even have the data */
@@ -279,9 +307,9 @@ S2N_RESULT s2n_io_provider_write_exact(
 
 //     int w = 0;
 //     S2N_IO_RETRY_EINTR(w,
-//             conn->send(conn->send_io_context, stuffer->blob.data + stuffer->read_cursor, len));
+//             conn->send(conn->io.send_ctx, stuffer->blob.data + stuffer->read_cursor, len));
 //     if (w < 0 && errno == EPIPE) {
-//         conn->write_fd_broken = 1;
+//         conn->io.transport_send_closed = 1;
 //     }
 //     POSIX_ENSURE(w >= 0, S2N_ERR_SEND_STUFFER_TO_CONN);
 

@@ -44,6 +44,7 @@
 #include "utils/s2n_atomic.h"
 #include "utils/s2n_mem.h"
 #include "utils/s2n_timer.h"
+#include "utils/s2n_io.h"
 
 #define S2N_TLS_PROTOCOL_VERSION_LEN 2
 
@@ -65,18 +66,7 @@ struct s2n_connection {
     /***************************     IO members     ***************************/
     /**************************************************************************/
 
-    /* Is this connection using CORK/SO_RCVLOWAT optimizations? Only valid when the connection is using
-     * managed_send_io
-     */
-    unsigned corked_io : 1;
-
-    /* If write fd is broken */
-    unsigned write_fd_broken : 1;
-
-    /* true if the connection is using socket based IO
-     * false if the connection has custom I/O callbacks set. */
-    unsigned managed_send_io : 1;
-    unsigned managed_recv_io : 1;
+    struct s2n_io_provider io;
 
     /* Marks if kTLS has been enabled for this connection. */
     unsigned ktls_send_enabled : 1;
@@ -85,14 +75,6 @@ struct s2n_connection {
     /* Buffer multiple records before flushing them.
      * This allows multiple records to be written with one socket send. */
     unsigned multirecord_send : 1;
-
-    /* The send and receive callbacks don't have to be the same (e.g. two pipes) */
-    s2n_send_fn *send;
-    s2n_recv_fn *recv;
-
-    /* The context passed to the I/O callbacks */
-    void *send_io_context;
-    void *recv_io_context;
 
     /* Our workhorse stuffers, used for buffering the plaintext
      * and encrypted data in both directions.
@@ -161,9 +143,6 @@ struct s2n_connection {
      * Used for dynamic record sizing. */
     uint64_t active_application_bytes_consumed;
 
-    /* Keep some accounting on each connection */
-    uint64_t wire_bytes_in;
-    uint64_t wire_bytes_out;
     uint64_t early_data_bytes;
 
     /* Either the reader or the writer can trigger both sides of the connection
@@ -441,7 +420,6 @@ S2N_RESULT s2n_connection_set_closed(struct s2n_connection *conn);
 
 /* Send/recv a stuffer to/from a connection */
 int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
-int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
 
 S2N_RESULT s2n_connection_wipe_all_keyshares(struct s2n_connection *conn);
 

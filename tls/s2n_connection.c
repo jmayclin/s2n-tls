@@ -172,10 +172,10 @@ static int s2n_connection_free_managed_recv_io(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn);
 
 #ifndef _WIN32
-    if (conn->managed_recv_io) {
-        POSIX_GUARD(s2n_free_object((uint8_t **) &conn->recv_io_context, sizeof(struct s2n_socket_read_io_context)));
-        conn->managed_recv_io = false;
-        conn->recv = NULL;
+    if (conn->io.managed_recv) {
+        POSIX_GUARD(s2n_free_object((uint8_t **) &conn->io.recv_ctx, sizeof(struct s2n_socket_read_io_context)));
+        conn->io.managed_recv = false;
+        conn->io.recv = NULL;
     }
 #endif
     return S2N_SUCCESS;
@@ -186,10 +186,10 @@ static int s2n_connection_free_managed_send_io(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn);
 
 #ifndef _WIN32
-    if (conn->managed_send_io) {
-        POSIX_GUARD(s2n_free_object((uint8_t **) &conn->send_io_context, sizeof(struct s2n_socket_write_io_context)));
-        conn->managed_send_io = false;
-        conn->send = NULL;
+    if (conn->io.managed_send) {
+        POSIX_GUARD(s2n_free_object((uint8_t **) &conn->io.send_ctx, sizeof(struct s2n_socket_write_io_context)));
+        conn->io.managed_send = false;
+        conn->io.send = NULL;
     }
 #endif
     return S2N_SUCCESS;
@@ -205,10 +205,10 @@ static int s2n_connection_free_managed_io(struct s2n_connection *conn)
 static int s2n_connection_wipe_io(struct s2n_connection *conn)
 {
 #ifndef _WIN32
-    if (s2n_connection_is_managed_corked(conn) && conn->recv) {
+    if (s2n_connection_is_managed_corked(conn) && conn->io.recv) {
         POSIX_GUARD(s2n_socket_read_restore(conn));
     }
-    if (s2n_connection_is_managed_corked(conn) && conn->send) {
+    if (s2n_connection_is_managed_corked(conn) && conn->io.send) {
         POSIX_GUARD(s2n_socket_write_restore(conn));
     }
 #endif
@@ -630,7 +630,7 @@ int s2n_connection_set_recv_ctx(struct s2n_connection *conn, void *ctx)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD(s2n_connection_free_managed_recv_io(conn));
-    conn->recv_io_context = ctx;
+    conn->io.recv_ctx = ctx;
     return S2N_SUCCESS;
 }
 
@@ -638,7 +638,7 @@ int s2n_connection_set_send_ctx(struct s2n_connection *conn, void *ctx)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD(s2n_connection_free_managed_send_io(conn));
-    conn->send_io_context = ctx;
+    conn->io.send_ctx = ctx;
     return S2N_SUCCESS;
 }
 
@@ -646,7 +646,7 @@ int s2n_connection_set_recv_cb(struct s2n_connection *conn, s2n_recv_fn recv)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD(s2n_connection_free_managed_recv_io(conn));
-    conn->recv = recv;
+    conn->io.recv = recv;
     return S2N_SUCCESS;
 }
 
@@ -654,7 +654,7 @@ int s2n_connection_set_send_cb(struct s2n_connection *conn, s2n_send_fn send)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_GUARD(s2n_connection_free_managed_send_io(conn));
-    conn->send = send;
+    conn->io.send = send;
     return S2N_SUCCESS;
 }
 
@@ -857,7 +857,7 @@ int s2n_connection_set_read_fd(struct s2n_connection *conn, int rfd)
 
     POSIX_GUARD(s2n_connection_set_recv_cb(conn, s2n_socket_read));
     POSIX_GUARD(s2n_connection_set_recv_ctx(conn, peer_socket_ctx));
-    conn->managed_recv_io = true;
+    conn->io.managed_recv = true;
 
     /* This is only needed if the user is using corked io.
      * Take the snapshot in case optimized io is enabled after setting the fd.
@@ -871,9 +871,9 @@ int s2n_connection_get_read_fd(struct s2n_connection *conn, int *readfd)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(readfd);
-    POSIX_ENSURE((conn->managed_recv_io && conn->recv_io_context), S2N_ERR_INVALID_STATE);
+    POSIX_ENSURE((conn->io.managed_recv && conn->io.recv_ctx), S2N_ERR_INVALID_STATE);
 
-    const struct s2n_socket_read_io_context *peer_socket_ctx = conn->recv_io_context;
+    const struct s2n_socket_read_io_context *peer_socket_ctx = conn->io.recv_ctx;
     *readfd = peer_socket_ctx->fd;
     return S2N_SUCCESS;
 }
@@ -891,7 +891,7 @@ int s2n_connection_set_write_fd(struct s2n_connection *conn, int wfd)
 
     POSIX_GUARD(s2n_connection_set_send_cb(conn, s2n_socket_write));
     POSIX_GUARD(s2n_connection_set_send_ctx(conn, peer_socket_ctx));
-    conn->managed_send_io = true;
+    conn->io.managed_send = true;
 
     /* This is only needed if the user is using corked io.
      * Take the snapshot in case optimized io is enabled after setting the fd.
@@ -903,7 +903,7 @@ int s2n_connection_set_write_fd(struct s2n_connection *conn, int wfd)
         conn->ipv6 = (ipv6 ? 1 : 0);
     }
 
-    conn->write_fd_broken = 0;
+    conn->io.transport_send_closed = 0;
 
     return 0;
 }
@@ -912,9 +912,9 @@ int s2n_connection_get_write_fd(struct s2n_connection *conn, int *writefd)
 {
     POSIX_ENSURE_REF(conn);
     POSIX_ENSURE_REF(writefd);
-    POSIX_ENSURE((conn->managed_send_io && conn->send_io_context), S2N_ERR_INVALID_STATE);
+    POSIX_ENSURE((conn->io.managed_send && conn->io.send_ctx), S2N_ERR_INVALID_STATE);
 
-    const struct s2n_socket_write_io_context *peer_socket_ctx = conn->send_io_context;
+    const struct s2n_socket_write_io_context *peer_socket_ctx = conn->io.send_ctx;
     *writefd = peer_socket_ctx->fd;
     return S2N_SUCCESS;
 }
@@ -930,8 +930,8 @@ int s2n_connection_use_corked_io(struct s2n_connection *conn)
     POSIX_ENSURE_REF(conn);
 
     /* Caller shouldn't be trying to set s2n IO corked on non-s2n-managed IO */
-    POSIX_ENSURE(conn->managed_send_io, S2N_ERR_CORK_SET_ON_UNMANAGED);
-    conn->corked_io = 1;
+    POSIX_ENSURE(conn->io.managed_send, S2N_ERR_CORK_SET_ON_UNMANAGED);
+    conn->io.corked_io = 1;
 
     return 0;
 }
@@ -945,7 +945,7 @@ uint64_t s2n_connection_get_wire_bytes_in(struct s2n_connection *conn)
     if (conn->ktls_recv_enabled) {
         return 0;
     }
-    return conn->wire_bytes_in;
+    return conn->io.wire_bytes_in;
 }
 
 uint64_t s2n_connection_get_wire_bytes_out(struct s2n_connection *conn)
@@ -956,7 +956,7 @@ uint64_t s2n_connection_get_wire_bytes_out(struct s2n_connection *conn)
     if (conn->ktls_send_enabled) {
         return 0;
     }
-    return conn->wire_bytes_out;
+    return conn->io.wire_bytes_out;
 }
 
 const char *s2n_connection_get_cipher(struct s2n_connection *conn)
@@ -1477,27 +1477,11 @@ int s2n_connection_set_verify_host_callback(struct s2n_connection *conn, s2n_ver
     return 0;
 }
 
-int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len)
-{
-    POSIX_ENSURE_REF(conn->recv);
-    /* Make sure we have enough space to write */
-    POSIX_GUARD(s2n_stuffer_reserve_space(stuffer, len));
-
-    int r = 0;
-    S2N_IO_RETRY_EINTR(r,
-            conn->recv(conn->recv_io_context, stuffer->blob.data + stuffer->write_cursor, len));
-    POSIX_ENSURE(r >= 0, S2N_ERR_RECV_STUFFER_FROM_CONN);
-
-    /* Record just how many bytes we have written */
-    POSIX_GUARD(s2n_stuffer_skip_write(stuffer, r));
-    return r;
-}
-
 int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len)
 {
     POSIX_ENSURE_REF(conn);
-    POSIX_ENSURE_REF(conn->send);
-    if (conn->write_fd_broken) {
+    POSIX_ENSURE_REF(conn->io.send);
+    if (conn->io.transport_send_closed) {
         POSIX_BAIL(S2N_ERR_SEND_STUFFER_TO_CONN);
     }
     /* Make sure we even have the data */
@@ -1505,9 +1489,9 @@ int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connecti
 
     int w = 0;
     S2N_IO_RETRY_EINTR(w,
-            conn->send(conn->send_io_context, stuffer->blob.data + stuffer->read_cursor, len));
+            conn->io.send(conn->io.send_ctx, stuffer->blob.data + stuffer->read_cursor, len));
     if (w < 0 && errno == EPIPE) {
-        conn->write_fd_broken = 1;
+        conn->io.transport_send_closed = 1;
     }
     POSIX_ENSURE(w >= 0, S2N_ERR_SEND_STUFFER_TO_CONN);
 
@@ -1519,7 +1503,7 @@ int s2n_connection_is_managed_corked(const struct s2n_connection *s2n_connection
 {
     POSIX_ENSURE_REF(s2n_connection);
 
-    return (s2n_connection->managed_send_io && s2n_connection->corked_io);
+    return (s2n_connection->io.managed_send && s2n_connection->io.corked_io);
 }
 
 const uint8_t *s2n_connection_get_sct_list(struct s2n_connection *conn, uint32_t *length)

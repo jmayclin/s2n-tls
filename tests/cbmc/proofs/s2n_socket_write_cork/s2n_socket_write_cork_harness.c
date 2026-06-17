@@ -16,13 +16,13 @@ void s2n_socket_write_cork_harness()
   /* Non-deterministic inputs. */
   struct s2n_connection *s2n_connection = malloc(sizeof(*s2n_connection));
   if (s2n_connection != NULL) {
-    s2n_connection->send_io_context = cbmc_allocate_s2n_socket_write_io_context();
+    s2n_connection->io.send_ctx = cbmc_allocate_s2n_socket_write_io_context();
   }
   
   /* Operation under verification. */
   int result = s2n_socket_write_cork(s2n_connection);
 
   /* Post-condition. */
-  assert(S2N_IMPLIES(result == S2N_SUCCESS, s2n_connection->send_io_context != NULL));
+  assert(S2N_IMPLIES(result == S2N_SUCCESS, s2n_connection->io.send_ctx != NULL));
   assert(S2N_IMPLIES(s2n_connection == NULL, result != S2N_SUCCESS));
 }

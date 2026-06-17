@@ -32,7 +32,7 @@
  * could cause the buffer to resize. */
 #define S2N_EXPECTED_QUIC_MESSAGE_SIZE S2N_DEFAULT_FRAGMENT_LENGTH
 
-S2N_RESULT s2n_read_in_bytes(struct s2n_connection *conn, struct s2n_stuffer *output, uint32_t length);
+// S2N_RESULT s2n_read_in_bytes(struct s2n_connection *conn, struct s2n_stuffer *output, uint32_t length);
 
 int s2n_config_enable_quic(struct s2n_config *config)
 {
@@ -145,7 +145,7 @@ S2N_RESULT s2n_quic_read_handshake_message(struct s2n_connection *conn, uint8_t 
     /* Allocate stuffer space now so that we don't have to realloc later in the handshake. */
     RESULT_GUARD_POSIX(s2n_stuffer_resize_if_empty(&conn->buffer_in, S2N_EXPECTED_QUIC_MESSAGE_SIZE));
 
-    RESULT_GUARD(s2n_read_in_bytes(conn, &conn->handshake.io, TLS_HANDSHAKE_HEADER_LENGTH));
+    RESULT_GUARD(s2n_io_provider_read(&conn->io, &conn->handshake.io, TLS_HANDSHAKE_HEADER_LENGTH));
 
     uint32_t message_len = 0;
     RESULT_GUARD(s2n_handshake_parse_header(&conn->handshake.io, message_type, &message_len));
@@ -156,7 +156,7 @@ S2N_RESULT s2n_quic_read_handshake_message(struct s2n_connection *conn, uint8_t 
     RESULT_GUARD_POSIX(s2n_stuffer_reread(&conn->handshake.io));
 
     RESULT_ENSURE(message_len < S2N_MAXIMUM_HANDSHAKE_MESSAGE_LENGTH, S2N_ERR_BAD_MESSAGE);
-    RESULT_GUARD(s2n_read_in_bytes(conn, &conn->buffer_in, message_len));
+    RESULT_GUARD(s2n_io_provider_read(&conn->io, &conn->buffer_in, message_len));
 
     /* Although we call s2n_read_in_bytes, recv_greedy is always disabled for quic.
      * Therefore buffer_in will always contain exactly message_len bytes of data.
