@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 tls-harness = { path = "../tls-harness" }
-s2n-tls = { path = "../../extended/s2n-tls" }
+s2n-tls = { path = "../../extended/s2n-tls", features = ["unstable-testing", "unstable-events"] }
+s2n-tls-metrics-subscriber = { path = "../s2n-tls-metrics-subscriber" }
 strum = { version = "0.28", features = ["derive"] }
 rustls = "0.23.31"
 openssl = { version = "0.10.73", features = ["vendored"] }
@@ -31,4 +32,8 @@ harness = false
 
 [[bench]]
 name = "connection_creation"
+harness = false
+
+[[bench]]
+name = "metrics_subscriber"
 harness = false
