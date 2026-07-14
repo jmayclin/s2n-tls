@@ -9,6 +9,7 @@ s2n-tls = { path = "../../extended/s2n-tls" }
 strum = { version = "0.28", features = ["derive"] }
 rustls = "0.23.31"
 openssl = { version = "0.10.73", features = ["vendored"] }
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs_unstable", "pem"] }
 
 [dev-dependencies]
 criterion = "0.7"
@@ -16,6 +17,10 @@ criterion = "0.7"
 # debugging interop failures
 env_logger = "0.11.8"
 log = "0.4.27"
+
+[[bin]]
+name = "generate-certs"
+path = "src/generate_certs.rs"
 
 [[bench]]
 name = "handshake"
@@ -31,4 +36,8 @@ harness = false
 
 [[bench]]
 name = "connection_creation"
+harness = false
+
+[[bench]]
+name = "handshake_s2n_tls"
 harness = false
