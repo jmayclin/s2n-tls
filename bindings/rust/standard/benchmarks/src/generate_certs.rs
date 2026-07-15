@@ -8,6 +8,7 @@
 //! - A leaf certificate signed by the CA, with SAN=localhost
 //!
 //! Generated algorithms:
+//! - ECDSA P-256
 //! - ECDSA P-384
 //! - ML-DSA-44
 //! - ML-DSA-87
@@ -19,8 +20,8 @@
 
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, Issuer, KeyPair,
-    KeyUsagePurpose, SanType, SignatureAlgorithm, PKCS_ECDSA_P384_SHA384, PKCS_ML_DSA_44,
-    PKCS_ML_DSA_87,
+    KeyUsagePurpose, SanType, SignatureAlgorithm, PKCS_ECDSA_P256_SHA256, PKCS_ECDSA_P384_SHA384,
+    PKCS_ML_DSA_44, PKCS_ML_DSA_87,
 };
 use std::fs;
 use std::path::Path;
@@ -31,6 +32,10 @@ struct CertChainConfig {
 }
 
 const CONFIGS: &[CertChainConfig] = &[
+    CertChainConfig {
+        dir_name: "ecdsa_p256",
+        algorithm: &PKCS_ECDSA_P256_SHA256,
+    },
     CertChainConfig {
         dir_name: "ecdsa_p384",
         algorithm: &PKCS_ECDSA_P384_SHA384,
