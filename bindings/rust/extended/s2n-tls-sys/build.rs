@@ -188,7 +188,43 @@ fn builder(libcrypto: &Libcrypto) -> cc::Build {
         .flag_if_supported("-Wno-deprecated-declarations")
         .flag_if_supported("-Wa,-mbranches-within-32B-boundaries");
 
+    // When built under cargo fuzz, enable sanitizer coverage instrumentation
+    // so that libFuzzer can collect coverage feedback from the s2n-tls C code.
+    // We only do this when the sanitizer runtime is present (indicated by
+    // -Zsanitizer in RUSTFLAGS), since the __sanitizer_cov_* symbols are
+    // provided by that runtime.
+    if is_fuzzing() && has_sanitizer_runtime() {
+        build.compiler("clang");
+        build.flag("-fsanitize-coverage=inline-8bit-counters,pc-table,trace-cmp");
+    }
+
     build
+}
+
+/// Detects whether the crate is being built under a fuzzing harness.
+fn is_fuzzing() -> bool {
+    if let Ok(rustflags) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+        let flags: Vec<&str> = rustflags.split('\x1f').collect();
+        for window in flags.windows(2) {
+            if window[0] == "--cfg" && window[1] == "fuzzing" {
+                return true;
+            }
+        }
+        for flag in &flags {
+            if *flag == "--cfg=fuzzing" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Detects whether the sanitizer runtime is being linked (e.g. via cargo fuzz).
+fn has_sanitizer_runtime() -> bool {
+    if let Ok(rustflags) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+        return rustflags.contains("-Zsanitizer");
+    }
+    false
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]

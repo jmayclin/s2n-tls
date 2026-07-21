@@ -47,8 +47,19 @@ S2N_RESULT s2n_aead_aad_init(const struct s2n_connection *conn, uint8_t *sequenc
     return S2N_RESULT_OK;
 }
 
-/* Prepares an AAD (additional authentication data) for a TLS 1.3 AEAD record */
-S2N_RESULT s2n_tls13_aead_aad_init(uint16_t record_length, uint8_t tag_length, struct s2n_blob *additional_data)
+/* Prepares an AAD (additional authentication data) for a TLS 1.3 AEAD record.
+ *
+ * Per RFC 8446 Section 5.2, the AAD for TLS 1.3 records is the 5-byte record
+ * header: content_type || legacy_record_version || length.
+ *
+ * We use the actual wire values for content_type and legacy_record_version
+ * rather than hardcoding them. This ensures that any modification to the
+ * record header on the wire will cause AEAD authentication to fail,
+ * providing cryptographic integrity for the entire record header.
+ */
+S2N_RESULT s2n_tls13_aead_aad_init(uint8_t wire_content_type, uint16_t wire_version,
+        uint16_t record_length, uint8_t tag_length,
+        struct s2n_blob *additional_data)
 {
     RESULT_ENSURE_GT(tag_length, 0);
     RESULT_ENSURE_REF(additional_data);
@@ -67,7 +78,7 @@ S2N_RESULT s2n_tls13_aead_aad_init(uint16_t record_length, uint8_t tag_length, s
      *#    versions of TLS.  The actual content type of the record is found
      *#    in TLSInnerPlaintext.type after decryption.
      **/
-    data[idx++] = TLS_APPLICATION_DATA;
+    data[idx++] = wire_content_type;
 
     /**
      *= https://www.rfc-editor.org/rfc/rfc8446#section-5.2
@@ -79,8 +90,8 @@ S2N_RESULT s2n_tls13_aead_aad_init(uint16_t record_length, uint8_t tag_length, s
      *#    ServerHello messages, authenticates the protocol version, so this
      *#    value is redundant.
      */
-    data[idx++] = 0x03;
-    data[idx++] = 0x03;
+    data[idx++] = wire_version >> 8;
+    data[idx++] = wire_version & UINT8_MAX;
 
     /**
      *= https://www.rfc-editor.org/rfc/rfc8446#section-5.2

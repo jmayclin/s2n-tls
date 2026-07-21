@@ -101,28 +101,28 @@ int main(int argc, char **argv)
     /* Test s2n_tls13_aead_aad_init() */
     {
         s2n_stack_blob(aad, S2N_TLS13_AAD_LEN, S2N_TLS13_AAD_LEN);
-        EXPECT_OK(s2n_tls13_aead_aad_init(662, 12, &aad));
+        EXPECT_OK(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, 662, 12, &aad));
         S2N_BLOB_FROM_HEX(expected_aad, "17030302a2");
         S2N_BLOB_EXPECT_EQUAL(expected_aad, aad);
 
         /* record length 16640 should be valid */
         EXPECT_SUCCESS(s2n_blob_zero(&aad));
-        EXPECT_OK(s2n_tls13_aead_aad_init(16628, 12, &aad));
+        EXPECT_OK(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, 16628, 12, &aad));
 
         /* record length 16641 should be invalid */
         EXPECT_SUCCESS(s2n_blob_zero(&aad));
-        EXPECT_ERROR_WITH_ERRNO(s2n_tls13_aead_aad_init(16629, 12, &aad), S2N_ERR_RECORD_LIMIT);
+        EXPECT_ERROR_WITH_ERRNO(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, 16629, 12, &aad), S2N_ERR_RECORD_LIMIT);
 
         /* Test failure case: No AAD should be invalid */
         EXPECT_SUCCESS(s2n_blob_zero(&aad));
-        EXPECT_ERROR(s2n_tls13_aead_aad_init(16629, 12, NULL));
+        EXPECT_ERROR(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, 16629, 12, NULL));
 
         /* Test failure case: 0-length tag should be invalid */
         EXPECT_SUCCESS(s2n_blob_zero(&aad));
-        EXPECT_ERROR(s2n_tls13_aead_aad_init(16628, 0, &aad));
+        EXPECT_ERROR(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, 16628, 0, &aad));
 
         /* Test failure case: invalid record length (-1) should be invalid */
-        EXPECT_ERROR(s2n_tls13_aead_aad_init(-1, 0, &aad));
+        EXPECT_ERROR(s2n_tls13_aead_aad_init(TLS_APPLICATION_DATA, 0x0303, -1, 0, &aad));
     }
 
     /* Test s2n_tls13_aes_128_gcm_sha256 cipher suite with TLS 1.3 test vectors */
@@ -145,6 +145,15 @@ int main(int argc, char **argv)
         EXPECT_SUCCESS(s2n_stuffer_write(&conn->in, &protected_record));
 
         S2N_BLOB_FROM_HEX(iv, "5d313eb2671276ee13000b30");
+
+        /* Set up the record header as it would appear on the wire.
+         * s2n_tls13_aead_aad_init now uses the actual wire header bytes
+         * for AAD computation rather than hardcoded values. */
+        conn->header_in_data[0] = TLS_APPLICATION_DATA;
+        conn->header_in_data[1] = 0x03;
+        conn->header_in_data[2] = 0x03;
+        conn->header_in_data[3] = (protected_record.size >> 8) & 0xFF;
+        conn->header_in_data[4] = protected_record.size & 0xFF;
 
         /* Test parsing of tls 1.3 aead record */
         EXPECT_SUCCESS(s2n_record_parse_aead(
@@ -303,6 +312,10 @@ int main(int argc, char **argv)
 
         /* Reset sequence number */
         conn->secure->client_sequence_number[7] = 0;
+
+        /* Set up header_in_data from the record header that s2n_record_write produced.
+         * s2n_tls13_aead_aad_init uses the actual wire header bytes for AAD. */
+        memcpy(conn->header_in_data, conn->out.blob.data, S2N_TLS_RECORD_HEADER_LENGTH);
 
         EXPECT_SUCCESS(s2n_stuffer_write_bytes(&conn->in, &conn->out.blob.data[S2N_TLS13_AAD_LEN], plaintext.size + 16 + 1)); /* tag length + content type */
 

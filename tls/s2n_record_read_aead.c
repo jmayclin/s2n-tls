@@ -86,7 +86,14 @@ int s2n_record_parse_aead(
     payload_length -= cipher_suite->record_alg->cipher->io.aead.tag_size;
 
     if (is_tls13_record) {
-        POSIX_GUARD_RESULT(s2n_tls13_aead_aad_init(payload_length, cipher_suite->record_alg->cipher->io.aead.tag_size, &aad));
+        /* Use the actual wire bytes from the record header for the AAD.
+         * This cryptographically binds the header to the ciphertext,
+         * ensuring any on-wire modification is detected by AEAD. */
+        uint16_t wire_version = (conn->header_in_data[1] << 8) | conn->header_in_data[2];
+        POSIX_GUARD_RESULT(s2n_tls13_aead_aad_init(
+                conn->header_in_data[0],
+                wire_version,
+                payload_length, cipher_suite->record_alg->cipher->io.aead.tag_size, &aad));
     } else {
         POSIX_GUARD_RESULT(s2n_aead_aad_init(conn, sequence_number, content_type, payload_length, &aad));
     }

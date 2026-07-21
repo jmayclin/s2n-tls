@@ -1,0 +1,32 @@
+[package]
+name = "integration-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+dhat = "0.3.3"
+s2n-tls = { path = "../../../extended/s2n-tls", features = ["unstable-testing", "quic"] }
+aws-lc-sys = "*"
+
+# These patches unify the crates.io dependencies with the local path dependencies
+[patch.crates-io]
+s2n-tls-sys = { path = "../../../extended/s2n-tls-sys" }
+s2n-tls = { path = "../../../extended/s2n-tls" }
+aws-lc-sys = { path = "../../../../../../aws-lc-rs/aws-lc-sys" }
+
+[[bin]]
+name = "server_handshake"
+path = "fuzz_targets/server_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[build-dependencies]
+cc = "1"
