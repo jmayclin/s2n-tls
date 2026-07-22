@@ -4,10 +4,10 @@
 //! Sanity checks for the deterministic DRBG reset.
 
 extern "C" {
-    #[link_name = "aws_lc_0_39_0_CRYPTO_get_thread_local"]
+    #[link_name = "aws_lc_0_43_0_CRYPTO_get_thread_local"]
     fn CRYPTO_get_thread_local(index: u32) -> *mut core::ffi::c_void;
 
-    #[link_name = "aws_lc_0_39_0_CTR_DRBG_init"]
+    #[link_name = "aws_lc_0_43_0_CTR_DRBG_init"]
     fn CTR_DRBG_init(
         drbg: *mut core::ffi::c_void,
         entropy: *const u8,
@@ -15,7 +15,7 @@ extern "C" {
         personalization_len: usize,
     ) -> i32;
 
-    #[link_name = "aws_lc_0_39_0_RAND_bytes"]
+    #[link_name = "aws_lc_0_43_0_RAND_bytes"]
     fn RAND_bytes(out: *mut u8, len: usize) -> i32;
 }
 

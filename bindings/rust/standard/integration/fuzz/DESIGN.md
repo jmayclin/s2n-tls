@@ -69,7 +69,7 @@ We make the DRBGs deterministic by:
 
    This is done via `extern "C"` declarations with `#[link_name]` attributes
    to reference the prefix-mangled aws-lc symbols (e.g.,
-   `aws_lc_0_39_0_CRYPTO_get_thread_local`).
+   `aws_lc_0_43_0_CRYPTO_get_thread_local`).
 
 ### Why not `RAND_reset_for_fuzzing`?
 
