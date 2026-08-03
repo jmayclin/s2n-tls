@@ -1,6 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// This module implements deprecated pool functionality, so internal usage of
+// deprecated items is expected.
+#![allow(deprecated)]
+
 //! Utilities to handle reusing connections.
 //!
 //! Creating a single new connection requires significant
@@ -41,6 +45,9 @@ use std::{
 /// When dropped, returns ownership of the connection to
 /// the pool that produced it by calling [`Pool::give`].
 #[derive(Debug)]
+#[deprecated(
+    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+)]
 pub struct PooledConnection<T: Pool = Arc<dyn Pool>> {
     pool: T,
     conn: Option<Connection>,
@@ -94,6 +101,9 @@ impl<T: Pool + Clone> PooledConnection<T> {
 ///
 /// Minimally, an implementation should call [`Connection::wipe()`]
 /// during [`Self::give`].
+#[deprecated(
+    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+)]
 pub trait Pool {
     fn mode(&self) -> Mode;
     fn take(&self) -> Result<Connection, Error>;
@@ -131,6 +141,9 @@ impl<T: Pool> Pool for Arc<T> {
 ///
 /// For discussions about expected performance benefits see [self].
 #[derive(Debug)]
+#[deprecated(
+    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+)]
 pub struct ConfigPool {
     mode: Mode,
     config: Config,
@@ -138,9 +151,15 @@ pub struct ConfigPool {
     max_pool_size: usize,
 }
 
+#[deprecated(
+    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+)]
 pub type ConfigPoolRef = Arc<ConfigPool>;
 
 /// Builder for [`ConfigPool`].
+#[deprecated(
+    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+)]
 pub struct ConfigPoolBuilder(ConfigPool);
 impl ConfigPoolBuilder {
     pub fn new(mode: Mode, config: Config) -> Self {

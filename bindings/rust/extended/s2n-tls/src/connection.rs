@@ -12,7 +12,7 @@ use crate::{
     cert_chain::{CertificateChain, CertificateChainHandle},
     config::Config,
     enums::*,
-    error::{Error, Fallible, Pollable},
+    error::{Error, ErrorType, Fallible, Pollable},
     psk::Psk,
     security,
     utilities::cstr_to_str,
@@ -538,6 +538,7 @@ impl Connection {
         Ok(self)
     }
 
+    #[cfg(feature = "unstable-renegotiate")]
     pub(crate) fn wipe_method<F, T>(&mut self, wipe: F) -> Result<(), Error>
     where
         F: FnOnce(&mut Self) -> Result<T, Error>,
@@ -559,12 +560,29 @@ impl Connection {
     ///
     /// This method erases all data associated with a connection including pending reads.
     /// This function should be called after all I/O is completed and s2n_shutdown has been
-    /// called. Reusing the same connection handle(s) is more performant than repeatedly
-    /// calling s2n_connection_new and s2n_connection_free
+    /// called.
     ///
     /// Corresponds to [`s2n_connection_wipe`].
+    #[deprecated(
+        note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    )]
     pub fn wipe(&mut self) -> Result<&mut Self, Error> {
-        self.wipe_method(|conn| unsafe { s2n_connection_wipe(conn.as_ptr()).into_result() })?;
+        // s2n_connection_wipe is a nightmare of a method, with lifetime issues
+        // that are incredibly difficult to reason about. We do not expose it in
+        // the rust bindings. In our benchmarking, the savings were ~ 2 us, which
+        // is less than 1% of the cost of a handshake.
+        let clean_connection = {
+            let mut connection = Connection::new(self.mode());
+            let current_config = self.config().ok_or(Error::bindings(
+                ErrorType::InternalError,
+                "invalid connection",
+                "config not present",
+            ))?;
+            connection.set_config(current_config)?;
+            connection
+        };
+        *self = clean_connection;
+
         Ok(self)
     }
 
