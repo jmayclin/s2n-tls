@@ -667,6 +667,23 @@ impl Connection {
         unsafe { s2n_send(self.connection.as_ptr(), buf_ptr, buf_len, &mut blocked).into_poll() }
     }
 
+    /// Encrypts and sends multiple buffers of data on a connection where
+    /// [negotiate](`Self::poll_negotiate`) has succeeded, avoiding the need
+    /// to copy the buffers into contiguous memory first.
+    ///
+    /// Corresponds to [`s2n_sendv`].
+    #[cfg(not(windows))]
+    pub fn poll_sendv(&mut self, bufs: &[std::io::IoSlice<'_>]) -> Poll<Result<usize, Error>> {
+        let mut blocked = s2n_blocked_status::NOT_BLOCKED;
+        let count: isize = bufs.len().try_into().map_err(|_| Error::INVALID_INPUT)?;
+        // Safety: std::io::IoSlice is guaranteed to be ABI compatible with
+        // iovec on Unix platforms.
+        let bufs_ptr = bufs.as_ptr() as *const ::libc::iovec;
+        unsafe {
+            s2n_sendv(self.connection.as_ptr(), bufs_ptr, count, &mut blocked).into_poll()
+        }
+    }
+
     #[cfg(not(feature = "unstable-renegotiate"))]
     pub(crate) fn poll_recv_raw(
         &mut self,

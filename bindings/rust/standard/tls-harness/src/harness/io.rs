@@ -6,7 +6,7 @@ use std::{
     collections::VecDeque,
     io::{BufRead, ErrorKind},
     rc::Rc,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use brass_aphid_wire_decryption::decryption::stream_decrypter::StreamDecrypter;
@@ -28,6 +28,16 @@ pub struct TestPairIO {
     pub recording: AtomicBool,
     pub client_tx_transcript: RefCell<Vec<u8>>,
     pub server_tx_transcript: RefCell<Vec<u8>>,
+
+    /// Number of times the client's write callback was invoked.
+    pub client_write_count: AtomicUsize,
+    /// Number of times the server's write callback was invoked.
+    pub server_write_count: AtomicUsize,
+    /// Number of times the client's read callback was invoked.
+    pub client_read_count: AtomicUsize,
+    /// Number of times the server's read callback was invoked.
+    pub server_read_count: AtomicUsize,
+
     /// [`Self::enable_decryption`] will initialize the stream decrypter, which
     /// allows tests to make assertions on the decrypted TLS transcript.
     ///
@@ -134,6 +144,12 @@ impl std::io::Read for ViewIO {
             // to indicate that there is simply no more data to be read.
             Err(std::io::Error::new(ErrorKind::WouldBlock, "blocking"))
         } else {
+            if res.is_ok() && self.io.recording.load(Ordering::Relaxed) {
+                match self.identity {
+                    Mode::Client => self.io.client_read_count.fetch_add(1, Ordering::Relaxed),
+                    Mode::Server => self.io.server_read_count.fetch_add(1, Ordering::Relaxed),
+                };
+            }
             res
         }
     }
@@ -147,8 +163,14 @@ impl std::io::Write for ViewIO {
         // if we successfully wrote data, we need to record it in the various test
         // utilities.
         if let Ok(written) = write_result {
-            // recorder
             if self.io.recording.load(Ordering::Relaxed) {
+                // write counter
+                match self.identity {
+                    Mode::Client => self.io.client_write_count.fetch_add(1, Ordering::Relaxed),
+                    Mode::Server => self.io.server_write_count.fetch_add(1, Ordering::Relaxed),
+                };
+
+                // recorder
                 self.send_transcript()
                     .borrow_mut()
                     .write_all(&buf[0..written])

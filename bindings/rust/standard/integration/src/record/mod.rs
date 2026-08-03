@@ -3,6 +3,7 @@
 mod dynamic_record_sizing;
 mod encrypted_record_integrity;
 mod io_behaviors;
+mod poll_send_behavior;
 mod prefer_low_latency;
 mod record_padding;
 mod serialization;
