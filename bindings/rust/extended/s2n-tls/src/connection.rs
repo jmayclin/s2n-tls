@@ -564,7 +564,7 @@ impl Connection {
     ///
     /// Corresponds to [`s2n_connection_wipe`].
     #[deprecated(
-        note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+        note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
     )]
     pub fn wipe(&mut self) -> Result<&mut Self, Error> {
         // s2n_connection_wipe is a nightmare of a method, with lifetime issues

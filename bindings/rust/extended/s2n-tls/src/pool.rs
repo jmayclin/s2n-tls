@@ -46,7 +46,7 @@ use std::{
 /// the pool that produced it by calling [`Pool::give`].
 #[derive(Debug)]
 #[deprecated(
-    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
 )]
 pub struct PooledConnection<T: Pool = Arc<dyn Pool>> {
     pool: T,
@@ -102,7 +102,7 @@ impl<T: Pool + Clone> PooledConnection<T> {
 /// Minimally, an implementation should call [`Connection::wipe()`]
 /// during [`Self::give`].
 #[deprecated(
-    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
 )]
 pub trait Pool {
     fn mode(&self) -> Mode;
@@ -142,7 +142,7 @@ impl<T: Pool> Pool for Arc<T> {
 /// For discussions about expected performance benefits see [self].
 #[derive(Debug)]
 #[deprecated(
-    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
 )]
 pub struct ConfigPool {
     mode: Mode,
@@ -152,13 +152,13 @@ pub struct ConfigPool {
 }
 
 #[deprecated(
-    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
 )]
 pub type ConfigPoolRef = Arc<ConfigPool>;
 
 /// Builder for [`ConfigPool`].
 #[deprecated(
-    note = "consider using a modern allocator, or a slab allocator instead of connection wiping"
+    note = "use `Connection::new()` instead; connection reuse provides negligible performance benefit"
 )]
 pub struct ConfigPoolBuilder(ConfigPool);
 impl ConfigPoolBuilder {
