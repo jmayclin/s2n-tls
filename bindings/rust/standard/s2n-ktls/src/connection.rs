@@ -4,10 +4,10 @@
 //! The [`Connection`] type: owns a socket, programs the kernel for kTLS, and
 //! performs synchronous I/O.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::fd::{AsRawFd, RawFd};
 
-use s2n_codec::DecoderBuffer;
+use s2n_codec::{DecoderBuffer, DecoderError, DecoderValue};
 
 use crate::protocol::crypto_info::CryptoInfo;
 use crate::protocol::key_schedule::{DerivedKeys, SecretRole, TrafficSecrets};
@@ -31,6 +31,29 @@ const TLS_ULP_NAME: &[u8] = b"tls\0";
 const TLS_CONTENT_TYPE_ALERT: u8 = 21;
 const TLS_CONTENT_TYPE_HANDSHAKE: u8 = 22;
 const TLS_CONTENT_TYPE_APPLICATION_DATA: u8 = 23;
+
+enum ContentType {
+    Alert,
+    Handshake,
+    ApplicationData,
+}
+
+impl DecoderValue<'_> for ContentType {
+    fn decode(bytes: DecoderBuffer<'_>) -> s2n_codec::DecoderBufferResult<'_, Self> {
+        let (value, bytes) = bytes.decode::<u8>()?;
+        let content_type = match value {
+            TLS_CONTENT_TYPE_ALERT => ContentType::Alert,
+            TLS_CONTENT_TYPE_HANDSHAKE => ContentType::Handshake,
+            TLS_CONTENT_TYPE_APPLICATION_DATA => ContentType::ApplicationData,
+            _ => {
+                return Err(DecoderError::InvariantViolation(
+                    "unrecognized content type",
+                ))
+            }
+        };
+        Ok((content_type, bytes))
+    }
+}
 
 // Post-handshake message / alert constants.
 const TLS_HANDSHAKE_TYPE_KEY_UPDATE: u8 = 24;
@@ -216,18 +239,18 @@ impl KtlsTcpStream {
             Mode::Client => (
                 &keys.client_key,
                 &keys.client_iv,
-                &self.parsed.client_sequence_number,
+                &self.parsed.client_sequence_number.to_be_bytes(),
                 &keys.server_key,
                 &keys.server_iv,
-                &self.parsed.server_sequence_number,
+                &self.parsed.server_sequence_number.to_be_bytes(),
             ),
             Mode::Server => (
                 &keys.server_key,
                 &keys.server_iv,
-                &self.parsed.server_sequence_number,
+                &self.parsed.server_sequence_number.to_be_bytes(),
                 &keys.client_key,
                 &keys.client_iv,
-                &self.parsed.client_sequence_number,
+                &self.parsed.client_sequence_number.to_be_bytes(),
             ),
         };
 
@@ -379,18 +402,22 @@ impl KtlsTcpStream {
     /// [`TLS_CONTENT_TYPE_APPLICATION_DATA`] means `buf[..bytes_read]` is
     /// application data for the caller; other record types are protocol
     /// messages handled internally.
-    fn recv_record(&self, buf: &mut [u8]) -> std::io::Result<(usize, u8)> {
+    fn recv_record(&self, buf: &mut [u8]) -> std::io::Result<(usize, ContentType)> {
+        // setup the recvmsg arguments
         let fd = self.stream.as_raw_fd();
         let mut iov = libc::iovec {
             iov_base: buf.as_mut_ptr() as *mut libc::c_void,
             iov_len: buf.len(),
         };
         let mut cmsg_buf = [0u8; unsafe { cmsg_space(1) }];
-        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-        msg.msg_iov = &mut iov as *mut libc::iovec;
-        msg.msg_iovlen = 1;
-        msg.msg_control = cmsg_buf.as_mut_ptr() as *mut libc::c_void;
-        msg.msg_controllen = cmsg_buf.len() as _;
+        let mut msg: libc::msghdr = {
+            let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+            msg.msg_iov = &mut iov as *mut libc::iovec;
+            msg.msg_iovlen = 1;
+            msg.msg_control = cmsg_buf.as_mut_ptr() as *mut libc::c_void;
+            msg.msg_controllen = cmsg_buf.len() as _;
+            msg
+        };
 
         let ret = unsafe { libc::recvmsg(fd, &mut msg, 0) };
         if ret < 0 {
@@ -398,19 +425,27 @@ impl KtlsTcpStream {
         }
         let n = ret as usize;
 
-        // Extract the record content type from the control message. If the
-        // kernel did not attach one (e.g. plain application data on some
-        // kernels), default to application data.
-        let mut record_type = TLS_CONTENT_TYPE_APPLICATION_DATA;
-        unsafe {
-            let cmsg = libc::CMSG_FIRSTHDR(&msg);
-            if !cmsg.is_null()
-                && (*cmsg).cmsg_level == S2N_SOL_TLS
-                && (*cmsg).cmsg_type == S2N_TLS_GET_RECORD_TYPE
-            {
-                record_type = *libc::CMSG_DATA(cmsg);
+        let record_type = {
+            // Extract the record content type from the control message. If the
+            // kernel did not attach one (e.g. plain application data on some
+            // kernels), default to application data.
+            let mut record_type = TLS_CONTENT_TYPE_APPLICATION_DATA;
+            unsafe {
+                let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                if !cmsg.is_null()
+                    && (*cmsg).cmsg_level == S2N_SOL_TLS
+                    && (*cmsg).cmsg_type == S2N_TLS_GET_RECORD_TYPE
+                {
+                    record_type = *libc::CMSG_DATA(cmsg);
+                }
             }
-        }
+            DecoderBuffer::new(&[record_type])
+                .decode_exact()
+                .map_err(|_| {
+                    std::io::Error::new(ErrorKind::InvalidData, "unexpected content type")
+                })?
+        };
+
         Ok((n, record_type))
     }
 
@@ -441,7 +476,7 @@ impl KtlsTcpStream {
     /// The kernel is strict about the buffer length: it must be *exactly*
     /// `sizeof(crypto_info)` for the negotiated cipher (40 bytes for
     /// AES-128-GCM, 56 for AES-256-GCM). Any other size fails with `EINVAL`.
-    fn read_kernel_sequence_number(&self, optname: libc::c_int) -> Result<[u8; 8], Error> {
+    fn read_kernel_sequence_number(&self, optname: libc::c_int) -> Result<u64, Error> {
         let aead = self.parsed.cipher_suite.aead();
         // struct tls12_crypto_info_aes_gcm_*: header(4) + iv(8) + key + salt(4) + rec_seq(8)
         let info_len = 4 + 8 + aead.key_len() + 4 + 8;
@@ -466,10 +501,10 @@ impl KtlsTcpStream {
             ));
         }
 
-        // rec_seq is the final 8 bytes of the structure.
-        let mut seq = [0u8; 8];
-        seq.copy_from_slice(&buf[info_len - 8..]);
-        Ok(seq)
+        // rec_seq is the final 8 bytes of the structure, stored in big-endian.
+        let mut seq_bytes = [0u8; 8];
+        seq_bytes.copy_from_slice(&buf[info_len - 8..]);
+        Ok(u64::from_be_bytes(seq_bytes))
     }
 
     /// The [`Mode`] this connection was created with.
@@ -589,9 +624,8 @@ impl Read for KtlsTcpStream {
             }
 
             match record_type {
-                TLS_CONTENT_TYPE_APPLICATION_DATA => return Ok(n),
-
-                TLS_CONTENT_TYPE_HANDSHAKE => {
+                ContentType::ApplicationData => return Ok(n),
+                ContentType::Handshake => {
                     // The only post-handshake handshake message kTLS surfaces
                     // that we must act on is KeyUpdate.
                     if n >= 1 && buf[0] == TLS_HANDSHAKE_TYPE_KEY_UPDATE {
@@ -602,8 +636,7 @@ impl Read for KtlsTcpStream {
                     // decrypt under the new key).
                     continue;
                 }
-
-                TLS_CONTENT_TYPE_ALERT => {
+                ContentType::Alert => {
                     // close_notify (level warning, description 0) is a clean
                     // shutdown; report EOF.
                     if n >= 2
@@ -619,9 +652,6 @@ impl Read for KtlsTcpStream {
                         "received TLS alert",
                     ));
                 }
-
-                // Unknown record type: skip it and keep reading.
-                _ => continue,
             }
         }
     }

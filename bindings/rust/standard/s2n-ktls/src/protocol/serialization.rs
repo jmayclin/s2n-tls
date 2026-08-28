@@ -448,10 +448,10 @@ impl EncoderValue for Secrets {
 pub struct SerializedConnection {
     pub protocol_version: ProtocolVersion,
     pub cipher_suite: CipherSuite,
-    /// Client record sequence number at the time of serialization.
-    pub client_sequence_number: [u8; TLS_SEQUENCE_NUM_LEN],
-    /// Server record sequence number at the time of serialization.
-    pub server_sequence_number: [u8; TLS_SEQUENCE_NUM_LEN],
+    /// Client record sequence number at the time of serialization (big-endian u64).
+    pub client_sequence_number: u64,
+    /// Server record sequence number at the time of serialization (big-endian u64).
+    pub server_sequence_number: u64,
     /// Maximum outgoing fragment length.
     pub max_fragment_length: u16,
     /// Version-specific secret material.
@@ -469,8 +469,8 @@ impl<'a> DecoderValue<'a> for SerializedConnection {
 
         let (protocol_version, buffer) = buffer.decode()?;
         let (cipher_suite, buffer) = buffer.decode::<CipherSuite>()?;
-        let (client_sequence_number, buffer) = buffer.decode()?;
-        let (server_sequence_number, buffer) = buffer.decode()?;
+        let (client_sequence_number, buffer) = buffer.decode::<u64>()?;
+        let (server_sequence_number, buffer) = buffer.decode::<u64>()?;
         let (max_fragment_length, buffer) = buffer.decode()?;
 
         // Decode version-specific secrets inline since Secrets::decode is not meant
@@ -490,8 +490,8 @@ impl<'a> DecoderValue<'a> for SerializedConnection {
         let conn = SerializedConnection {
             protocol_version,
             cipher_suite,
-            client_sequence_number,
-            server_sequence_number,
+            client_sequence_number: client_sequence_number.to_be(),
+            server_sequence_number: server_sequence_number.to_be(),
             max_fragment_length,
             secrets,
         };
@@ -516,8 +516,8 @@ impl EncoderValue for SerializedConnection {
 
         encoder.encode(&self.cipher_suite);
 
-        encoder.write_slice(&self.client_sequence_number);
-        encoder.write_slice(&self.server_sequence_number);
+        encoder.encode(&self.client_sequence_number.to_be());
+        encoder.encode(&self.server_sequence_number.to_be());
 
         encoder.encode(&self.max_fragment_length);
 
