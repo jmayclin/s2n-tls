@@ -27,8 +27,8 @@
 //! version or cipher is rejected during [`SerializedConnection::parse`].
 
 use s2n_codec::{
-    DecoderBuffer, DecoderBufferResult, DecoderError, DecoderValue, Encoder, EncoderBuffer,
-    EncoderValue,
+    DecoderBuffer, DecoderBufferResult, DecoderError, DecoderParameterizedValue, DecoderValue,
+    Encoder, EncoderBuffer, EncoderValue,
 };
 
 use crate::Error;
@@ -208,19 +208,86 @@ impl CipherSuite {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Tls12Secret {
+    /// The 48-byte master secret.
+    master_secret: [u8; TLS_SECRET_LEN],
+    /// The 32-byte client random.
+    client_random: [u8; TLS_RANDOM_DATA_LEN],
+    /// The 32-byte server random.
+    server_random: [u8; TLS_RANDOM_DATA_LEN],
+}
+
+impl DecoderValue<'_> for Tls12Secret {
+    fn decode(bytes: DecoderBuffer<'_>) -> DecoderBufferResult<'_, Self> {
+        let (master_secret, bytes) = bytes.decode()?;
+        let (client_random, bytes) = bytes.decode()?;
+        let (server_random, bytes) = bytes.decode()?;
+        let value = Self {
+            master_secret,
+            client_random,
+            server_random,
+        };
+        Ok((value, bytes))
+    }
+}
+
+impl EncoderValue for Tls12Secret {
+    fn encode<E: Encoder>(&self, encoder: &mut E) {
+        encoder.encode(&self.master_secret.as_slice());
+        encoder.encode(&self.client_random.as_slice());
+        encoder.encode(&self.server_random.as_slice());
+    }
+}
+
+/// TLS1.3 application traffic secrets. Each secret is `secret_size` bytes,
+/// which equals the cipher suite's PRF hash digest size.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Tls13Secret {
+    /// Client application traffic secret.
+    client_application_secret: Vec<u8>,
+    /// Server application traffic secret.
+    server_application_secret: Vec<u8>,
+    /// Resumption master secret.
+    resumption_master_secret: Vec<u8>,
+}
+
+impl DecoderParameterizedValue<'_> for Tls13Secret {
+    /// the secret_size, determined by the cipher suites PRF hash digest
+    type Parameter = usize;
+
+    fn decode_parameterized(
+        parameter: Self::Parameter,
+        bytes: DecoderBuffer<'_>,
+    ) -> DecoderBufferResult<'_, Self> {
+        let secret_size = parameter;
+        let buffer = bytes;
+        let (client_application_secret, buffer) = buffer.decode_slice(secret_size)?;
+        let (server_application_secret, buffer) = buffer.decode_slice(secret_size)?;
+        let (resumption_master_secret, buffer) = buffer.decode_slice(secret_size)?;
+        let value = Self {
+            client_application_secret: client_application_secret.as_less_safe_slice().to_vec(),
+            server_application_secret: server_application_secret.as_less_safe_slice().to_vec(),
+            resumption_master_secret: resumption_master_secret.as_less_safe_slice().to_vec(),
+        };
+        Ok((value, buffer))
+    }
+}
+
+impl EncoderValue for Tls13Secret {
+    fn encode<E: Encoder>(&self, encoder: &mut E) {
+        encoder.encode(&self.client_application_secret.as_slice());
+        encoder.encode(&self.server_application_secret.as_slice());
+        encoder.encode(&self.resumption_master_secret.as_slice());
+    }
+}
+
 /// The version-specific secret material carried in the serialized blob.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Secrets {
     /// TLS1.2 secrets: the master secret and the client/server randoms. The
     /// record keys are re-derived from these via the TLS1.2 PRF.
-    Tls12 {
-        /// The 48-byte master secret.
-        master_secret: [u8; TLS_SECRET_LEN],
-        /// The 32-byte client random.
-        client_random: [u8; TLS_RANDOM_DATA_LEN],
-        /// The 32-byte server random.
-        server_random: [u8; TLS_RANDOM_DATA_LEN],
-    },
+    Tls12(Tls12Secret),
     /// TLS1.3 application traffic secrets. Each secret is `secret_size` bytes,
     /// which equals the cipher suite's PRF hash digest size.
     Tls13 {
@@ -236,14 +303,8 @@ pub enum Secrets {
 impl EncoderValue for Secrets {
     fn encode<E: Encoder>(&self, encoder: &mut E) {
         match self {
-            Secrets::Tls12 {
-                master_secret,
-                client_random,
-                server_random,
-            } => {
-                encoder.write_slice(master_secret);
-                encoder.write_slice(client_random);
-                encoder.write_slice(server_random);
+            Secrets::Tls12(secret) => {
+                encoder.encode(secret);
             }
             Secrets::Tls13 {
                 client_application_secret,
@@ -271,9 +332,7 @@ impl EncoderValue for Secrets {
 /// A parsed s2n-tls "V1" serialized connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializedConnection {
-    /// Negotiated protocol version.
     pub protocol_version: ProtocolVersion,
-    /// Negotiated cipher suite.
     pub cipher_suite: CipherSuite,
     /// Client record sequence number at the time of serialization.
     pub client_sequence_number: [u8; TLS_SEQUENCE_NUM_LEN],
@@ -304,17 +363,8 @@ impl<'a> DecoderValue<'a> for SerializedConnection {
         // to be called directly.
         let (secrets, buffer) = match protocol_version {
             ProtocolVersion::Tls12 => {
-                let (master_secret, buffer) = buffer.decode()?;
-                let (client_random, buffer) = buffer.decode()?;
-                let (server_random, buffer) = buffer.decode()?;
-                (
-                    Secrets::Tls12 {
-                        master_secret,
-                        client_random,
-                        server_random,
-                    },
-                    buffer,
-                )
+                let (secret, buffer) = buffer.decode()?;
+                (Secrets::Tls12(secret), buffer)
             }
             ProtocolVersion::Tls13 => {
                 let secret_size = cipher_suite.hash().digest_len();
