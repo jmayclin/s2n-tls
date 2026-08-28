@@ -74,16 +74,12 @@ fn parse_real_blobs_cross_checked() {
                 Secrets::Tls12 { .. } => {
                     assert_eq!(parsed.protocol_version, ProtocolVersion::Tls12);
                 }
-                Secrets::Tls13 {
-                    client_application_secret,
-                    server_application_secret,
-                    resumption_master_secret,
-                } => {
+                Secrets::Tls13(secret) => {
                     assert_eq!(parsed.protocol_version, ProtocolVersion::Tls13);
                     let expected = expected_hash.digest_len();
-                    assert_eq!(client_application_secret.len(), expected);
-                    assert_eq!(server_application_secret.len(), expected);
-                    assert_eq!(resumption_master_secret.len(), expected);
+                    assert_eq!(secret.client_application_secret.len(), expected);
+                    assert_eq!(secret.server_application_secret.len(), expected);
+                    assert_eq!(secret.resumption_master_secret.len(), expected);
                 }
             }
         }

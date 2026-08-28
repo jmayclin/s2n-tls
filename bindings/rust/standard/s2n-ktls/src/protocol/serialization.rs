@@ -209,13 +209,65 @@ impl CipherSuite {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Tls12Secret {
+pub struct Tls12Secret {
     /// The 48-byte master secret.
-    master_secret: [u8; TLS_SECRET_LEN],
+    pub master_secret: [u8; TLS_SECRET_LEN],
     /// The 32-byte client random.
-    client_random: [u8; TLS_RANDOM_DATA_LEN],
+    pub client_random: [u8; TLS_RANDOM_DATA_LEN],
     /// The 32-byte server random.
-    server_random: [u8; TLS_RANDOM_DATA_LEN],
+    pub server_random: [u8; TLS_RANDOM_DATA_LEN],
+}
+
+impl Tls12Secret {
+    /// Derive TLS1.2 record keys from the secrets.
+    ///
+    /// See `s2n_prf_generate_key_material`.
+    pub fn derive_tls12(
+        &self,
+        hash: HashAlgorithm,
+        key_len: usize,
+    ) -> Result<crate::protocol::key_schedule::DerivedKeys, crate::Error> {
+        use aws_lc_rs::tls_prf;
+
+        use crate::protocol::key_schedule::TLS12_FIXED_IV_LEN;
+
+        fn prf_algorithm(hash: HashAlgorithm) -> &'static tls_prf::Algorithm {
+            match hash {
+                HashAlgorithm::Sha256 => &tls_prf::P_SHA256,
+                HashAlgorithm::Sha384 => &tls_prf::P_SHA384,
+            }
+        }
+
+        // AEAD suites have no MAC key. The key block layout is:
+        //   client_key || server_key || client_iv || server_iv
+        // where the IV is the 4-byte implicit (fixed) IV.
+        let block_len = key_len * 2 + TLS12_FIXED_IV_LEN * 2;
+
+        let secret = tls_prf::Secret::new(prf_algorithm(hash), &self.master_secret)
+            .map_err(|_| crate::Error::Crypto("invalid master secret for PRF"))?;
+
+        // The seed is server_random || client_random (note the order).
+        let block = secret
+            .derive_with_seed_concatination(
+                b"key expansion",
+                &self.server_random,
+                &self.client_random,
+                block_len,
+            )
+            .map_err(|_| crate::Error::Crypto("TLS1.2 PRF derivation failed"))?;
+        let block = block.as_ref();
+
+        let (client_key, rest) = block.split_at(key_len);
+        let (server_key, rest) = rest.split_at(key_len);
+        let (client_iv, server_iv) = rest.split_at(TLS12_FIXED_IV_LEN);
+
+        Ok(crate::protocol::key_schedule::DerivedKeys {
+            client_key: client_key.to_vec(),
+            server_key: server_key.to_vec(),
+            client_iv: client_iv.to_vec(),
+            server_iv: server_iv.to_vec(),
+        })
+    }
 }
 
 impl DecoderValue<'_> for Tls12Secret {
@@ -243,13 +295,13 @@ impl EncoderValue for Tls12Secret {
 /// TLS1.3 application traffic secrets. Each secret is `secret_size` bytes,
 /// which equals the cipher suite's PRF hash digest size.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Tls13Secret {
+pub struct Tls13Secret {
     /// Client application traffic secret.
-    client_application_secret: Vec<u8>,
+    pub client_application_secret: Vec<u8>,
     /// Server application traffic secret.
-    server_application_secret: Vec<u8>,
+    pub server_application_secret: Vec<u8>,
     /// Resumption master secret.
-    resumption_master_secret: Vec<u8>,
+    pub resumption_master_secret: Vec<u8>,
 }
 
 impl DecoderParameterizedValue<'_> for Tls13Secret {
@@ -282,6 +334,91 @@ impl EncoderValue for Tls13Secret {
     }
 }
 
+impl Tls13Secret {
+    /// Derive TLS1.3 record keys from the secrets.
+    ///
+    /// See `s2n_tls13_key_schedule_get_keying_material`.
+    pub fn derive_tls13(
+        &self,
+        hash: HashAlgorithm,
+        key_len: usize,
+    ) -> Result<crate::protocol::key_schedule::DerivedKeys, crate::Error> {
+        use aws_lc_rs::hkdf;
+
+        use crate::protocol::key_schedule::TLS13_FIXED_IV_LEN;
+
+        fn hkdf_algorithm(hash: HashAlgorithm) -> hkdf::Algorithm {
+            match hash {
+                HashAlgorithm::Sha256 => hkdf::HKDF_SHA256,
+                HashAlgorithm::Sha384 => hkdf::HKDF_SHA384,
+            }
+        }
+
+        /// A [`hkdf::KeyType`] wrapper for an arbitrary output length.
+        struct OutLen(usize);
+
+        impl hkdf::KeyType for OutLen {
+            fn len(&self) -> usize {
+                self.0
+            }
+        }
+
+        fn hkdf_expand_label(
+            secret: &[u8],
+            hash: HashAlgorithm,
+            label: &[u8],
+            out_len: usize,
+        ) -> Result<Vec<u8>, crate::Error> {
+            const LABEL_PREFIX: &[u8] = b"tls13 ";
+
+            let full_label_len = LABEL_PREFIX.len() + label.len();
+            if full_label_len > 255 || out_len > u16::MAX as usize {
+                return Err(crate::Error::Crypto("HKDF label or length out of range"));
+            }
+
+            let mut info = Vec::with_capacity(2 + 1 + full_label_len + 1);
+            info.extend_from_slice(&(out_len as u16).to_be_bytes());
+            info.push(full_label_len as u8);
+            info.extend_from_slice(LABEL_PREFIX);
+            info.extend_from_slice(label);
+            // Empty context: single zero-length byte.
+            info.push(0);
+
+            let prk = hkdf::Prk::new_less_safe(hkdf_algorithm(hash), secret);
+            let info_slices: [&[u8]; 1] = [&info];
+            let okm = prk
+                .expand(&info_slices, OutLen(out_len))
+                .map_err(|_| crate::Error::Crypto("HKDF-Expand-Label failed"))?;
+
+            let mut out = vec![0u8; out_len];
+            okm.fill(&mut out)
+                .map_err(|_| crate::Error::Crypto("HKDF-Expand-Label fill failed"))?;
+            Ok(out)
+        }
+
+        fn tls13_key_and_iv(
+            secret: &[u8],
+            hash: HashAlgorithm,
+            key_len: usize,
+        ) -> Result<(Vec<u8>, Vec<u8>), crate::Error> {
+            let key = hkdf_expand_label(secret, hash, b"key", key_len)?;
+            let iv = hkdf_expand_label(secret, hash, b"iv", TLS13_FIXED_IV_LEN)?;
+            Ok((key, iv))
+        }
+
+        let (client_key, client_iv) =
+            tls13_key_and_iv(&self.client_application_secret, hash, key_len)?;
+        let (server_key, server_iv) =
+            tls13_key_and_iv(&self.server_application_secret, hash, key_len)?;
+        Ok(crate::protocol::key_schedule::DerivedKeys {
+            client_key,
+            server_key,
+            client_iv,
+            server_iv,
+        })
+    }
+}
+
 /// The version-specific secret material carried in the serialized blob.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Secrets {
@@ -290,14 +427,7 @@ pub enum Secrets {
     Tls12(Tls12Secret),
     /// TLS1.3 application traffic secrets. Each secret is `secret_size` bytes,
     /// which equals the cipher suite's PRF hash digest size.
-    Tls13 {
-        /// Client application traffic secret.
-        client_application_secret: Vec<u8>,
-        /// Server application traffic secret.
-        server_application_secret: Vec<u8>,
-        /// Resumption master secret.
-        resumption_master_secret: Vec<u8>,
-    },
+    Tls13(Tls13Secret),
 }
 
 impl EncoderValue for Secrets {
@@ -306,25 +436,9 @@ impl EncoderValue for Secrets {
             Secrets::Tls12(secret) => {
                 encoder.encode(secret);
             }
-            Secrets::Tls13 {
-                client_application_secret,
-                server_application_secret,
-                resumption_master_secret,
-            } => {
-                encoder.write_slice(client_application_secret);
-                encoder.write_slice(server_application_secret);
-                encoder.write_slice(resumption_master_secret);
+            Secrets::Tls13(secret) => {
+                encoder.encode(secret);
             }
-        }
-    }
-
-    fn encoding_size_for_encoder<E: Encoder>(&self, _encoder: &E) -> usize {
-        match self {
-            Secrets::Tls12 { .. } => TLS_SECRET_LEN + TLS_RANDOM_DATA_LEN + TLS_RANDOM_DATA_LEN,
-            Secrets::Tls13 {
-                client_application_secret,
-                ..
-            } => client_application_secret.len() * 3,
         }
     }
 }
@@ -368,26 +482,8 @@ impl<'a> DecoderValue<'a> for SerializedConnection {
             }
             ProtocolVersion::Tls13 => {
                 let secret_size = cipher_suite.hash().digest_len();
-                let (client_application_secret, buffer) =
-                    buffer.decode_slice(secret_size).map_err(decoder_err)?;
-                let (server_application_secret, buffer) =
-                    buffer.decode_slice(secret_size).map_err(decoder_err)?;
-                let (resumption_master_secret, buffer) =
-                    buffer.decode_slice(secret_size).map_err(decoder_err)?;
-                (
-                    Secrets::Tls13 {
-                        client_application_secret: client_application_secret
-                            .into_less_safe_slice()
-                            .to_vec(),
-                        server_application_secret: server_application_secret
-                            .into_less_safe_slice()
-                            .to_vec(),
-                        resumption_master_secret: resumption_master_secret
-                            .into_less_safe_slice()
-                            .to_vec(),
-                    },
-                    buffer,
-                )
+                let (secret, buffer) = buffer.decode_parameterized(secret_size)?;
+                (Secrets::Tls13(secret), buffer)
             }
         };
 
@@ -418,7 +514,7 @@ impl EncoderValue for SerializedConnection {
         encoder.encode(&major);
         encoder.encode(&minor);
 
-        self.cipher_suite.encode(encoder);
+        encoder.encode(&self.cipher_suite);
 
         encoder.write_slice(&self.client_sequence_number);
         encoder.write_slice(&self.server_sequence_number);
@@ -426,19 +522,6 @@ impl EncoderValue for SerializedConnection {
         encoder.encode(&self.max_fragment_length);
 
         self.secrets.encode(encoder);
-    }
-
-    fn encoding_size_for_encoder<E: Encoder>(&self, _encoder: &E) -> usize {
-        // Fixed header: u64 version + 2 protocol + 2 cipher + 8 + 8 seq + u16 frag.
-        const FIXED: usize = 8 + 2 + 2 + TLS_SEQUENCE_NUM_LEN + TLS_SEQUENCE_NUM_LEN + 2;
-        let secrets = match &self.secrets {
-            Secrets::Tls12 { .. } => TLS_SECRET_LEN + TLS_RANDOM_DATA_LEN + TLS_RANDOM_DATA_LEN,
-            Secrets::Tls13 {
-                client_application_secret,
-                ..
-            } => client_application_secret.len() * 3,
-        };
-        FIXED + secrets
     }
 }
 
@@ -476,10 +559,7 @@ impl SerializedConnection {
         const FIXED: usize = 8 + 2 + 2 + TLS_SEQUENCE_NUM_LEN + TLS_SEQUENCE_NUM_LEN + 2;
         let secrets = match &self.secrets {
             Secrets::Tls12 { .. } => TLS_SECRET_LEN + TLS_RANDOM_DATA_LEN + TLS_RANDOM_DATA_LEN,
-            Secrets::Tls13 {
-                client_application_secret,
-                ..
-            } => client_application_secret.len() * 3,
+            Secrets::Tls13(secret) => secret.client_application_secret.len() * 3,
         };
         FIXED + secrets
     }

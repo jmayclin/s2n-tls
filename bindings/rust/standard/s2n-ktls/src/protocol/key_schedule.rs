@@ -20,7 +20,7 @@
 //! responsibility of the caller, since it depends on the connection's mode
 //! (client vs server), which is not part of the serialized blob.
 
-use aws_lc_rs::{hkdf, tls_prf};
+use aws_lc_rs::hkdf;
 
 use crate::protocol::serialization::{
     HashAlgorithm, ProtocolVersion, Secrets, SerializedConnection,
@@ -62,97 +62,105 @@ impl DerivedKeys {
     /// Derive record keys and fixed IVs from a parsed serialized connection.
     pub fn derive(conn: &SerializedConnection) -> Result<Self, Error> {
         let key_len = conn.cipher_suite.aead().key_len();
-        match (&conn.secrets, conn.protocol_version) {
-            (
-                Secrets::Tls12 {
-                    master_secret,
-                    client_random,
-                    server_random,
-                },
-                ProtocolVersion::Tls12,
-            ) => derive_tls12(
-                master_secret,
-                client_random,
-                server_random,
-                conn.cipher_suite.hash(),
-                key_len,
-            ),
-            (
-                Secrets::Tls13 {
-                    client_application_secret,
-                    server_application_secret,
-                    ..
-                },
-                ProtocolVersion::Tls13,
-            ) => derive_tls13(
-                client_application_secret,
-                server_application_secret,
-                conn.cipher_suite.hash(),
-                key_len,
-            ),
-            _ => Err(Error::InvalidSerialization(
-                "protocol version and secrets variant disagree",
-            )),
+
+        match &conn.secrets {
+            Secrets::Tls12(secret) => {
+                debug_assert_eq!(conn.protocol_version, ProtocolVersion::Tls12);
+                secret.derive_tls12(conn.cipher_suite.hash(), key_len)
+            }
+            Secrets::Tls13(secret) => {
+                debug_assert_eq!(conn.protocol_version, ProtocolVersion::Tls13);
+                secret.derive_tls13(conn.cipher_suite.hash(), key_len)
+            }
         }
     }
 }
 
-fn tls12_prf_algorithm(hash: HashAlgorithm) -> &'static tls_prf::Algorithm {
-    match hash {
-        HashAlgorithm::Sha256 => &tls_prf::P_SHA256,
-        HashAlgorithm::Sha384 => &tls_prf::P_SHA384,
+/// The current TLS 1.3 application traffic secrets, tracked across key updates.
+///
+/// The serialized connection blob only carries the *initial* application
+/// traffic secrets. In TLS 1.3, either peer may send a `KeyUpdate` message at
+/// any point after the handshake, deriving a new traffic secret for the
+/// direction it writes with:
+///
+/// ```text
+/// application_traffic_secret_N+1 =
+///     HKDF-Expand-Label(application_traffic_secret_N, "traffic upd", "", Hash.length)
+/// ```
+///
+/// Because that derivation is fully deterministic, `s2n-ktls` can maintain its
+/// own copy of each direction's current secret and advance it whenever a key
+/// update occurs, then re-derive the record key/IV and re-program the kernel.
+/// This is what lets the crate handle key updates with **no runtime dependency
+/// on s2n-tls**.
+#[derive(Clone)]
+pub struct TrafficSecrets {
+    hash: HashAlgorithm,
+    key_len: usize,
+    /// The current client application traffic secret.
+    client_secret: Vec<u8>,
+    /// The current server application traffic secret.
+    server_secret: Vec<u8>,
+}
+
+impl std::fmt::Debug for TrafficSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never print secret material. Only lengths and parameters.
+        f.debug_struct("TrafficSecrets")
+            .field("hash", &self.hash)
+            .field("key_len", &self.key_len)
+            .field("secret_len", &self.client_secret.len())
+            .finish()
     }
 }
 
-/// TLS1.2 "key expansion" PRF. See `s2n_prf_generate_key_material`.
-fn derive_tls12(
-    master_secret: &[u8],
-    client_random: &[u8],
-    server_random: &[u8],
-    hash: HashAlgorithm,
-    key_len: usize,
-) -> Result<DerivedKeys, Error> {
-    // AEAD suites have no MAC key. The key block layout is:
-    //   client_key || server_key || client_iv || server_iv
-    // where the IV is the 4-byte implicit (fixed) IV.
-    let block_len = key_len * 2 + TLS12_FIXED_IV_LEN * 2;
-
-    let secret = tls_prf::Secret::new(tls12_prf_algorithm(hash), master_secret)
-        .map_err(|_| Error::Crypto("invalid master secret for PRF"))?;
-
-    // The seed is server_random || client_random (note the order).
-    let block = secret
-        .derive_with_seed_concatination(b"key expansion", server_random, client_random, block_len)
-        .map_err(|_| Error::Crypto("TLS1.2 PRF derivation failed"))?;
-    let block = block.as_ref();
-
-    let (client_key, rest) = block.split_at(key_len);
-    let (server_key, rest) = rest.split_at(key_len);
-    let (client_iv, server_iv) = rest.split_at(TLS12_FIXED_IV_LEN);
-
-    Ok(DerivedKeys {
-        client_key: client_key.to_vec(),
-        server_key: server_key.to_vec(),
-        client_iv: client_iv.to_vec(),
-        server_iv: server_iv.to_vec(),
-    })
+/// Which side's traffic secret to advance / derive keys for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretRole {
+    /// The client's write secret (the client encrypts, the server decrypts).
+    Client,
+    /// The server's write secret (the server encrypts, the client decrypts).
+    Server,
 }
 
-/// TLS1.3 traffic key derivation. See `s2n_tls13_key_schedule_get_keying_material`.
-fn derive_tls13(
-    client_application_secret: &[u8],
-    server_application_secret: &[u8],
-    hash: HashAlgorithm,
-    key_len: usize,
-) -> Result<DerivedKeys, Error> {
-    let (client_key, client_iv) = tls13_key_and_iv(client_application_secret, hash, key_len)?;
-    let (server_key, server_iv) = tls13_key_and_iv(server_application_secret, hash, key_len)?;
-    Ok(DerivedKeys {
-        client_key,
-        server_key,
-        client_iv,
-        server_iv,
-    })
+impl TrafficSecrets {
+    /// Capture the initial TLS 1.3 traffic secrets from a serialized connection.
+    ///
+    /// Returns `None` for a TLS 1.2 connection, which has no notion of a
+    /// `KeyUpdate` and therefore does not need secret tracking.
+    pub fn from_serialized(conn: &SerializedConnection) -> Option<Self> {
+        match &conn.secrets {
+            Secrets::Tls13(secret) => Some(TrafficSecrets {
+                hash: conn.cipher_suite.hash(),
+                key_len: conn.cipher_suite.aead().key_len(),
+                client_secret: secret.client_application_secret.clone(),
+                server_secret: secret.server_application_secret.clone(),
+            }),
+            Secrets::Tls12(_) => None,
+        }
+    }
+
+    /// Advance the traffic secret for `role` to its next generation, applying
+    /// the `"traffic upd"` derivation. This mirrors what the peer does when it
+    /// sends a `KeyUpdate` (for a receiving role) or what we do when we send one
+    /// (for a sending role).
+    pub fn advance(&mut self, role: SecretRole) -> Result<(), Error> {
+        let secret = match role {
+            SecretRole::Client => &mut self.client_secret,
+            SecretRole::Server => &mut self.server_secret,
+        };
+        *secret = tls13_update_traffic_secret(secret, self.hash)?;
+        Ok(())
+    }
+
+    /// Derive the current record key and 12-byte fixed IV for `role`.
+    pub fn derive_key_and_iv(&self, role: SecretRole) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let secret = match role {
+            SecretRole::Client => &self.client_secret,
+            SecretRole::Server => &self.server_secret,
+        };
+        tls13_derive_key_and_iv(secret, self.hash, self.key_len)
+    }
 }
 
 fn hkdf_algorithm(hash: HashAlgorithm) -> hkdf::Algorithm {
@@ -170,6 +178,35 @@ fn tls13_key_and_iv(
     let key = hkdf_expand_label(secret, hash, b"key", key_len)?;
     let iv = hkdf_expand_label(secret, hash, b"iv", TLS13_FIXED_IV_LEN)?;
     Ok((key, iv))
+}
+
+/// Derive the AEAD key and 12-byte fixed IV from a single TLS 1.3 traffic
+/// secret.
+///
+/// This is the per-direction primitive used both for the initial keys and
+/// after a key update, when only one direction's secret has changed.
+pub fn tls13_derive_key_and_iv(
+    secret: &[u8],
+    hash: HashAlgorithm,
+    key_len: usize,
+) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    tls13_key_and_iv(secret, hash, key_len)
+}
+
+/// Advance a TLS 1.3 application traffic secret for a key update.
+///
+/// Per RFC 8446 section 7.2:
+/// ```text
+/// application_traffic_secret_N+1 =
+///     HKDF-Expand-Label(application_traffic_secret_N, "traffic upd", "", Hash.length)
+/// ```
+///
+/// This matches s2n-tls's `s2n_tls13_update_application_traffic_secret`
+/// (`crypto/s2n_tls13_keys.c`), which uses the `"traffic upd"` label. Because
+/// the derivation is fully deterministic, `s2n-ktls` can advance the secret and
+/// re-program the kernel without any help from s2n-tls.
+pub fn tls13_update_traffic_secret(secret: &[u8], hash: HashAlgorithm) -> Result<Vec<u8>, Error> {
+    hkdf_expand_label(secret, hash, b"traffic upd", hash.digest_len())
 }
 
 /// `HKDF-Expand-Label` per RFC 8446 section 7.1, with an empty context.
@@ -261,19 +298,41 @@ mod tests {
         assert_eq!(iv, hex("5b 78 92 3d ee 08 57 90 33 e5 23 d9"));
     }
 
+    /// The `"traffic upd"` key update derivation, pinned against the vector in
+    /// s2n-tls's `s2n_tls13_keys_test.c` (originally from OpenSSL's `s_client`
+    /// KeyUpdate implementation, using `TLS_AES_256_GCM_SHA384`).
+    #[test]
+    fn tls13_update_traffic_secret_vector() {
+        let application_secret = hex("4bc28934ddd802b00f479e14a72d7725dab45d32b3b145f29\
+             e4c5b56677560eb5236b168c71c5c75aa52f3e20ee89bfb");
+        let expected = hex("ee85dd54781bd4d8a100589a9fe6ac9a3797b811e977f549cd\
+             531be2441d7c63e2b9729d145c11d84af35957727565a4");
+
+        let updated =
+            tls13_update_traffic_secret(&application_secret, HashAlgorithm::Sha384).unwrap();
+        assert_eq!(updated, expected);
+    }
+
     /// The TLS1.2 PRF key block must have the expected structure: two keys of
     /// `key_len` and two 4-byte fixed IVs. This is a self-consistency /
     /// shape test; end-to-end correctness is verified against the kernel in the
     /// integration tests.
     #[test]
     fn tls12_key_block_shape() {
+        use crate::protocol::serialization::Tls12Secret;
+
         let master = vec![0x0b; 48];
         let client_random = vec![0x11; 32];
         let server_random = vec![0x22; 32];
 
         for (hash, key_len) in [(HashAlgorithm::Sha256, 16), (HashAlgorithm::Sha384, 32)] {
-            let keys =
-                derive_tls12(&master, &client_random, &server_random, hash, key_len).unwrap();
+            let keys = Tls12Secret {
+                master_secret: master.clone().try_into().unwrap(),
+                client_random: client_random.clone().try_into().unwrap(),
+                server_random: server_random.clone().try_into().unwrap(),
+            }
+            .derive_tls12(hash, key_len)
+            .unwrap();
             assert_eq!(keys.client_key.len(), key_len);
             assert_eq!(keys.server_key.len(), key_len);
             assert_eq!(keys.client_iv.len(), TLS12_FIXED_IV_LEN);

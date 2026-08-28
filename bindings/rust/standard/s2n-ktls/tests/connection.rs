@@ -12,7 +12,7 @@ mod common;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use s2n_ktls::{Connection, Mode};
+use s2n_ktls::{KtlsTcpStream, Mode};
 
 /// Best-effort probe for kTLS support: check that the `tls` ULP is listed in
 /// `/proc/sys/net/ipv4/tcp_available_ulp`. Returns false on non-Linux or when
@@ -52,7 +52,7 @@ fn programming_fails_on_unconnected_socket() {
     let blob = common::serialized_pair("default").server_blob;
     // We can't strongly assert failure vs success for every kernel state here;
     // the important property is that we get a Result, never a panic.
-    let _ = Connection::new(&blob, stream, Mode::Server);
+    let _ = KtlsTcpStream::new(&blob, stream, Mode::Server);
 }
 
 #[test]
@@ -70,9 +70,9 @@ fn program_kernel_on_loopback_socket() {
         // won't successfully decrypt each other here (the TestPair handshake
         // was over in-memory IO, not these sockets), but programming the
         // kernel with well-formed crypto_info must succeed.
-        let server = Connection::new(&sp.server_blob, server_sock, Mode::Server)
+        let server = KtlsTcpStream::new(&sp.server_blob, server_sock, Mode::Server)
             .unwrap_or_else(|e| panic!("policy {policy}: server programming failed: {e}"));
-        let client = Connection::new(&sp.client_blob, client_sock, Mode::Client)
+        let client = KtlsTcpStream::new(&sp.client_blob, client_sock, Mode::Client)
             .unwrap_or_else(|e| panic!("policy {policy}: client programming failed: {e}"));
 
         assert_eq!(server.mode(), Mode::Server);
@@ -90,7 +90,7 @@ fn serialize_round_trips_after_construction() {
     let sp = common::serialized_pair("default_tls13");
     let (_client_sock, server_sock) = loopback_pair();
 
-    let conn = Connection::new(&sp.server_blob, server_sock, Mode::Server).unwrap();
+    let conn = KtlsTcpStream::new(&sp.server_blob, server_sock, Mode::Server).unwrap();
 
     // Re-serialization reproduces the original blob (sequence numbers are the
     // parsed values, since no application data has been sent through kTLS).
@@ -103,7 +103,7 @@ fn serialize_round_trips_after_construction() {
 // Silence unused-import warnings on non-kTLS hosts where the gated tests early
 // return before touching Read/Write.
 #[allow(dead_code)]
-fn _assert_io_traits(mut c: Connection) {
+fn _assert_io_traits(mut c: KtlsTcpStream) {
     let mut buf = [0u8; 1];
     let _ = c.read(&mut buf);
     let _ = c.write(&buf);

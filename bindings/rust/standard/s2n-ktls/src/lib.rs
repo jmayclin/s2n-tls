@@ -40,7 +40,7 @@
 pub mod connection;
 pub mod protocol;
 
-pub use connection::{Connection, Mode};
+pub use connection::{KtlsTcpStream, Mode};
 pub use error::Error;
 
 mod error {
