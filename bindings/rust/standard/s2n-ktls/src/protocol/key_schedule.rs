@@ -161,6 +161,16 @@ impl TrafficSecrets {
         };
         tls13_derive_key_and_iv(secret, self.hash, self.key_len)
     }
+
+    /// The current client application traffic secret.
+    pub fn client_secret(&self) -> &[u8] {
+        &self.client_secret
+    }
+
+    /// The current server application traffic secret.
+    pub fn server_secret(&self) -> &[u8] {
+        &self.server_secret
+    }
 }
 
 fn hkdf_algorithm(hash: HashAlgorithm) -> hkdf::Algorithm {

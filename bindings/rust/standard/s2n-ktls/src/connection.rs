@@ -11,7 +11,7 @@ use s2n_codec::DecoderBuffer;
 
 use crate::protocol::crypto_info::CryptoInfo;
 use crate::protocol::key_schedule::{DerivedKeys, SecretRole, TrafficSecrets};
-use crate::protocol::serialization::{ProtocolVersion, SerializedConnection};
+use crate::protocol::serialization::{ProtocolVersion, Secrets, SerializedConnection};
 use crate::Error;
 
 // Socket-level constants from `tls/s2n_ktls_parameters.h`. Linux does not
@@ -430,6 +430,48 @@ impl KtlsTcpStream {
         Ok(())
     }
 
+    /// Read the live record sequence number for a direction back from the
+    /// kernel via `getsockopt(SOL_TLS, TLS_TX | TLS_RX)`.
+    ///
+    /// Once kTLS is enabled the kernel, not this crate, owns the record
+    /// sequence numbers: they advance as records are sent and received.
+    /// `getsockopt` returns the current `crypto_info` for the direction, whose
+    /// trailing `rec_seq` field holds the next sequence number to be used.
+    ///
+    /// The kernel is strict about the buffer length: it must be *exactly*
+    /// `sizeof(crypto_info)` for the negotiated cipher (40 bytes for
+    /// AES-128-GCM, 56 for AES-256-GCM). Any other size fails with `EINVAL`.
+    fn read_kernel_sequence_number(&self, optname: libc::c_int) -> Result<[u8; 8], Error> {
+        let aead = self.parsed.cipher_suite.aead();
+        // struct tls12_crypto_info_aes_gcm_*: header(4) + iv(8) + key + salt(4) + rec_seq(8)
+        let info_len = 4 + 8 + aead.key_len() + 4 + 8;
+        let mut buf = vec![0u8; info_len];
+        let mut len = info_len as libc::socklen_t;
+
+        let ret = unsafe {
+            libc::getsockopt(
+                self.stream.as_raw_fd(),
+                S2N_SOL_TLS,
+                optname,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        if ret != 0 {
+            return Err(Error::Io(std::io::Error::last_os_error()));
+        }
+        if (len as usize) != info_len {
+            return Err(Error::Crypto(
+                "kernel returned unexpected crypto_info length",
+            ));
+        }
+
+        // rec_seq is the final 8 bytes of the structure.
+        let mut seq = [0u8; 8];
+        seq.copy_from_slice(&buf[info_len - 8..]);
+        Ok(seq)
+    }
+
     /// The [`Mode`] this connection was created with.
     pub fn mode(&self) -> Mode {
         self.mode
@@ -440,34 +482,80 @@ impl KtlsTcpStream {
         &self.stream
     }
 
+    /// Build a [`SerializedConnection`] reflecting the connection's current
+    /// live state: the record sequence numbers read back from the kernel and,
+    /// for TLS 1.3, the traffic secrets advanced across any key updates.
+    ///
+    /// This is the state that must be serialized so that a peer (for example, a
+    /// vanilla s2n-tls connection created via `s2n_connection_deserialize`) can
+    /// resume the record protocol exactly where kTLS left off.
+    fn current_state(&self) -> Result<SerializedConnection, Error> {
+        let mut state = self.parsed.clone();
+
+        // 1) Read the live sequence numbers back from the kernel. TX is the
+        //    direction we write; RX is the direction we read. Map those to the
+        //    client/server slots in the serialized layout.
+        let tx_seq = self.read_kernel_sequence_number(S2N_TLS_TX)?;
+        let rx_seq = self.read_kernel_sequence_number(S2N_TLS_RX)?;
+        let (client_seq, server_seq) = match self.mode {
+            Mode::Client => (tx_seq, rx_seq),
+            Mode::Server => (rx_seq, tx_seq),
+        };
+        state.client_sequence_number = client_seq;
+        state.server_sequence_number = server_seq;
+
+        // 2) For TLS 1.3, emit the *current* traffic secrets (advanced by any
+        //    key updates), not the initial ones parsed at construction.
+        if let Some(secrets) = &self.secrets {
+            if let Secrets::Tls13(tls13) = &mut state.secrets {
+                tls13.client_application_secret = secrets.client_secret().to_vec();
+                tls13.server_application_secret = secrets.server_secret().to_vec();
+            }
+        }
+
+        Ok(state)
+    }
+
     /// Serialize the connection back into the s2n-tls "V1" blob format.
     ///
     /// The output is byte-for-byte compatible with s2n-tls's
-    /// `s2n_connection_deserialize`.
+    /// `s2n_connection_deserialize`, so a serialized kTLS connection can be
+    /// handed back to a vanilla s2n-tls connection (or another `KtlsTcpStream`)
+    /// to resume the session.
     ///
-    /// # Caveat: sequence numbers
+    /// Unlike a naive re-emit of the construction-time blob, this captures the
+    /// connection's *current* state:
+    /// - **Sequence numbers** are read back from the kernel via
+    ///   `getsockopt(SOL_TLS, TLS_TX/TLS_RX)`, since the kernel owns them once
+    ///   kTLS is enabled and they advance as records flow.
+    /// - **TLS 1.3 traffic secrets** reflect any key updates that have occurred
+    ///   (see [`KtlsTcpStream::update_send_key`] and the automatic RX handling
+    ///   in [`read`](Read::read)).
     ///
-    /// This re-emits the state parsed at construction time, including the
-    /// original sequence numbers. Once kTLS is enabled, the **kernel** owns the
-    /// live sequence numbers as records are sent and received; this method does
-    /// not read them back (via `getsockopt`). Serializing a connection that has
-    /// already transferred application data will therefore produce stale
-    /// sequence numbers. Reading the live sequence numbers back from the kernel
-    /// is left for a future iteration.
+    /// # Errors
+    /// - [`Error::Io`] if the `getsockopt` calls fail.
+    /// - [`Error::InvalidSerialization`] if `output` is too small.
     pub fn serialize(&self, output: &mut [u8]) -> Result<(), Error> {
-        let needed = self.parsed.serialization_length();
+        let state = self.current_state()?;
+        let needed = state.serialization_length();
         if output.len() < needed {
             return Err(Error::InvalidSerialization("output buffer too small"));
         }
         let mut buf = Vec::with_capacity(needed);
-        self.parsed.write(&mut buf);
+        state.write(&mut buf);
         output[..needed].copy_from_slice(&buf);
         Ok(())
     }
 
     /// Serialize the connection into a freshly allocated buffer.
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.parsed.to_vec()
+    ///
+    /// See [`serialize`](KtlsTcpStream::serialize) for what state is captured.
+    ///
+    /// # Errors
+    /// - [`Error::Io`] if reading the live sequence numbers from the kernel
+    ///   fails.
+    pub fn to_vec(&self) -> Result<Vec<u8>, Error> {
+        Ok(self.current_state()?.to_vec())
     }
 }
 

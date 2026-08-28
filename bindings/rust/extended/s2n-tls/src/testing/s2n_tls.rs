@@ -618,6 +618,106 @@ mod tests {
         Ok(())
     }
 
+    /// A serialized connection must remain decryptable across TLS 1.3 key
+    /// updates.
+    ///
+    /// This exercises the concern that the serialized connection state might not
+    /// account for key updates: the record keys are re-derived from the traffic
+    /// secrets stored in the blob, so if a key update advances the live secret
+    /// without that being reflected in serialization, a deserialized connection
+    /// would derive stale keys and fail to decrypt.
+    ///
+    /// Flow (long-lived client, server repeatedly serialized/deserialized):
+    /// 1. Handshake.
+    /// 2. Client sends data; server reads it.
+    /// 3. Client performs a key update and sends more data.
+    /// 4. Server is serialized and deserialized into a fresh connection, which
+    ///    then reads the post-update data.
+    /// 5. Client performs a second key update and sends yet more data.
+    /// 6. Server is serialized/deserialized again, and reads the final data.
+    #[test]
+    fn serialize_across_key_updates() -> Result<(), Error> {
+        use crate::{
+            connection::Builder as _,
+            enums::{Mode, PeerKeyUpdate, SerializationVersion, Version},
+        };
+
+        // The server config must enable V1 serialization.
+        let server_config = {
+            let mut builder = config_builder(&security::DEFAULT_TLS13)?;
+            builder.set_serialization_version(SerializationVersion::V1)?;
+            builder.build()?
+        };
+        let client_config = build_config(&security::DEFAULT_TLS13)?;
+
+        let mut pair = TestPair::from_configs(&client_config, &server_config);
+        pair.handshake()?;
+        assert_eq!(pair.server.actual_protocol_version()?, Version::TLS13);
+
+        // Round-trip the server connection through serialize -> deserialize,
+        // rewiring the fresh connection to the same IO buffers. This models an
+        // application that persists and restores kTLS-eligible connection state.
+        let reserialize_server = |pair: &mut TestPair| -> Result<(), crate::error::Error> {
+            let len = pair.server.serialization_length()?;
+            let mut blob = vec![0u8; len];
+            pair.server.serialize(&mut blob)?;
+
+            let mut new_server = server_config.build_connection(Mode::Server)?;
+            new_server.deserialize(&blob)?;
+            TestPair::register_connection(
+                &mut new_server,
+                &pair.io.server_tx_stream,
+                &pair.io.client_tx_stream,
+            )?;
+            pair.server = new_server;
+            Ok(())
+        };
+
+        // Send data from the client and read exactly `expected` back on the
+        // server, driving both connections until the read completes.
+        let send_and_recv =
+            |pair: &mut TestPair, payload: &[u8]| -> Result<(), crate::error::Error> {
+                assert!(pair.client.poll_send(payload).is_ready());
+
+                let mut buf = vec![0u8; payload.len()];
+                let mut filled = 0;
+                while filled < buf.len() {
+                    match pair.server.poll_recv(&mut buf[filled..]) {
+                        Poll::Ready(Ok(n)) => filled += n,
+                        Poll::Ready(Err(e)) => return Err(e),
+                        Poll::Pending => {}
+                    }
+                }
+                assert_eq!(&buf, payload);
+                Ok(())
+            };
+
+        // 1) Baseline exchange under the initial keys.
+        send_and_recv(&mut pair, b"message under initial keys")?;
+
+        // 2) Client updates its sending key, then sends. The server must process
+        //    the KeyUpdate and decrypt under the new key.
+        pair.client
+            .request_key_update(PeerKeyUpdate::KeyUpdateNotRequested)?;
+        send_and_recv(&mut pair, b"message after first key update")?;
+
+        // 3) Serialize/deserialize the server after the first key update and
+        //    confirm the restored connection still decrypts new data.
+        reserialize_server(&mut pair)?;
+        send_and_recv(&mut pair, b"message after first reserialization")?;
+
+        // 4) A second client key update, followed by another serialize/
+        //    deserialize round-trip and a final exchange.
+        pair.client
+            .request_key_update(PeerKeyUpdate::KeyUpdateNotRequested)?;
+        send_and_recv(&mut pair, b"message after second key update")?;
+
+        reserialize_server(&mut pair)?;
+        send_and_recv(&mut pair, b"message after second reserialization")?;
+
+        Ok(())
+    }
+
     #[cfg(feature = "fips")]
     #[test]
     fn test_fips_mode() {

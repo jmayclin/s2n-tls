@@ -171,8 +171,7 @@ fn run_e2e(policy: &str) {
     assert_eq!(&reply, b"hi from client\n");
 
     // The kTLS connection re-serializes to a parseable blob.
-    let reserialized = ktls_server.to_vec();
-    assert_eq!(reserialized, blob);
+    let reserialized = ktls_server.to_vec().unwrap();
     s2n_ktls::protocol::serialization::SerializedConnection::parse(&reserialized).unwrap();
 
     // Allow the client thread to finish.

@@ -92,12 +92,13 @@ fn serialize_round_trips_after_construction() {
 
     let conn = KtlsTcpStream::new(&sp.server_blob, server_sock, Mode::Server).unwrap();
 
-    // Re-serialization reproduces the original blob (sequence numbers are the
-    // parsed values, since no application data has been sent through kTLS).
+    // Re-serialization after construction (no application data sent) should
+    // reproduce the original blob: the kernel reports sequence number 0 for
+    // both directions and the TLS 1.3 secrets are unchanged.
     let mut out = vec![0u8; conn.serialization_length()];
     conn.serialize(&mut out).unwrap();
     assert_eq!(out, sp.server_blob);
-    assert_eq!(conn.to_vec(), sp.server_blob);
+    assert_eq!(conn.to_vec().unwrap(), sp.server_blob);
 }
 
 // Silence unused-import warnings on non-kTLS hosts where the gated tests early
