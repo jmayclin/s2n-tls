@@ -12,19 +12,93 @@
 #![cfg_attr(not(test), deny(clippy::string_slice))]
 #![cfg_attr(not(test), deny(clippy::panic))]
 
-use std::ffi::c_uint;
+use std::{ffi::c_uint, marker::PhantomData};
 
-use s2n_codec::DecoderBuffer;
+use s2n_codec::{DecoderBuffer, DecoderBufferResult, DecoderValue};
 use s2n_tls::{client_hello::ClientHello as S2NClientHello, error::Fallible};
 use s2n_tls_sys::{s2n_client_hello_get_extension_by_id, s2n_client_hello_get_extension_length};
 
 use crate::parsing::messages::{
-    ClientHello, SignatureSchemeList, SupportedGroups, SupportedVersionsClientHello,
+    ClientHello, KeyShareClientHello, SignatureSchemeList, SupportedGroups,
+    SupportedVersionsClientHello,
 };
 use s2n_tls_metrics_schema::static_lists::{Cipher, Group, Signature, Version};
 
 pub mod cert;
 mod messages;
+
+pub(crate) struct PrefixedListComplexIterator<'a, T> {
+    remaining: DecoderBuffer<'a>,
+    phantom_element: PhantomData<T>,
+}
+
+impl<'a, T: DecoderValue<'a>> Iterator for PrefixedListComplexIterator<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining.is_empty() {
+            return None;
+        }
+
+        match self.remaining.decode() {
+            Ok((value, remaining)) => {
+                self.remaining = remaining;
+                Some(value)
+            }
+            Err(_) => {
+                // This should be unreachable because decoding is checked in the
+                // constructor, but this is a connection level error so crashing
+                // the process would be an over-reaction.
+                debug_assert!(false);
+                None
+            }
+        }
+    }
+}
+
+/// [s2n_codec::decoder::PrefixedList] for types that can't be directly cast from bytes.
+///
+/// This is necessary if the inner type requires some validation, e.g. that inner
+/// lengths are correctly specified.
+pub(crate) struct PrefixedListComplex<'a, L, T> {
+    pub list: DecoderBuffer<'a>,
+    phantom_elements: PhantomData<T>,
+    phantom_length: PhantomData<L>,
+}
+
+impl<'a, L: Into<usize> + DecoderValue<'a>, T: DecoderValue<'a>> DecoderValue<'a>
+    for PrefixedListComplex<'a, L, T>
+{
+    fn decode(bytes: DecoderBuffer<'a>) -> DecoderBufferResult<'a, Self> {
+        let (list, remaining) = bytes.decode_slice_with_len_prefix::<L>()?;
+
+        // eagerly validate for a simpler iterator API
+        {
+            let mut remaining = list;
+            while !remaining.is_empty() {
+                let (_value, next_chunk) = remaining.decode::<T>()?;
+                remaining = next_chunk;
+            }
+        }
+
+        let value = Self {
+            list,
+            phantom_elements: PhantomData,
+            phantom_length: PhantomData,
+        };
+
+        Ok((value, remaining))
+    }
+}
+
+impl<'a, L, T: DecoderValue<'a>> PrefixedListComplex<'a, L, T> {
+    pub fn iter(&self) -> PrefixedListComplexIterator<'a, T> {
+        PrefixedListComplexIterator {
+            remaining: self.list,
+            phantom_element: PhantomData,
+        }
+    }
+}
 
 /// View of the supported-parameter lists from a `ClientHello`.
 ///
@@ -36,6 +110,7 @@ pub(crate) struct ClientHelloSupportedParameters {
     ciphers: Vec<Cipher>,
     groups: Option<Vec<Group>>,
     signatures: Option<Vec<Signature>>,
+    key_share_groups: Option<Vec<Group>>,
 }
 
 impl ClientHelloSupportedParameters {
@@ -43,6 +118,7 @@ impl ClientHelloSupportedParameters {
     const SUPPORTED_GROUPS_ID: u16 = 10;
     const SUPPORTED_VERSIONS_ID: u16 = 43;
     const SIGNATURE_ALGORITHMS_ID: u16 = 13;
+    const KEY_SHARE_ID: u16 = 51;
 
     /// Parse all four supported-parameter lists up front. Subsequent
     /// accessor calls return slices into these owned `Vec`s and do not
@@ -81,11 +157,20 @@ impl ClientHelloSupportedParameters {
             None => None,
         };
 
+        let key_share_groups = match client_hello.get_extension(Self::KEY_SHARE_ID)? {
+            Some(buffer) => {
+                let parsed = DecoderBuffer::new(&buffer).decode_exact::<KeyShareClientHello>()?;
+                Some(parsed.groups())
+            }
+            None => None,
+        };
+
         Ok(Self {
             versions,
             ciphers,
             groups,
             signatures,
+            key_share_groups,
         })
     }
 
@@ -105,6 +190,16 @@ impl ClientHelloSupportedParameters {
         self.signatures.as_deref()
     }
 
+    /// The groups the client offered a key share for, in the `key_share`
+    /// extension. This is a subset of [`Self::supported_groups`]. `None` if the
+    /// extension was absent (e.g. a TLS 1.2 client hello).
+    /// 
+    /// Currently, this is always the latest client hello, which was possible sent
+    /// in response to an HRR.
+    pub fn key_share_groups(&self) -> Option<&[Group]> {
+        self.key_share_groups.as_deref()
+    }
+
     /// Test-only constructor for building synthetic parameters without a real
     /// ClientHello.
     #[cfg(test)]
@@ -113,12 +208,14 @@ impl ClientHelloSupportedParameters {
         ciphers: Vec<Cipher>,
         groups: Option<Vec<Group>>,
         signatures: Option<Vec<Signature>>,
+        key_share_groups: Option<Vec<Group>>,
     ) -> Self {
         Self {
             versions,
             ciphers,
             groups,
             signatures,
+            key_share_groups,
         }
     }
 }

@@ -338,6 +338,7 @@ fn entry_writes_match_metric_names_catalog() {
         supported_ciphers: FrozenCounter::from_slots([1; CIPHER_COUNT]),
         supported_groups: FrozenCounter::from_slots([1; GROUP_COUNT]),
         supported_signatures: FrozenCounter::from_slots([1; SIGNATURE_COUNT]),
+        key_share_groups: FrozenCounter::from_slots([1; GROUP_COUNT]),
         alerts: FrozenCounter::from_slots([1; DEFINED_ALERTS_COUNT]),
         server_leaf_cert_key: FrozenCounter::from_slots([1; CERT_KEY_COUNT]),
         server_leaf_cert_sig: FrozenCounter::from_slots([1; CERT_SIG_COUNT]),
@@ -379,6 +380,9 @@ fn entry_writes_match_metric_names_catalog() {
             expected.insert(group.metric_name(slot).to_string());
         }
     }
+    for slot in 0..names::KEY_SHARE_GROUPS.count {
+        expected.insert(names::KEY_SHARE_GROUPS.metric_name(slot).to_string());
+    }
     for slot in 0..names::ALERTS.count {
         expected.insert(names::ALERTS.metric_name(slot).to_string());
     }
@@ -409,6 +413,7 @@ fn entry_writes_match_metric_names_catalog() {
         + CIPHER_COUNT * 2
         + GROUP_COUNT * 2
         + SIGNATURE_COUNT * 2
+        + GROUP_COUNT // key_share_groups
         + DEFINED_ALERTS_COUNT
         + CERT_KEY_COUNT * 4
         + CERT_SIG_COUNT * 4

@@ -92,6 +92,7 @@ mod test {
             vec![Cipher::TLS_AES_128_GCM_SHA256],
             groups,
             signatures,
+            None,
         )
     }
 

@@ -116,6 +116,9 @@
             "Name": "signature_scheme.supported.rsa_pss_rsae_sha512"
           },
           {
+            "Name": "key_share.secp256r1"
+          },
+          {
             "Name": "cert.server.leaf.key.Rsa4096"
           },
           {
@@ -230,6 +233,7 @@
   "handshake_success_count": 1,
   "hello_retry_request_count": 0,
   "internal_failure": 0,
+  "key_share.secp256r1": 1,
   "resource": "arn:aws:elasticloadbalancing:us-east-1:123:listener/abc",
   "service": "my-service",
   "signature_scheme.negotiated.rsa_pss_rsae_sha256": 1,

@@ -93,6 +93,11 @@ pub struct FrozenHandshakeRecord {
     #[serde(default)]
     pub supported_signatures: FrozenCounter<SIGNATURE_COUNT, Signature>,
 
+    /// The groups the client offered a key share for, in the `key_share`
+    /// extension. A subset of `supported_groups`.
+    #[serde(default)]
+    pub key_share_groups: FrozenCounter<GROUP_COUNT, Group>,
+
     #[serde(default)]
     pub server_leaf_cert_key: FrozenCounter<CERT_KEY_COUNT, CertKeyType>,
     #[serde(default)]
@@ -166,6 +171,7 @@ impl Default for FrozenHandshakeRecord {
             supported_ciphers: FrozenCounter::default(),
             supported_groups: FrozenCounter::default(),
             supported_signatures: FrozenCounter::default(),
+            key_share_groups: FrozenCounter::default(),
             server_leaf_cert_key: FrozenCounter::default(),
             server_leaf_cert_sig: FrozenCounter::default(),
             server_chain_cert_key: FrozenCounter::default(),
@@ -229,6 +235,7 @@ impl metrique_writer::Entry for FrozenHandshakeRecord {
         write_counter(&self.supported_ciphers, &supported::CIPHERS, writer);
         write_counter(&self.supported_groups, &supported::GROUPS, writer);
         write_counter(&self.supported_signatures, &supported::SIGNATURES, writer);
+        write_counter(&self.key_share_groups, &names::KEY_SHARE_GROUPS, writer);
         write_counter(
             &self.server_leaf_cert_key,
             &names::cert::SERVER_LEAF_KEY,

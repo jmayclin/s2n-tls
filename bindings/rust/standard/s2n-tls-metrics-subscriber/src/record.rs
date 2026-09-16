@@ -112,6 +112,10 @@ pub(crate) struct HandshakeRecordInProgress {
     supported_groups: Counter<GROUP_COUNT, Group>,
     supported_signatures: Counter<SIGNATURE_COUNT, Signature>,
 
+    /// The groups the client offered a key share for, in the `key_share`
+    /// extension. A subset of `supported_groups`.
+    key_share_groups: Counter<GROUP_COUNT, Group>,
+
     // chain counters will increment for both the ICA and the CA
     server_leaf_cert_key: Counter<CERT_KEY_COUNT, CertKeyType>,
     server_leaf_cert_sig: Counter<CERT_SIG_COUNT, CertSignatureAlgorithm>,
@@ -180,6 +184,8 @@ impl HandshakeRecordInProgress {
             supported_ciphers: Counter::new(),
             supported_protocols: Counter::new(),
             supported_signatures: Counter::new(),
+
+            key_share_groups: Counter::new(),
 
             server_leaf_cert_key: Counter::new(),
             server_leaf_cert_sig: Counter::new(),
@@ -363,6 +369,12 @@ impl HandshakeRecordInProgress {
                         .flat_map(|sigs| sigs.iter())
                         .for_each(|signature| self.supported_signatures.increment(signature));
 
+                    supported_parameter
+                        .key_share_groups()
+                        .iter()
+                        .flat_map(|groups| groups.iter())
+                        .for_each(|group| self.key_share_groups.increment(group));
+
                     if General20251201::supported(&supported_parameter) {
                         self.compatibility_general20251201
                             .fetch_add(1, Ordering::Relaxed);
@@ -517,6 +529,8 @@ impl HandshakeRecordInProgress {
             supported_groups: self.supported_groups.freeze(),
             supported_signatures: self.supported_signatures.freeze(),
 
+            key_share_groups: self.key_share_groups.freeze(),
+
             server_leaf_cert_key: self.server_leaf_cert_key.freeze(),
             server_leaf_cert_sig: self.server_leaf_cert_sig.freeze(),
             server_chain_cert_key: self.server_chain_cert_key.freeze(),
@@ -572,6 +586,7 @@ mod tests {
     use crate::test_utils::{
         ARBITRARY_POLICY_1, P256_PREFERRING_POLICY, STRONGLY_PREFERRED_GROUPS_POLICY, TestEndpoint,
     };
+    use s2n_tls::security::Policy;
     use s2n_tls_metrics_schema::{
         counter::FrozenCounter,
         static_lists::{Cipher, FiniteCounter},
@@ -746,6 +761,64 @@ mod tests {
         assert_supported_matches(&record.supported_ciphers, &expected_ciphers);
         assert_supported_matches(&record.supported_groups, &expected_groups);
         assert_supported_matches(&record.supported_signatures, &expected_sigs);
+    }
+
+    /// The `key_share` groups are a subset of the `supported_groups`: a client
+    /// advertises many groups but only offers a key share for the group(s) it
+    /// actually generated. This records that subset separately.
+    #[test]
+    fn record_contents_key_share_groups() {
+        let endpoint = TestEndpoint::new();
+
+        let result = endpoint.client_handshake(&ARBITRARY_POLICY_1);
+        endpoint.subscriber.finish_record();
+        let records = endpoint.sink.records.lock().unwrap();
+        let record = &records[0].as_schema().handshake;
+
+        // Without an HRR the negotiated group is one the client key shared, so
+        // it must appear in the key_share counter.
+        let negotiated_group = result
+            .client
+            .selected_key_exchange_group()
+            .unwrap()
+            .to_owned();
+        let negotiated_group_element = Group::from_iana_description(&negotiated_group).unwrap();
+        let slot = negotiated_group_element.slot_from_key().unwrap();
+        assert_eq!(
+            record.key_share_groups.slots()[slot],
+            1,
+            "negotiated group {negotiated_group} should have a recorded key share"
+        );
+
+        // Every key share group is also a supported group.
+        for (slot, _, count) in record.key_share_groups.iter_non_zero() {
+            assert_eq!(
+                record.supported_groups.slots()[slot],
+                count,
+                "key share group at slot {slot} is not present in supported groups"
+            );
+        }
+    }
+
+    /// A TLS 1.2 client hello has no `key_share` extension, so no key share
+    /// groups should be recorded.
+    #[test]
+    fn record_contents_key_share_groups_tls12() {
+        // "20190214" is a TLS 1.2 only policy (no supported_versions/key_share).
+        let tls12_policy = Policy::from_version("20190214").unwrap();
+        let endpoint = TestEndpoint::new();
+
+        endpoint.client_handshake(&tls12_policy);
+        endpoint.subscriber.finish_record();
+        let records = endpoint.sink.records.lock().unwrap();
+        let record = &records[0].as_schema().handshake;
+
+        assert_eq!(record.handshake_success_count, 1);
+        assert_eq!(
+            record.key_share_groups.slots().iter().sum::<u64>(),
+            0,
+            "TLS 1.2 client hello should not record any key share groups"
+        );
     }
 
     #[test]

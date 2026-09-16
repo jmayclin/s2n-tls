@@ -390,6 +390,13 @@ impl Display for Group {
     }
 }
 
+impl<'a> s2n_codec::DecoderValue<'a> for Group {
+    fn decode(bytes: s2n_codec::DecoderBuffer<'a>) -> s2n_codec::DecoderBufferResult<'a, Self> {
+        let (value, bytes) = bytes.decode()?;
+        Ok((Self(value), bytes))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VersionInformation {
     pub description: &'static str,

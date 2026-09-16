@@ -276,6 +276,15 @@ macro_rules! define_counter_groups {
 define_counter_groups!(negotiated, "negotiated");
 define_counter_groups!(supported, "supported");
 
+/// The groups the client offered a key share for, in the `key_share` extension.
+/// A subset of the supported groups: only those the client generated a key share
+/// for, rather than merely advertised support for.
+pub const KEY_SHARE_GROUPS: CounterGroup = CounterGroup {
+    prefix: "key_share",
+    count: GROUP_COUNT,
+    name_from_slot: group_metric_name,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
