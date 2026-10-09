@@ -159,12 +159,12 @@ static S2N_RESULT s2n_ktls_validate(struct s2n_connection *conn, s2n_ktls_mode k
      */
     switch (ktls_mode) {
         case S2N_KTLS_MODE_SEND:
-            RESULT_ENSURE(conn->managed_send_io, S2N_ERR_KTLS_MANAGED_IO);
+            RESULT_ENSURE(conn->io.managed_send, S2N_ERR_KTLS_MANAGED_IO);
             /* The output stuffer should be empty before enabling kTLS. */
             RESULT_ENSURE(s2n_stuffer_is_consumed(&conn->out), S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
             break;
         case S2N_KTLS_MODE_RECV:
-            RESULT_ENSURE(conn->managed_recv_io, S2N_ERR_KTLS_MANAGED_IO);
+            RESULT_ENSURE(conn->io.managed_recv, S2N_ERR_KTLS_MANAGED_IO);
             /* The input stuffers should be empty before enabling kTLS. */
             RESULT_ENSURE(s2n_stuffer_is_consumed(&conn->header_in), S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
             RESULT_ENSURE(s2n_stuffer_is_consumed(&conn->in), S2N_ERR_RECORD_STUFFER_NEEDS_DRAINING);
@@ -183,7 +183,7 @@ static S2N_RESULT s2n_ktls_validate(struct s2n_connection *conn, s2n_ktls_mode k
  *
  * Retrieving fd assumes that the connection is using socket IO and has the
  * send_io_context set. While kTLS overrides IO and essentially disables
- * the socket conn->send function callback, it doesn't modify the
+ * the socket conn->io.send function callback, it doesn't modify the
  * send_io_context. */
 S2N_RESULT s2n_ktls_get_file_descriptor(struct s2n_connection *conn, s2n_ktls_mode ktls_mode, int *fd)
 {
@@ -271,10 +271,10 @@ void s2n_ktls_configure_connection(struct s2n_connection *conn, s2n_ktls_mode kt
     }
     if (ktls_mode == S2N_KTLS_MODE_SEND) {
         conn->ktls_send_enabled = true;
-        conn->send = s2n_ktls_send_cb;
+        conn->io.send = s2n_ktls_send_cb;
     } else {
         conn->ktls_recv_enabled = true;
-        conn->recv = s2n_ktls_disabled_read;
+        conn->io.recv = s2n_ktls_disabled_read;
     }
 }
 
@@ -456,7 +456,7 @@ S2N_RESULT s2n_ktls_key_update_send(struct s2n_connection *conn, size_t bytes_re
         };
         s2n_blocked_status blocked = S2N_NOT_BLOCKED;
         size_t bytes_written = 0;
-        RESULT_GUARD(s2n_ktls_sendmsg(conn->send_io_context, TLS_HANDSHAKE, &iov, 1, &blocked, &bytes_written));
+        RESULT_GUARD(s2n_ktls_sendmsg(conn->io.send_ctx, TLS_HANDSHAKE, &iov, 1, &blocked, &bytes_written));
         RESULT_ENSURE_EQ(bytes_written, sizeof(key_update_data));
 
         /* Create new encryption key */

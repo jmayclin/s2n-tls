@@ -109,10 +109,10 @@ static S2N_RESULT s2n_connections_set_blocking_io_pair(struct s2n_io_wrapper_pai
     RESULT_GUARD(s2n_connections_set_io_stuffer_pair(client_conn, server_conn, io_pair));
 
     io_context->client = (struct s2n_io_wrapper){
-        .inner_recv = client_conn->recv,
-        .inner_send = client_conn->send,
-        .inner_recv_ctx = client_conn->recv_io_context,
-        .inner_send_ctx = client_conn->send_io_context,
+        .inner_recv = client_conn->io.recv,
+        .inner_send = client_conn->io.send,
+        .inner_recv_ctx = client_conn->io.recv_ctx,
+        .inner_send_ctx = client_conn->io.send_ctx,
     };
 
     RESULT_GUARD_POSIX(s2n_connection_set_recv_cb(client_conn, s2n_blocking_read));
@@ -121,10 +121,10 @@ static S2N_RESULT s2n_connections_set_blocking_io_pair(struct s2n_io_wrapper_pai
     RESULT_GUARD_POSIX(s2n_connection_set_send_ctx(client_conn, &io_context->client));
 
     io_context->server = (struct s2n_io_wrapper){
-        .inner_recv = server_conn->recv,
-        .inner_send = server_conn->send,
-        .inner_recv_ctx = server_conn->recv_io_context,
-        .inner_send_ctx = server_conn->send_io_context,
+        .inner_recv = server_conn->io.recv,
+        .inner_send = server_conn->io.send,
+        .inner_recv_ctx = server_conn->io.recv_ctx,
+        .inner_send_ctx = server_conn->io.send_ctx,
     };
 
     RESULT_GUARD_POSIX(s2n_connection_set_recv_cb(server_conn, s2n_blocking_read));

@@ -96,21 +96,10 @@ int s2n_renegotiate_wipe(struct s2n_connection *conn)
     uint8_t client_protocol_version = conn->client_protocol_version;
     POSIX_ENSURE(actual_protocol_version < S2N_TLS13, S2N_ERR_PROTOCOL_VERSION_UNSUPPORTED);
 
-    /* Save byte tracking.
-     * This isn't strictly necessary, but potentially useful. */
-    uint64_t wire_bytes_in = conn->wire_bytes_in;
-    uint64_t wire_bytes_out = conn->wire_bytes_out;
-
     /* Save io settings */
-    bool send_managed = conn->managed_send_io;
-    s2n_send_fn *send_fn = conn->send;
-    void *send_ctx = conn->send_io_context;
-    bool recv_managed = conn->managed_recv_io;
-    s2n_recv_fn *recv_fn = conn->recv;
-    void *recv_ctx = conn->recv_io_context;
-    /* Treat IO as unmanaged, since we don't want to clean it up yet */
-    conn->managed_send_io = false;
-    conn->managed_recv_io = false;
+    struct s2n_io_provider io_copy = conn->io;
+    /* zero the IO to avoid potentially cleaning up managed IO */
+    conn->io = (struct s2n_io_provider){ 0 };
 
     /* Save the secure_renegotiation flag.
      * This flag should always be true, since we don't support insecure renegotiation,
@@ -148,14 +137,7 @@ int s2n_renegotiate_wipe(struct s2n_connection *conn)
     conn->actual_protocol_version = actual_protocol_version;
     conn->server_protocol_version = server_protocol_version;
     conn->client_protocol_version = client_protocol_version;
-    conn->wire_bytes_in = wire_bytes_in;
-    conn->wire_bytes_out = wire_bytes_out;
-    conn->managed_send_io = send_managed;
-    conn->send = send_fn;
-    conn->send_io_context = send_ctx;
-    conn->managed_recv_io = recv_managed;
-    conn->recv = recv_fn;
-    conn->recv_io_context = recv_ctx;
+    conn->io = io_copy;
     conn->secure_renegotiation = secure_renegotiation;
     conn->buffer_in = buffer_in;
     ZERO_TO_DISABLE_DEFER_CLEANUP(buffer_in);

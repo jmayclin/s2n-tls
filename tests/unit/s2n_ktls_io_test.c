@@ -186,7 +186,7 @@ int main(int argc, char **argv)
             struct iovec msg_iov = { .iov_base = test_data, .iov_len = S2N_TEST_TO_SEND };
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             size_t bytes_written = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
             EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
@@ -216,7 +216,7 @@ int main(int argc, char **argv)
 
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             size_t bytes_written = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     msg_iov, S2N_TEST_MSG_IOVLEN, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, total_sent);
             EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
@@ -247,7 +247,7 @@ int main(int argc, char **argv)
             size_t bytes_written = 0;
             for (size_t i = 0; i < blocked_invoked_count; i++) {
                 EXPECT_ERROR_WITH_ERRNO(
-                        s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+                        s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                                 &msg_iov, 1, &blocked, &bytes_written),
                         S2N_ERR_IO_BLOCKED);
                 EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_WRITE);
@@ -256,7 +256,7 @@ int main(int argc, char **argv)
             /* enable growable to unblock write */
             /* cppcheck-suppress redundantAssignment */
             client_in.data_buffer.growable = true;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
@@ -280,14 +280,14 @@ int main(int argc, char **argv)
 
             io_ctx.errno_code = EWOULDBLOCK;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+                    s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                             &msg_iov, 1, &blocked, &bytes_written),
                     S2N_ERR_IO_BLOCKED);
 
             /* cppcheck-suppress redundantAssignment */
             io_ctx.errno_code = EAGAIN;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+                    s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                             &msg_iov, 1, &blocked, &bytes_written),
                     S2N_ERR_IO_BLOCKED);
 
@@ -307,7 +307,7 @@ int main(int argc, char **argv)
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             size_t bytes_written = 0;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+                    s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                             &msg_iov, 1, &blocked, &bytes_written),
                     S2N_ERR_IO);
             /* Blocked status intentionally not reset to preserve legacy s2n_send behavior */
@@ -329,13 +329,13 @@ int main(int argc, char **argv)
             size_t bytes_written = 0;
 
             size_t iovlen_zero = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, iovlen_zero, &blocked, &bytes_written));
             EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
             EXPECT_EQUAL(bytes_written, 0);
 
             struct iovec msg_iov_len_zero = { .iov_base = test_data, .iov_len = 0 };
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov_len_zero, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(blocked, S2N_NOT_BLOCKED);
             EXPECT_EQUAL(bytes_written, 0);
@@ -389,14 +389,14 @@ int main(int argc, char **argv)
             struct iovec msg_iov = { .iov_base = test_data, .iov_len = S2N_TEST_TO_SEND };
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             size_t bytes_written = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
             uint8_t recv_buf[S2N_TLS_MAXIMUM_FRAGMENT_LENGTH] = { 0 };
             uint8_t recv_record_type = 0;
             size_t bytes_read = 0;
-            EXPECT_OK(s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+            EXPECT_OK(s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                     recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read));
             EXPECT_BYTEARRAY_EQUAL(test_data, recv_buf, bytes_read);
             EXPECT_EQUAL(bytes_read, bytes_written);
@@ -423,7 +423,7 @@ int main(int argc, char **argv)
             /* recv should block since there is no data */
             for (size_t i = 0; i < blocked_invoked_count; i++) {
                 EXPECT_ERROR_WITH_ERRNO(
-                        s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                        s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                                 recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                         S2N_ERR_IO_BLOCKED);
                 EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
@@ -432,11 +432,11 @@ int main(int argc, char **argv)
             /* send data to unblock */
             struct iovec msg_iov = { .iov_base = test_data, .iov_len = S2N_TEST_TO_SEND };
             size_t bytes_written = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
-            EXPECT_OK(s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+            EXPECT_OK(s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                     recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read));
             EXPECT_BYTEARRAY_EQUAL(test_data, recv_buf, bytes_read);
             EXPECT_EQUAL(bytes_read, bytes_written);
@@ -444,7 +444,7 @@ int main(int argc, char **argv)
             /* recv should block again since we have read all the data */
             for (size_t i = 0; i < blocked_invoked_count; i++) {
                 EXPECT_ERROR_WITH_ERRNO(
-                        s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                        s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                                 recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                         S2N_ERR_IO_BLOCKED);
                 EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
@@ -468,7 +468,7 @@ int main(int argc, char **argv)
 
             io_ctx.errno_code = EWOULDBLOCK;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                    s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                             recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                     S2N_ERR_IO_BLOCKED);
             EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
@@ -476,7 +476,7 @@ int main(int argc, char **argv)
             /* cppcheck-suppress redundantAssignment */
             io_ctx.errno_code = EAGAIN;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                    s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                             recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                     S2N_ERR_IO_BLOCKED);
             EXPECT_EQUAL(blocked, S2N_BLOCKED_ON_READ);
@@ -498,7 +498,7 @@ int main(int argc, char **argv)
             uint8_t recv_record_type = 0;
             size_t bytes_read = 0;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                    s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                             recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                     S2N_ERR_IO);
             /* Blocked status intentionally not reset to preserve legacy s2n_send behavior */
@@ -519,7 +519,7 @@ int main(int argc, char **argv)
             uint8_t recv_record_type = 0;
             size_t bytes_read = 0;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                    s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                             recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                     S2N_ERR_CLOSED);
             /* Blocked status intentionally not reset to preserve legacy s2n_send behavior */
@@ -543,7 +543,7 @@ int main(int argc, char **argv)
             struct iovec msg_iov = { .iov_base = test_data, .iov_len = S2N_TEST_TO_SEND };
             s2n_blocked_status blocked = S2N_NOT_BLOCKED;
             size_t bytes_written = 0;
-            EXPECT_OK(s2n_ktls_sendmsg(server->send_io_context, test_record_type,
+            EXPECT_OK(s2n_ktls_sendmsg(server->io.send_ctx, test_record_type,
                     &msg_iov, 1, &blocked, &bytes_written));
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
@@ -551,7 +551,7 @@ int main(int argc, char **argv)
             uint8_t recv_record_type = 0;
             size_t bytes_read = 0;
             EXPECT_ERROR_WITH_ERRNO(
-                    s2n_ktls_recvmsg(client->recv_io_context, &recv_record_type,
+                    s2n_ktls_recvmsg(client->io.recv_ctx, &recv_record_type,
                             recv_buf, S2N_TEST_TO_SEND, &blocked, &bytes_read),
                     S2N_ERR_KTLS_BAD_CMSG);
             /* Blocked status intentionally not reset to preserve legacy s2n_send behavior */

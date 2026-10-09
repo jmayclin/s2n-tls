@@ -143,7 +143,7 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(s2n_send(conn, test_data, sizeof(test_data), &blocked), sizeof(test_data));
 
         EXPECT_EQUAL(context.calls, 1);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
 
         /* Set the expected record size for future tests */
         test_data_bytes_sent = context.bytes_sent;
@@ -219,16 +219,16 @@ int main(int argc, char **argv)
         EXPECT_FAILURE_WITH_ERRNO(s2n_send(conn, test_data, sizeof(test_data), &blocked),
                 S2N_ERR_IO);
         EXPECT_TRUE(s2n_custom_send_fn_called);
-        EXPECT_EQUAL(0, conn->wire_bytes_out);
+        EXPECT_EQUAL(0, conn->io.wire_bytes_out);
     };
 
-    /* s2n_send tracks conn->wire_bytes_out on send */
+    /* s2n_send tracks conn->io.wire_bytes_out on send */
     {
         DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT),
                 s2n_connection_ptr_free);
         EXPECT_NOT_NULL(conn);
         EXPECT_OK(s2n_connection_set_secrets(conn));
-        EXPECT_EQUAL(0, conn->wire_bytes_out);
+        EXPECT_EQUAL(0, conn->io.wire_bytes_out);
 
         struct s2n_send_context context = context_all_ok;
         EXPECT_SUCCESS(s2n_connection_set_send_cb(conn, s2n_test_send_cb));
@@ -239,17 +239,17 @@ int main(int argc, char **argv)
 
         EXPECT_EQUAL(context.calls, 1);
         EXPECT_EQUAL(context.bytes_sent, test_data_bytes_sent);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         EXPECT_EQUAL(context.bytes_sent, s2n_connection_get_wire_bytes_out(conn));
     };
 
-    /* s2n_send tracks conn->wire_bytes_out on partial send */
+    /* s2n_send tracks conn->io.wire_bytes_out on partial send */
     {
         DEFER_CLEANUP(struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT),
                 s2n_connection_ptr_free);
         EXPECT_NOT_NULL(conn);
         EXPECT_OK(s2n_connection_set_secrets(conn));
-        EXPECT_EQUAL(0, conn->wire_bytes_out);
+        EXPECT_EQUAL(0, conn->io.wire_bytes_out);
 
         const uint32_t partial_send = 10;
         const struct s2n_send_result results[] = {
@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 
         EXPECT_EQUAL(context.calls, 2);
         EXPECT_EQUAL(context.bytes_sent, partial_send);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         EXPECT_EQUAL(context.bytes_sent, s2n_connection_get_wire_bytes_out(conn));
     };
 

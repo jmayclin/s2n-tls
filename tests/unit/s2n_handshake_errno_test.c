@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         errno = RANDOM_ERRNO;
 
         /* Break io setup. Will fail a non-null check before io system call. */
-        conn->recv = NULL;
+        conn->io.recv = NULL;
 
         /* Perform the handshake and expect an s2n_error */
         /* Do not use EXPECT_FAILURE here -- it resets s2n_errno */

@@ -55,7 +55,7 @@ int main(int argc, char **argv)
             char control_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
             /* confirm sent data */
@@ -81,7 +81,7 @@ int main(int argc, char **argv)
             char control_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(client->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(client->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
 
             /* confirm sent data */
@@ -108,7 +108,7 @@ int main(int argc, char **argv)
             char control_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, send_zero);
 
             /* confirm no records were sent  */
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
             char control_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, total_sent);
 
             /* confirm sent data */
@@ -172,7 +172,7 @@ int main(int argc, char **argv)
 
                 EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                         S2N_TLS_SET_RECORD_TYPE, test_record_type));
-                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
                 EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
                 total_sent += bytes_written;
             }
@@ -213,7 +213,7 @@ int main(int argc, char **argv)
 
                 EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                         S2N_TLS_SET_RECORD_TYPE, i));
-                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
                 EXPECT_EQUAL(bytes_written, S2N_TEST_TO_SEND);
                 total_sent += bytes_written;
             }
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
             for (size_t i = 0; i < blocked_invoked_count; i++) {
                 EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                         S2N_TLS_SET_RECORD_TYPE, test_record_type));
-                EXPECT_EQUAL(s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg), S2N_FAILURE);
+                EXPECT_EQUAL(s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg), S2N_FAILURE);
                 EXPECT_EQUAL(errno, EAGAIN);
             }
 
@@ -262,7 +262,7 @@ int main(int argc, char **argv)
             /* cppcheck-suppress redundantAssignment */
             io_pair.client_in.data_buffer.growable = true;
             /* attempt sendmsg again and expect success */
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
 
             /* confirm sent data */
@@ -299,7 +299,7 @@ int main(int argc, char **argv)
             char control_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, control_buf, sizeof(control_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            EXPECT_EQUAL(s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg),
+            EXPECT_EQUAL(s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg),
                     S2N_TEST_TO_SEND);
 
             EXPECT_EQUAL(io_pair.client_in.sendmsg_invoked_count, 1);
@@ -325,7 +325,7 @@ int main(int argc, char **argv)
             char send_ctrl_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
 
             uint8_t recv_buffer[S2N_TLS_MAXIMUM_FRAGMENT_LENGTH] = { 0 };
@@ -337,7 +337,7 @@ int main(int argc, char **argv)
                 .msg_control = recv_ctrl_buf,
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
-            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_send);
             /* confirm read data */
             EXPECT_BYTEARRAY_EQUAL(test_data, recv_buffer, to_send);
@@ -370,7 +370,7 @@ int main(int argc, char **argv)
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
             /* attempting to recv data when nothing has been sent blocks */
-            EXPECT_EQUAL(s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg), S2N_FAILURE);
+            EXPECT_EQUAL(s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg), S2N_FAILURE);
             EXPECT_EQUAL(errno, EAGAIN);
 
             struct iovec send_msg_iov = { .iov_base = test_data, .iov_len = to_send };
@@ -378,12 +378,12 @@ int main(int argc, char **argv)
             char send_ctrl_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
 
             /* recv all the sent data */
             ssize_t bytes_read = 0;
-            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_send);
             /* confirm read data */
             EXPECT_BYTEARRAY_EQUAL(test_data, recv_buffer, to_send);
@@ -394,7 +394,7 @@ int main(int argc, char **argv)
             size_t blocked_invoked_count = 5;
             for (size_t i = 0; i < blocked_invoked_count; i++) {
                 /* attempting to recv more data blocks */
-                EXPECT_EQUAL(s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg), S2N_FAILURE);
+                EXPECT_EQUAL(s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg), S2N_FAILURE);
                 EXPECT_EQUAL(errno, EAGAIN);
             }
 
@@ -421,7 +421,7 @@ int main(int argc, char **argv)
             char send_ctrl_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
 
             uint8_t recv_buffer[S2N_TLS_MAXIMUM_FRAGMENT_LENGTH] = { 0 };
@@ -433,7 +433,7 @@ int main(int argc, char **argv)
                 .msg_control = recv_ctrl_buf,
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
-            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_recv);
             /* confirm read data */
             EXPECT_BYTEARRAY_EQUAL(test_data, recv_buffer, to_recv);
@@ -447,7 +447,7 @@ int main(int argc, char **argv)
             /* offset and recv remaining data of the same record type */
             recv_msg_iov.iov_base = recv_buffer + to_recv;
             recv_msg_iov.iov_len = remaining_len;
-            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, remaining_len);
             /* confirm read data */
             uint8_t recv_record_type_2 = 0;
@@ -481,7 +481,7 @@ int main(int argc, char **argv)
             char send_ctrl_buf[S2N_CONTROL_BUF_SIZE] = { 0 };
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, test_record_type));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
 
             uint8_t recv_buffer[S2N_TLS_MAXIMUM_FRAGMENT_LENGTH] = { 0 };
@@ -493,7 +493,7 @@ int main(int argc, char **argv)
                 .msg_control = recv_ctrl_buf,
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
-            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
 
             /* confirm read data: minimum of sent and requested (to_send) */
             EXPECT_EQUAL(bytes_read, to_send);
@@ -531,7 +531,7 @@ int main(int argc, char **argv)
                 /* increment test data ptr */
                 send_msg_iov.iov_base = test_data + total_sent;
 
-                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+                ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
                 EXPECT_EQUAL(bytes_written, to_send);
                 total_sent += bytes_written;
             }
@@ -545,7 +545,7 @@ int main(int argc, char **argv)
                 .msg_control = recv_ctrl_buf,
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
-            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_recv);
             uint8_t recv_record_type = 0;
             EXPECT_OK(s2n_ktls_get_control_data(&recv_msg, S2N_TLS_GET_RECORD_TYPE, &recv_record_type));
@@ -583,14 +583,14 @@ int main(int argc, char **argv)
             /* sendmsg record_type_1 */
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, record_type_1));
-            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            ssize_t bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
             total_sent += bytes_written;
             /* sendmsg record_type_2 */
             EXPECT_OK(s2n_ktls_set_control_data(&send_msg, send_ctrl_buf, sizeof(send_ctrl_buf),
                     S2N_TLS_SET_RECORD_TYPE, record_type_2));
             send_msg_iov.iov_base = test_data + total_sent;
-            bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->send_io_context, &send_msg);
+            bytes_written = s2n_test_ktls_sendmsg_io_stuffer(server->io.send_ctx, &send_msg);
             EXPECT_EQUAL(bytes_written, to_send);
             total_sent += bytes_written;
 
@@ -604,7 +604,7 @@ int main(int argc, char **argv)
                 .msg_controllen = sizeof(recv_ctrl_buf),
             };
             /* only recv record_type_1 even though we request more data */
-            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            ssize_t bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_send);
             uint8_t recv_record_type_1 = 0;
             EXPECT_OK(s2n_ktls_get_control_data(&recv_msg, S2N_TLS_GET_RECORD_TYPE, &recv_record_type_1));
@@ -612,7 +612,7 @@ int main(int argc, char **argv)
             total_recv += bytes_read;
             /* only recv record_type_2; which is all that remains */
             recv_msg_iov.iov_base = recv_buffer + bytes_read;
-            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->recv_io_context, &recv_msg);
+            bytes_read = s2n_test_ktls_recvmsg_io_stuffer(client->io.recv_ctx, &recv_msg);
             EXPECT_EQUAL(bytes_read, to_send);
             uint8_t recv_record_type_2 = 0;
             EXPECT_OK(s2n_ktls_get_control_data(&recv_msg, S2N_TLS_GET_RECORD_TYPE, &recv_record_type_2));

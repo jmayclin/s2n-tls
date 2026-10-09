@@ -14,7 +14,61 @@
  */
 #pragma once
 
+#include "stuffer/s2n_stuffer.h"
 #include "utils/s2n_result.h"
+
+// I think that these is also likely a need for a higher level IO construct. This
+// would track read/write closed status, and also abstract away the recv buffering
+// etc
+
+/**
+ * This struct is a thin handle to the outside world. 
+ * 
+ * All reading or writing of bytes must go through this IO provider
+ */
+struct s2n_io_provider {
+    /* true if this is a managed IO provider using corked IO */
+    bool corked_io;
+
+    /**
+     * a "true" value indicates s2n managed socket-based IO
+     * 
+     * In this scenario, it means that s2n-tls has allocated state for the socket
+     * based IO and it must be freed when the io provider is cleaned up
+     */
+    bool managed_send;
+    bool managed_recv;
+
+    /* set to `true` when a send call returns EPIPE */
+    bool transport_send_closed;
+    /* set to `true` when a read call returns 0 */
+    bool transport_recv_closed;
+
+    /* book keeping */
+    size_t wire_bytes_in;
+    size_t wire_bytes_out;
+
+    s2n_send_fn* send;
+    void* send_ctx;
+
+    s2n_recv_fn* recv;
+    void* recv_ctx;
+};
+
+S2N_RESULT s2n_io_provider_greedy_read(
+        struct s2n_io_provider* io,
+        struct s2n_stuffer* buffer,
+        uint32_t min_length);
+
+S2N_RESULT s2n_io_provider_read(
+        struct s2n_io_provider* io,
+        struct s2n_stuffer* buffer,
+        uint32_t length);
+
+S2N_RESULT s2n_io_provider_write(
+        struct s2n_io_provider* io,
+        struct s2n_stuffer* buffer,
+        uint32_t length);
 
 /* While we shouldn't need to reset errno before executing `action`,
  * we do so just in case action doesn't set errno properly on failure.

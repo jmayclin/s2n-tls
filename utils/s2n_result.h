@@ -124,7 +124,8 @@ static inline void s2n_result_ignore(s2n_result result)
     /* noop */
 }
 
-/* used in function declarations to signal function fallibility */
+/* used in function declarations to signal function fallibility. `S2N_RESULT_OK`
+ * and `S2N_RESULT_ERROR` are the two variants */
 #define S2N_RESULT S2N_RESULT_MUST_USE s2n_result
 
 /* The DEFER_CLEANUP macro discards the result of its cleanup function.

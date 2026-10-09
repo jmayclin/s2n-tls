@@ -410,11 +410,11 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
             /* expect failure if connection is using custom IO */
-            server_conn->managed_send_io = false;
+            server_conn->io.managed_send = false;
             EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_send(server_conn), S2N_ERR_KTLS_MANAGED_IO);
 
             /* expect success if connection is NOT using custom IO */
-            server_conn->managed_send_io = true;
+            server_conn->io.managed_send = true;
             EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
         };
 
@@ -425,11 +425,11 @@ int main(int argc, char **argv)
             EXPECT_OK(s2n_test_configure_connection_for_ktls(server_conn));
 
             /* recv managed io */
-            server_conn->managed_recv_io = false;
+            server_conn->io.managed_recv = false;
             EXPECT_FAILURE_WITH_ERRNO(s2n_connection_ktls_enable_recv(server_conn), S2N_ERR_KTLS_MANAGED_IO);
 
             /* expect success if connection is NOT using custom IO */
-            server_conn->managed_recv_io = true;
+            server_conn->io.managed_recv = true;
             EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
         };
 
@@ -611,12 +611,12 @@ int main(int argc, char **argv)
         /* enable kTLS send */
         EXPECT_SUCCESS(s2n_connection_ktls_enable_send(server_conn));
         EXPECT_TRUE(server_conn->ktls_send_enabled);
-        EXPECT_NOT_EQUAL(server_conn->send, s2n_socket_write);
+        EXPECT_NOT_EQUAL(server_conn->io.send, s2n_socket_write);
 
         /* enable kTLS recv */
         EXPECT_SUCCESS(s2n_connection_ktls_enable_recv(server_conn));
         EXPECT_TRUE(server_conn->ktls_recv_enabled);
-        EXPECT_NOT_EQUAL(server_conn->recv, s2n_socket_read);
+        EXPECT_NOT_EQUAL(server_conn->io.recv, s2n_socket_read);
     };
 
     /* Test s2n_config_ktls_enable_unsafe_tls13 */

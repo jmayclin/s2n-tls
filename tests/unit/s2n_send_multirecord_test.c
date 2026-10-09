@@ -184,7 +184,7 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(s2n_send(conn, test_data, sizeof(test_data), &blocked), sizeof(test_data));
 
         EXPECT_EQUAL(context.calls, 1);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         EXPECT_TRUE(context.bytes_sent > sizeof(test_data));
 
         /* Verify output buffer */
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
          */
         uint8_t remainder = (send_size % S2N_MIN_SEND_BUFFER_FRAGMENT_SIZE) ? 1 : 0;
         EXPECT_EQUAL(context.calls, (send_size / S2N_MIN_SEND_BUFFER_FRAGMENT_SIZE) + remainder);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         EXPECT_TRUE(context.bytes_sent > send_size);
 
         /* Verify output buffer */
@@ -249,7 +249,7 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(s2n_send(conn, large_test_data, sizeof(large_test_data), &blocked), sizeof(large_test_data));
 
         EXPECT_EQUAL(context.calls, 1);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         EXPECT_TRUE(context.bytes_sent > sizeof(large_test_data));
         large_test_data_send_size = context.bytes_sent;
 
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
         EXPECT_EQUAL(s2n_send(conn, large_test_data, sizeof(large_test_data), &blocked), sizeof(large_test_data));
 
         EXPECT_EQUAL(context.calls, 2);
-        EXPECT_EQUAL(context.bytes_sent, conn->wire_bytes_out);
+        EXPECT_EQUAL(context.bytes_sent, conn->io.wire_bytes_out);
         /* Even though it took more send calls,
          * we still sent the same number of records with the same overhead.
          */

@@ -42,6 +42,7 @@
 #include "tls/s2n_x509_validator.h"
 #include "unstable/events.h"
 #include "utils/s2n_atomic.h"
+#include "utils/s2n_io.h"
 #include "utils/s2n_mem.h"
 #include "utils/s2n_timer.h"
 
@@ -61,10 +62,98 @@ typedef enum {
 } s2n_session_ticket_status;
 
 struct s2n_connection {
-    /* Is this connection using CORK/SO_RCVLOWAT optimizations? Only valid when the connection is using
-     * managed_send_io
+    /**************************************************************************/
+    /***************************     IO members     ***************************/
+    /**************************************************************************/
+
+    struct s2n_io_provider io;
+
+    /* Marks if kTLS has been enabled for this connection. */
+    unsigned ktls_send_enabled : 1;
+    unsigned ktls_recv_enabled : 1;
+
+    /* Buffer multiple records before flushing them.
+     * This allows multiple records to be written with one socket send. */
+    unsigned multirecord_send : 1;
+
+    /* Our workhorse stuffers, used for buffering the plaintext
+     * and encrypted data in both directions.
      */
-    unsigned corked_io : 1;
+    uint8_t header_in_data[S2N_TLS_RECORD_HEADER_LENGTH];
+    /* header_in just stores the TLS record header. The underlying blob is the 
+     * stack allocated `header_in_data` */
+    struct s2n_stuffer header_in;
+    /* `buffer_in` stores the raw bytes from the network. It may have partial records
+     * etc. `buffer_in` points to an allocated blob */
+    struct s2n_stuffer buffer_in;
+    /* `in` is a view into `buffer_in`, where the view is well-sized to represent
+     * exactly one TLS record. */
+    struct s2n_stuffer in;
+    struct s2n_stuffer out;
+    enum {
+        ENCRYPTED,
+        PLAINTEXT
+    } in_status;
+
+    /* How much of the current user buffer have we already
+     * encrypted and sent or have pending for the wire but have
+     * not acknowledged to the user.
+     */
+    ssize_t current_user_data_consumed;
+
+    /* An alert may be fragmented across multiple records,
+     * this stuffer is used to re-assemble.
+     */
+    uint8_t alert_in_data[S2N_ALERT_LENGTH];
+    struct s2n_stuffer alert_in;
+
+    /* Both readers and writers can trigger alerts.
+     * We prioritize writer alerts over reader alerts.
+     */
+    uint8_t writer_alert_out;
+    uint8_t reader_alert_out;
+    uint8_t reader_warning_out;
+    bool alert_sent;
+
+    /* Receiving error or close_notify alerts changes the behavior of s2n_shutdown_send */
+    s2n_atomic_flag error_alert_received;
+    s2n_atomic_flag close_notify_received;
+
+    /* Maximum outgoing fragment size for this connection. Does not limit
+     * incoming record size.
+     *
+     * This value is updated when:
+     *   1. s2n_connection_prefer_low_latency is set
+     *   2. s2n_connection_prefer_throughput is set
+     *   3. TLS Maximum Fragment Length extension is negotiated
+     *
+     * Default value: S2N_DEFAULT_FRAGMENT_LENGTH
+     */
+    uint16_t max_outgoing_fragment_length;
+
+    /* The number of bytes to send before changing the record size.
+     * If this value > 0 then dynamic TLS record size is enabled. Otherwise, the feature is disabled (default).
+     */
+    uint32_t dynamic_record_resize_threshold;
+
+    /* Reset record size back to a single segment after threshold seconds of inactivity */
+    uint16_t dynamic_record_timeout_threshold;
+
+    /* The number of bytes consumed during a period of application activity.
+     * Used for dynamic record sizing. */
+    uint64_t active_application_bytes_consumed;
+
+    uint64_t early_data_bytes;
+
+    /* Either the reader or the writer can trigger both sides of the connection
+     * to close in response to a fatal error.
+     */
+    s2n_atomic_flag read_closed;
+    s2n_atomic_flag write_closed;
+
+    /**************************************************************************/
+    /**********************     other configuration    ************************/
+    /**************************************************************************/
 
     /* Session resumption indicator on client side */
     unsigned client_session_resumed : 1;
@@ -87,14 +176,6 @@ struct s2n_connection {
      */
     unsigned server_name_used : 1;
 
-    /* If write fd is broken */
-    unsigned write_fd_broken : 1;
-
-    /* Has the user set their own I/O callbacks or is this connection using the
-     * default socket-based I/O set by s2n */
-    unsigned managed_send_io : 1;
-    unsigned managed_recv_io : 1;
-
     /* Early data supported by caller.
      * If a caller does not use any APIs that support early data,
      * do not negotiate early data.
@@ -115,10 +196,6 @@ struct s2n_connection {
     /* Connection successfully set a ticket on the connection */
     unsigned set_session : 1;
 
-    /* Buffer multiple records before flushing them.
-     * This allows multiple records to be written with one socket send. */
-    unsigned multirecord_send : 1;
-
     /* If enabled, this connection will free each of its IO buffers after all data
      * has been flushed */
     unsigned dynamic_buffers : 1;
@@ -126,10 +203,6 @@ struct s2n_connection {
     /* Indicates protocol negotiation will be done through the NPN extension
      * instead of the ALPN extension */
     unsigned npn_negotiated : 1;
-
-    /* Marks if kTLS has been enabled for this connection. */
-    unsigned ktls_send_enabled : 1;
-    unsigned ktls_recv_enabled : 1;
 
     /* Indicates whether the connection should request OCSP stapling from the peer */
     unsigned request_ocsp_status : 1;
@@ -158,14 +231,6 @@ struct s2n_connection {
     /* The user defined secret callback and context */
     s2n_secret_cb secret_cb;
     void *secret_cb_context;
-
-    /* The send and receive callbacks don't have to be the same (e.g. two pipes) */
-    s2n_send_fn *send;
-    s2n_recv_fn *recv;
-
-    /* The context passed to the I/O callbacks */
-    void *send_io_context;
-    void *recv_io_context;
 
     /* Track request/response extensions to ensure correct response extension behavior.
      *
@@ -247,84 +312,12 @@ struct s2n_connection {
      */
     s2n_cert_auth_type client_cert_auth_type;
 
-    /* Our workhorse stuffers, used for buffering the plaintext
-     * and encrypted data in both directions.
-     */
-    uint8_t header_in_data[S2N_TLS_RECORD_HEADER_LENGTH];
-    struct s2n_stuffer header_in;
-    struct s2n_stuffer buffer_in;
-    struct s2n_stuffer in;
-    struct s2n_stuffer out;
-    enum {
-        ENCRYPTED,
-        PLAINTEXT
-    } in_status;
-
-    /* How much of the current user buffer have we already
-     * encrypted and sent or have pending for the wire but have
-     * not acknowledged to the user.
-     */
-    ssize_t current_user_data_consumed;
-
-    /* An alert may be fragmented across multiple records,
-     * this stuffer is used to re-assemble.
-     */
-    uint8_t alert_in_data[S2N_ALERT_LENGTH];
-    struct s2n_stuffer alert_in;
-
-    /* Both readers and writers can trigger alerts.
-     * We prioritize writer alerts over reader alerts.
-     */
-    uint8_t writer_alert_out;
-    uint8_t reader_alert_out;
-    uint8_t reader_warning_out;
-    bool alert_sent;
-
-    /* Receiving error or close_notify alerts changes the behavior of s2n_shutdown_send */
-    s2n_atomic_flag error_alert_received;
-    s2n_atomic_flag close_notify_received;
-
     /* Our handshake state machine */
     struct s2n_handshake handshake;
-
-    /* Maximum outgoing fragment size for this connection. Does not limit
-     * incoming record size.
-     *
-     * This value is updated when:
-     *   1. s2n_connection_prefer_low_latency is set
-     *   2. s2n_connection_prefer_throughput is set
-     *   3. TLS Maximum Fragment Length extension is negotiated
-     *
-     * Default value: S2N_DEFAULT_FRAGMENT_LENGTH
-     */
-    uint16_t max_outgoing_fragment_length;
-
-    /* The number of bytes to send before changing the record size.
-     * If this value > 0 then dynamic TLS record size is enabled. Otherwise, the feature is disabled (default).
-     */
-    uint32_t dynamic_record_resize_threshold;
-
-    /* Reset record size back to a single segment after threshold seconds of inactivity */
-    uint16_t dynamic_record_timeout_threshold;
-
-    /* The number of bytes consumed during a period of application activity.
-     * Used for dynamic record sizing. */
-    uint64_t active_application_bytes_consumed;
 
     /* Negotiated TLS extension Maximum Fragment Length code.
      * If set, the client and server have both agreed to fragment their records to the given length. */
     uint8_t negotiated_mfl_code;
-
-    /* Keep some accounting on each connection */
-    uint64_t wire_bytes_in;
-    uint64_t wire_bytes_out;
-    uint64_t early_data_bytes;
-
-    /* Either the reader or the writer can trigger both sides of the connection
-     * to close in response to a fatal error.
-     */
-    s2n_atomic_flag read_closed;
-    s2n_atomic_flag write_closed;
 
     /* TLS extension data */
     char server_name[S2N_MAX_SERVER_NAME + 1];
@@ -421,10 +414,6 @@ typedef enum {
 } s2n_io_status;
 bool s2n_connection_check_io_status(struct s2n_connection *conn, s2n_io_status status);
 S2N_RESULT s2n_connection_set_closed(struct s2n_connection *conn);
-
-/* Send/recv a stuffer to/from a connection */
-int s2n_connection_send_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
-int s2n_connection_recv_stuffer(struct s2n_stuffer *stuffer, struct s2n_connection *conn, uint32_t len);
 
 S2N_RESULT s2n_connection_wipe_all_keyshares(struct s2n_connection *conn);
 

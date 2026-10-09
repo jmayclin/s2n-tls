@@ -875,7 +875,7 @@ static int s2n_advance_message(struct s2n_connection *conn)
     /* If optimized io hasn't been enabled or if the caller started out with a corked socket,
      * we don't mess with it
      */
-    if (!conn->corked_io || s2n_socket_was_corked(conn)) {
+    if (!conn->io.corked_io || s2n_socket_was_corked(conn)) {
         return S2N_SUCCESS;
     }
 
