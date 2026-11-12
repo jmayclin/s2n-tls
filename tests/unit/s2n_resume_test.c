@@ -728,6 +728,29 @@ int main(int argc, char **argv)
             EXPECT_SUCCESS(s2n_connection_free(conn));
         };
 
+        /* A TLS1.3 resumption state relabeled with the TLS1.2 format version is rejected */
+        {
+            uint8_t relabeled_ticket[sizeof(tls13_ticket)] = { 0 };
+            EXPECT_MEMCPY_SUCCESS(relabeled_ticket, tls13_ticket, sizeof(tls13_ticket));
+            relabeled_ticket[0] = S2N_SERIALIZED_FORMAT_TLS12_V3;
+
+            struct s2n_blob ticket_blob = { 0 };
+            EXPECT_SUCCESS(s2n_blob_init(&ticket_blob, relabeled_ticket, sizeof(relabeled_ticket)));
+            struct s2n_stuffer ticket_stuffer = { 0 };
+            EXPECT_SUCCESS(s2n_stuffer_init(&ticket_stuffer, &ticket_blob));
+            EXPECT_SUCCESS(s2n_stuffer_skip_write(&ticket_stuffer, sizeof(relabeled_ticket)));
+
+            struct s2n_connection *conn = s2n_connection_new(S2N_CLIENT);
+            EXPECT_NOT_NULL(conn);
+            /* Security policy must allow the cipher suite in the ticket */
+            EXPECT_SUCCESS(s2n_connection_set_cipher_preferences(conn, "test_all"));
+
+            EXPECT_ERROR_WITH_ERRNO(s2n_deserialize_resumption_state(conn, NULL, &ticket_stuffer),
+                    S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
+
+            EXPECT_SUCCESS(s2n_connection_free(conn));
+        };
+
         /* Deserialized ticket without EMS data errors */
         {
             struct s2n_blob ticket_blob = { 0 };

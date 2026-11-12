@@ -173,6 +173,7 @@ static S2N_RESULT s2n_resumption_state_tls12_decode(struct s2n_resumption_state_
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(from, &state->version));
     RESULT_ENSURE(state->version == S2N_SERIALIZED_FORMAT_TLS12_V3, S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint8(from, &state->condensed_protocol_version));
+    RESULT_ENSURE(state->condensed_protocol_version <= S2N_TLS12, S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
     RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(from, state->cipher_id, sizeof(state->cipher_id)));
     RESULT_GUARD_POSIX(s2n_stuffer_read_uint64(from, &state->ticket_issue_unix_ns));
     RESULT_GUARD_POSIX(s2n_stuffer_read_bytes(from, state->master_secret, sizeof(state->master_secret)));
