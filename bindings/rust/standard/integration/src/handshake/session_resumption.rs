@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::capability_check::{required_capability, Capability};
+use crate::utilities::session_tickets::{
+    raw_version_assign, replace_ticket, ClientSession, ResumptionState, SerializedFormat,
+    ServerTicket, TicketKey,
+};
+use s2n_codec::DecoderBuffer;
 use std::time::SystemTime;
 
 use openssl::ssl::{SslContextBuilder, SslMethod, SslVersion};
@@ -29,16 +34,26 @@ const PROTOCOL_VERSIONS: &[SslVersion] = &[
 ];
 const NUM_RESUMED_RECONNECTS: usize = 5;
 
+type S2NConnPair = TlsConnPair<S2NConnection, S2NConnection>;
+
 /// Builds an s2n-tls client configuration with session ticket support enabled,
 /// returning both the config and the associated ticket storage.
 fn s2n_client_resumption_config(cert: SigType) -> (S2NTicketStorage, S2NConfig) {
+    // Use the 20190801 security policy since it supports TLS 1.0–1.3, which this
+    // test relies on to validate resumption behavior across protocol versions.
+    s2n_client_resumption_config_with_policy(cert, "20190801")
+}
+
+/// Same as [`s2n_client_resumption_config`], with a caller-chosen security policy.
+fn s2n_client_resumption_config_with_policy(
+    cert: SigType,
+    policy: &str,
+) -> (S2NTicketStorage, S2NConfig) {
     let ticket_storage = S2NTicketStorage::default();
     let client_config = {
         let mut config = s2n_tls::config::Builder::new_test_config(Mode::Client);
-        // Use the 20190801 security policy since it supports TLS 1.0–1.3, which this
-        // test relies on to validate resumption behavior across protocol versions.
         config
-            .set_security_policy(&Policy::from_version("20190801").unwrap())
+            .set_security_policy(&Policy::from_version(policy).unwrap())
             .unwrap();
         config.set_trust(cert);
         config.enable_session_tickets(true).unwrap();
@@ -415,5 +430,144 @@ fn mismatched_stek_falls_back_to_full_handshake() {
         assert!(!pair.server.connection().resumed());
 
         pair.shutdown().unwrap();
+    });
+}
+
+/// Verifies that an s2n-tls client rejects a serialized session whose state
+/// version is not one it understands.
+#[test]
+fn invalid_version_on_client() {
+    fn run_case(protocol: SslVersion, expected_version: SerializedFormat) {
+        let (ticket_storage, client_config) = s2n_client_resumption_config(SigType::Rsa2048);
+        let server_config = OpenSslConfig::from({
+            let mut builder = SslContextBuilder::new_test_config(Mode::Server);
+            builder.set_chain(SigType::Rsa2048);
+            builder.set_min_proto_version(Some(protocol)).unwrap();
+            builder.set_max_proto_version(Some(protocol)).unwrap();
+            builder.build()
+        });
+
+        // Do a handshake and get the serialized session.
+        let mut pair: TlsConnPair<S2NConnection, OpenSslConnection> =
+            TlsConnPair::from_configs(&client_config, &server_config);
+        pair.handshake().unwrap();
+        pair.round_trip_assert(10_000).unwrap();
+        pair.shutdown().unwrap();
+        let session = ticket_storage.get_ticket();
+
+        let parsed = ClientSession::deserialize(&session).unwrap();
+        assert_eq!(parsed.state.version(), expected_version);
+        let version_offset = parsed.state_offset();
+        assert_eq!(session[version_offset], expected_version as u8);
+
+        // Sanity check: assigning the expected version leaves the session as it
+        // was, and it is accepted.
+        let mut unchanged = session.clone();
+        raw_version_assign(&mut unchanged[version_offset..], expected_version as u8);
+        assert_eq!(unchanged, session);
+        let mut conn: TlsConnPair<S2NConnection, OpenSslConnection> =
+            TlsConnPair::from_configs(&client_config, &server_config);
+        conn.client
+            .connection_mut()
+            .set_session_ticket(&unchanged)
+            .unwrap();
+
+        let set_session_err = |version: u8| {
+            let mut modified = session.clone();
+            raw_version_assign(&mut modified[version_offset..], version);
+
+            let mut conn: TlsConnPair<S2NConnection, OpenSslConnection> =
+                TlsConnPair::from_configs(&client_config, &server_config);
+            conn.client
+                .connection_mut()
+                .set_session_ticket(&modified)
+                .map(|_| ())
+                .expect_err(&format!(
+                    "version {version} should be rejected (protocol {protocol:?})"
+                ))
+        };
+
+        set_session_err(expected_version as u8 + 1);
+        set_session_err(expected_version as u8 - 1);
+    }
+
+    run_case(SslVersion::TLS1_2, SerializedFormat::Tls12V3);
+    required_capability(&[Capability::Tls13], || {
+        run_case(SslVersion::TLS1_3, SerializedFormat::Tls13V2);
+    });
+}
+
+/// Verifies that an s2n-tls server does not resume from a ticket whose resumption
+/// state has an invalid version, and falls back to a full handshake.
+///
+/// The ticket is encrypted by the server, so the test decrypts it with the session
+/// ticket key, changes the version byte of the state, and encrypts it again.
+#[test]
+fn invalid_version_on_server() {
+    // `client_policy` decides the negotiated version: 20170210 has no TLS1.3 cipher
+    // suites, so the client can only negotiate TLS1.2 with the 20190801 server.
+    fn run_case(client_policy: &str, expected_version: SerializedFormat) {
+        let stek = TicketKey::derive(KEY_NAME.as_bytes(), &KEY_VALUE).unwrap();
+        let (ticket_storage, client_config) =
+            s2n_client_resumption_config_with_policy(SigType::Rsa2048, client_policy);
+        let server_config = s2n_server_resumption_config(SigType::Rsa2048, &KEY_VALUE);
+
+        // Do a handshake and get the client's serialized session.
+        let mut pair: S2NConnPair = TlsConnPair::from_configs(&client_config, &server_config);
+        pair.handshake().unwrap();
+        // TLS1.3 tickets are sent after the handshake, so the client has to read.
+        pair.round_trip_assert(10_000).unwrap();
+        pair.shutdown().unwrap();
+        let session = ticket_storage.get_ticket();
+
+        // Decrypt the server's ticket to get the state that the server will parse.
+        let parsed = ClientSession::deserialize(&session).unwrap();
+        let server_ticket = ServerTicket::deserialize(&parsed.ticket).unwrap();
+        let state = server_ticket.decrypt(&stek).unwrap();
+        let server_state: ResumptionState = DecoderBuffer::new(&state).decode_exact().unwrap();
+        assert_eq!(server_state.version(), expected_version);
+        assert_eq!(state[0], expected_version as u8);
+
+        // Connects a client holding `state` in a ticket encrypted by the server key.
+        let resumption_with_state = |state: &[u8]| {
+            let ticket = server_ticket.reencrypt(&stek, state).unwrap().serialize();
+            let session = replace_ticket(&session, &ticket).unwrap();
+
+            let mut pair: S2NConnPair = TlsConnPair::from_configs(&client_config, &server_config);
+            pair.client
+                .connection_mut()
+                .set_session_ticket(&session)
+                .unwrap();
+            pair.handshake().unwrap();
+            pair.round_trip_assert(10_000).unwrap();
+
+            let is_resumed = {
+                let is_resumed = pair.client.connection().resumed();
+                // sanity check, client & server agree
+                assert_eq!(pair.server.connection().resumed(), is_resumed);
+                is_resumed
+            };
+
+            pair.shutdown().unwrap();
+            is_resumed
+        };
+
+        // sanity check: assigning the expected version leaves the state as it was,
+        // and the non-tampered state resumes
+        let mut unchanged = state.clone();
+        raw_version_assign(&mut unchanged, expected_version as u8);
+        assert_eq!(unchanged, state);
+        assert!(resumption_with_state(&unchanged));
+
+        for version in [expected_version as u8 + 1, expected_version as u8 - 1] {
+            let mut modified = state.clone();
+            raw_version_assign(&mut modified, version);
+            assert!(!resumption_with_state(&modified));
+        }
+    }
+
+    run_case("20170210", SerializedFormat::Tls12V3);
+    required_capability(&[Capability::Tls13], || {
+        run_case("20190801", SerializedFormat::Tls13V2);
     });
 }
