@@ -114,3 +114,27 @@ S2N_RESULT s2n_store_to_cache(struct s2n_connection *conn);
 S2N_RESULT s2n_connection_get_session_state_size(struct s2n_connection *conn, size_t *state_size);
 S2N_RESULT s2n_deserialize_resumption_state(struct s2n_connection *conn, struct s2n_blob *psk_identity,
         struct s2n_stuffer *from);
+
+/**
+ * The state serialized into a TLS1.3 session ticket / client session.
+ *
+ * All blobs are borrowed, not owned.
+ */
+struct s2n_resumption_state_tls13 {
+    /* the serialization version of the resumption state */
+    uint8_t version;
+    /* s2n-internal protocol version representation. NOT the format used in TLS messages */
+    uint8_t condensed_protocol_version;
+    uint8_t cipher_id[S2N_TLS_CIPHER_SUITE_LEN];
+    uint64_t ticket_issue_unix_ns;
+    uint32_t ticket_age_add;
+    struct s2n_blob resumption_secret;
+    uint64_t keying_material_expiration;
+    uint32_t max_early_data_size;
+    struct s2n_blob app_protocol;
+    struct s2n_blob early_data_context;
+};
+
+S2N_RESULT s2n_resumption_state_tls13_decode(struct s2n_resumption_state_tls13 *state, struct s2n_stuffer *from);
+S2N_RESULT s2n_resumption_state_tls13_apply(struct s2n_resumption_state_tls13 *state,
+        struct s2n_connection *conn, struct s2n_blob *psk_identity);

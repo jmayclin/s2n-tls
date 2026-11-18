@@ -1056,7 +1056,9 @@ int s2n_conn_set_handshake_type(struct s2n_connection *conn)
             /* We reuse the session if a valid TLS12 ticket is provided.
              * Otherwise, we will perform a full handshake and then generate
              * a new session ticket. */
-            if (s2n_result_is_ok(s2n_resume_decrypt_session(conn, &conn->client_ticket_to_decrypt))) {
+            if (s2n_result_is_ok(s2n_resume_decrypt_session(conn, &conn->client_ticket_to_decrypt))
+                    && s2n_result_is_ok(s2n_deserialize_resumption_state(conn,
+                            &conn->client_ticket_to_decrypt.blob, &conn->client_ticket_to_decrypt))) {
                 /* Ensure that we have not been able to resume without setting the master secret */
                 uint8_t zero_block[S2N_TLS_SECRET_LEN] = { 0 };
                 POSIX_ENSURE(!s2n_constant_time_equals(conn->secrets.version.tls12.master_secret,

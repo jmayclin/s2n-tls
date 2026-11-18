@@ -1456,6 +1456,9 @@ int main(int argc, char **argv)
         uint64_t mock_delay = server_configuration->encrypt_decrypt_key_lifetime_in_nanos;
         EXPECT_SUCCESS(s2n_config_set_wall_clock(server_configuration, mock_nanoseconds_since_epoch,
                 &mock_delay));
+        /* The client shares the server's clock so that both agree on the age of the ticket */
+        EXPECT_SUCCESS(s2n_config_set_wall_clock(client_configuration, mock_nanoseconds_since_epoch,
+                &mock_delay));
 
         /* Add one session ticket key with an intro time in the past so that the key is immediately valid */
         POSIX_GUARD(server_configuration->wall_clock(server_configuration->sys_clock_ctx, &now));

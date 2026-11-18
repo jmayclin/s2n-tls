@@ -263,26 +263,6 @@ static S2N_RESULT s2n_tls13_keying_material_expiration(struct s2n_connection *co
     return S2N_RESULT_OK;
 }
 
-/**
- * The state serialized into a TLS1.3 session ticket / client session.
- *
- * All blobs are borrowed, not owned.
- */
-struct s2n_resumption_state_tls13 {
-    /* the serialization version of the resumption state */
-    uint8_t version;
-    /* s2n-internal protocol version representation. NOT the format used in TLS messages */
-    uint8_t condensed_protocol_version;
-    uint8_t cipher_id[S2N_TLS_CIPHER_SUITE_LEN];
-    uint64_t ticket_issue_unix_ns;
-    uint32_t ticket_age_add;
-    struct s2n_blob resumption_secret;
-    uint64_t keying_material_expiration;
-    uint32_t max_early_data_size;
-    struct s2n_blob app_protocol;
-    struct s2n_blob early_data_context;
-};
-
 static S2N_RESULT s2n_resumption_state_tls13_init(struct s2n_resumption_state_tls13 *state, struct s2n_connection *conn)
 {
     RESULT_ENSURE_REF(state);
@@ -453,7 +433,7 @@ static S2N_RESULT s2n_validate_ticket_age(uint64_t current_time, uint64_t ticket
  * client and server. Variable-length fields alias into `from` (see the struct
  * doc comment). The format identifier is consumed here, mirroring encode.
  */
-static S2N_RESULT s2n_resumption_state_tls13_decode(struct s2n_resumption_state_tls13 *state, struct s2n_stuffer *from)
+S2N_RESULT s2n_resumption_state_tls13_decode(struct s2n_resumption_state_tls13 *state, struct s2n_stuffer *from)
 {
     RESULT_ENSURE_REF(state);
     RESULT_ENSURE_REF(from);
@@ -502,7 +482,7 @@ static S2N_RESULT s2n_resumption_state_tls13_decode(struct s2n_resumption_state_
  * 
  * Called by the client as part of connection setup, e.g. `s2n_connection_set_session`.
  */
-static S2N_RESULT s2n_resumption_state_tls13_apply(struct s2n_resumption_state_tls13 *state,
+S2N_RESULT s2n_resumption_state_tls13_apply(struct s2n_resumption_state_tls13 *state,
         struct s2n_connection *conn, struct s2n_blob *psk_identity)
 {
     RESULT_ENSURE_REF(state);
@@ -559,6 +539,11 @@ static S2N_RESULT s2n_resumption_state_tls13_apply(struct s2n_resumption_state_t
     return S2N_RESULT_OK;
 }
 
+/**
+ * `from` contains the decrypted bytes of `s2n_resumption_state_tls12` or `s2n_resumption_state_tls13`
+ * 
+ * `ticket` is NULL (!?) when called by the client doing session id resumption
+ */
 S2N_RESULT s2n_deserialize_resumption_state(struct s2n_connection *conn,
         struct s2n_blob *ticket, struct s2n_stuffer *from)
 {
@@ -585,7 +570,6 @@ S2N_RESULT s2n_deserialize_resumption_state(struct s2n_connection *conn,
     } else {
         RESULT_BAIL(S2N_ERR_INVALID_SERIALIZED_SESSION_STATE);
     }
-    conn->set_session = true;
     return S2N_RESULT_OK;
 }
 
@@ -665,6 +649,7 @@ int s2n_resume_from_cache(struct s2n_connection *conn)
     POSIX_GUARD(s2n_stuffer_init(&from, &entry));
     POSIX_GUARD(s2n_stuffer_write(&from, &entry));
     POSIX_GUARD_RESULT(s2n_resume_decrypt_session(conn, &from));
+    POSIX_GUARD_RESULT(s2n_deserialize_resumption_state(conn, &from.blob, &from));
 
     return 0;
 }
@@ -713,6 +698,7 @@ int s2n_connection_set_session(struct s2n_connection *conn, const uint8_t *sessi
     POSIX_GUARD(s2n_stuffer_init(&from, &session_data));
     POSIX_GUARD(s2n_stuffer_write(&from, &session_data));
     POSIX_GUARD(s2n_client_deserialize_resumption_state(conn, &from));
+    conn->set_session = true;
     return 0;
 }
 
@@ -1077,20 +1063,35 @@ S2N_RESULT s2n_resume_encrypt_session_ticket(struct s2n_connection *conn,
     return S2N_RESULT_OK;
 }
 
-S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_stuffer *from)
+/**
+ * decryption the session ticket in-place
+ *
+ * This is called by an s2n-tls server when a client has supplied a session ticket.
+ * 
+ * `ticket` contains exactly the NST payload, which is a ticket header followed by
+ * the encrypted resumption state.
+ * 
+ * After the call, `ticket` will contain the decrypted bytes of either `s2n_resumption_state_tls12`
+ * or `s2n_resumption_state_tls13`, with the read_cursor pointing at the first byte
+ * of the decrypted state.
+ */
+S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_stuffer *ticket)
 {
     RESULT_ENSURE_REF(conn);
-    RESULT_ENSURE_REF(from);
+    RESULT_ENSURE_REF(ticket);
     RESULT_ENSURE_REF(conn->config);
 
     struct s2n_ticket_header header = { 0 };
-    RESULT_GUARD(s2n_ticket_header_decode(&header, from));
+    RESULT_GUARD(s2n_ticket_header_decode(&header, ticket));
 
     /* The encrypted resumption state is the remainder of the ticket, following
      * the header. */
     struct s2n_blob encrypted_state = { 0 };
-    uint32_t encrypted_size = s2n_stuffer_data_available(from);
-    uint8_t *encrypted_data = s2n_stuffer_raw_read(from, encrypted_size);
+    uint32_t encrypted_size = s2n_stuffer_data_available(ticket);
+    uint8_t *encrypted_data = s2n_stuffer_raw_read(ticket, encrypted_size);
+    /* sanity check: the stuffer is now empty */
+    RESULT_ENSURE((s2n_stuffer_data_available(ticket) == 0), S2N_ERR_SAFETY);
+
     RESULT_ENSURE_REF(encrypted_data);
     RESULT_GUARD_POSIX(s2n_blob_init(&encrypted_state, encrypted_data, encrypted_size));
 
@@ -1138,14 +1139,10 @@ S2N_RESULT s2n_resume_decrypt_session(struct s2n_connection *conn, struct s2n_st
 
     RESULT_GUARD_POSIX(s2n_aes256_gcm.io.aead.decrypt(&aes_ticket_key, &iv, &aad_blob, &encrypted_state, &encrypted_state));
 
-    /* Parse decrypted state */
-    struct s2n_blob state_blob = { 0 };
-    uint32_t state_blob_size = encrypted_state.size - S2N_TLS_GCM_TAG_LEN;
-    RESULT_GUARD_POSIX(s2n_blob_init(&state_blob, encrypted_state.data, state_blob_size));
-    struct s2n_stuffer state_stuffer = { 0 };
-    RESULT_GUARD_POSIX(s2n_stuffer_init(&state_stuffer, &state_blob));
-    RESULT_GUARD_POSIX(s2n_stuffer_skip_write(&state_stuffer, state_blob_size));
-    RESULT_GUARD(s2n_deserialize_resumption_state(conn, &from->blob, &state_stuffer));
+    /* point the stuffer at the decrypted resumption state */
+    RESULT_GUARD_POSIX(s2n_stuffer_rewind_read(ticket, encrypted_state.size));
+    RESULT_ENSURE_GTE(s2n_stuffer_data_available(ticket), S2N_TLS_GCM_TAG_LEN);
+    ticket->write_cursor -= S2N_TLS_GCM_TAG_LEN;
 
     return S2N_RESULT_OK;
 }

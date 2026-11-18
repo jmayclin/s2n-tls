@@ -23,6 +23,11 @@
 #include "utils/s2n_mem.h"
 #include "utils/s2n_safety.h"
 
+/* to help mitigate reply attacks, confirm that the server/client agree on the time
+ * within a 10 second window 
+ */
+#define TICKET_FRESHNESS_ALLOWANCE_MS 10000
+
 S2N_RESULT s2n_psk_init(struct s2n_psk *psk, s2n_psk_type type)
 {
     RESULT_ENSURE_MUT(psk);
@@ -297,19 +302,29 @@ static S2N_RESULT s2n_match_psk_identity(struct s2n_array *known_psks, const str
  *# modulo 2^32) is within a small tolerance of the time since the ticket
  *# was issued (see Section 8).
  **/
-static S2N_RESULT s2n_validate_ticket_lifetime(struct s2n_connection *conn, uint32_t obfuscated_ticket_age, uint32_t ticket_age_add)
+static S2N_RESULT s2n_validate_ticket_freshness(struct s2n_connection *conn, struct s2n_offered_psk *psk, struct s2n_resumption_state_tls13 *state)
 {
     RESULT_ENSURE_REF(conn);
-
-    if (conn->psk_params.type == S2N_PSK_TYPE_EXTERNAL) {
-        return S2N_RESULT_OK;
-    }
+    RESULT_ENSURE_REF(psk);
+    RESULT_ENSURE_REF(state);
 
     /* Subtract the ticket_age_add value from the ticket age in milliseconds. The resulting uint32_t value
      * may wrap, resulting in the modulo 2^32 operation. */
-    uint32_t ticket_age_in_millis = obfuscated_ticket_age - ticket_age_add;
+    uint32_t client_reported_age_ms = psk->obfuscated_ticket_age - state->ticket_age_add;
+
+    uint64_t current_time = 0;
+    RESULT_GUARD(s2n_config_wall_clock(conn->config, &current_time));
+    uint64_t server_reported_age_ns = 0;
+    if (current_time > state->ticket_issue_unix_ns) {
+        server_reported_age_ns = current_time - state->ticket_issue_unix_ns;
+    }
+    uint32_t server_reported_age_ms = server_reported_age_ns / ONE_MILLISEC_IN_NANOS;
+
+    uint32_t disagreement_ms = S2N_MAX(server_reported_age_ms, client_reported_age_ms) - S2N_MIN(server_reported_age_ms, client_reported_age_ms);
+    RESULT_ENSURE(disagreement_ms < TICKET_FRESHNESS_ALLOWANCE_MS, S2N_ERR_INVALID_SESSION_TICKET);
+
     uint32_t session_lifetime_in_millis = conn->config->session_state_lifetime_in_nanos / ONE_MILLISEC_IN_NANOS;
-    RESULT_ENSURE(ticket_age_in_millis < session_lifetime_in_millis, S2N_ERR_INVALID_SESSION_TICKET);
+    RESULT_ENSURE(client_reported_age_ms < session_lifetime_in_millis, S2N_ERR_INVALID_SESSION_TICKET);
 
     return S2N_RESULT_OK;
 }
@@ -338,12 +353,15 @@ int s2n_offered_psk_list_choose_psk(struct s2n_offered_psk_list *psk_list, struc
 
         /* s2n_resume_decrypt_session appends a new PSK with the decrypted values. */
         POSIX_GUARD_RESULT(s2n_resume_decrypt_session(psk_list->conn, &ticket_stuffer));
+        struct s2n_resumption_state_tls13 state = { 0 };
+        POSIX_GUARD_RESULT(s2n_resumption_state_tls13_decode(&state, &ticket_stuffer));
+        POSIX_GUARD_RESULT(s2n_validate_ticket_freshness(psk_list->conn, psk, &state));
+        POSIX_GUARD_RESULT(s2n_resumption_state_tls13_apply(&state, psk_list->conn, &ticket_stuffer.blob));
     }
 
     struct s2n_psk *chosen_psk = NULL;
     POSIX_GUARD_RESULT(s2n_match_psk_identity(&psk_params->psk_list, &psk->identity, &chosen_psk));
     POSIX_ENSURE_REF(chosen_psk);
-    POSIX_GUARD_RESULT(s2n_validate_ticket_lifetime(psk_list->conn, psk->obfuscated_ticket_age, chosen_psk->ticket_age_add));
     psk_params->chosen_psk = chosen_psk;
     psk_params->chosen_psk_wire_index = psk->wire_index;
 

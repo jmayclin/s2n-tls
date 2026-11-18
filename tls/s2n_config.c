@@ -1253,7 +1253,8 @@ int s2n_config_set_npn(struct s2n_config *config, bool enable)
     return S2N_SUCCESS;
 }
 
-/*
+/* Return the current unix timestamp in ns
+ * 
  * Wrapper for wall_clock callback. This wrapper will ensure right return of s2n_errno everytime wall_clock
  * callback is called.
  */

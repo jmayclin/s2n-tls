@@ -347,30 +347,108 @@ int main(int argc, char **argv)
         };
     };
 
-    /* Test: s2n_validate_ticket_lifetime */
+    /* Test: s2n_validate_ticket_freshness */
     {
+        const uint64_t now = 1000000 * (uint64_t) ONE_SEC_IN_NANOS;
+        const uint32_t default_age_add = 1000;
+
+        /* A ticket issued `server_age_ms` ago, offered by a client that reports
+         * an age of `client_age_ms`. */
+        struct test_case {
+            uint64_t server_age_ms;
+            uint32_t client_age_ms;
+            uint32_t ticket_age_add;
+            uint32_t lifetime_secs;
+        };
+        const uint32_t allowance_ms = TICKET_FRESHNESS_ALLOWANCE_MS;
+
+        struct s2n_config *config = s2n_config_new();
+        EXPECT_NOT_NULL(config);
+        uint64_t mock_time = now;
+        EXPECT_OK(s2n_config_mock_wall_clock(config, &mock_time));
         struct s2n_connection *conn = s2n_connection_new(S2N_SERVER);
         EXPECT_NOT_NULL(conn);
-        uint32_t ticket_age_add = 0;
-        uint32_t obfuscated_ticket_age = 0;
+        EXPECT_SUCCESS(s2n_connection_set_config(conn, config));
 
-        /* Ticket age is smaller than session lifetime */
-        conn->config->session_state_lifetime_in_nanos = MILLIS_TO_NANOS(100);
-        EXPECT_OK(s2n_validate_ticket_lifetime(conn, obfuscated_ticket_age, ticket_age_add));
+        struct test_case valid_cases[] = {
+            /* Client and server agree exactly */
+            { .server_age_ms = 0, .client_age_ms = 0, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            { .server_age_ms = 50, .client_age_ms = 50, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* Small disagreement in either direction */
+            { .server_age_ms = 5000, .client_age_ms = 4000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            { .server_age_ms = 4000, .client_age_ms = 5000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* Just inside the allowance in either direction */
+            { .server_age_ms = 20000 + allowance_ms - 1, .client_age_ms = 20000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            { .server_age_ms = 20000, .client_age_ms = 20000 + allowance_ms - 1, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* obfuscated_ticket_age wraps modulo 2^32 */
+            { .server_age_ms = 100, .client_age_ms = 100, .ticket_age_add = UINT32_MAX - 50, .lifetime_secs = 60 },
+        };
+        for (size_t i = 0; i < s2n_array_len(valid_cases); i++) {
+            struct test_case test = valid_cases[i];
+            mock_time = now;
+            conn->config->session_state_lifetime_in_nanos = test.lifetime_secs * (uint64_t) ONE_SEC_IN_NANOS;
 
-        /* Ticket age is greater than session lifetime */
-        obfuscated_ticket_age = 101;
-        conn->config->session_state_lifetime_in_nanos = MILLIS_TO_NANOS(100);
-        EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_lifetime(conn, obfuscated_ticket_age, ticket_age_add), S2N_ERR_INVALID_SESSION_TICKET);
+            struct s2n_resumption_state_tls13 state = {
+                .ticket_issue_unix_ns = now - MILLIS_TO_NANOS(test.server_age_ms),
+                .ticket_age_add = test.ticket_age_add,
+            };
+            struct s2n_offered_psk psk = { .obfuscated_ticket_age = test.client_age_ms + test.ticket_age_add };
+            EXPECT_OK(s2n_validate_ticket_freshness(conn, &psk, &state));
+        }
 
-        /* ticket_age_add is greater than obfuscated ticket age and ticket age
-         * is smaller than session lifetime */
-        obfuscated_ticket_age = 100;
-        ticket_age_add = 1000;
-        conn->config->session_state_lifetime_in_nanos = MILLIS_TO_NANOS(UINT32_MAX);
-        EXPECT_OK(s2n_validate_ticket_lifetime(conn, obfuscated_ticket_age, ticket_age_add));
+        struct test_case invalid_cases[] = {
+            /* Disagreement is exactly the allowance */
+            { .server_age_ms = 20000 + allowance_ms, .client_age_ms = 20000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            { .server_age_ms = 20000, .client_age_ms = 20000 + allowance_ms, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* Replayed ClientHello: the client's reported age is much younger than the real age */
+            { .server_age_ms = 45000, .client_age_ms = 10, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* The client claims to be older than the real age */
+            { .server_age_ms = 10, .client_age_ms = 45000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* Client and server agree, but the ticket is older than the session lifetime */
+            { .server_age_ms = 61000, .client_age_ms = 61000, .ticket_age_add = default_age_add, .lifetime_secs = 60 },
+            /* Disagreement with a wrapped obfuscated_ticket_age */
+            { .server_age_ms = 45000, .client_age_ms = 100, .ticket_age_add = UINT32_MAX - 50, .lifetime_secs = 60 },
+        };
+        for (size_t i = 0; i < s2n_array_len(invalid_cases); i++) {
+            struct test_case test = invalid_cases[i];
+            mock_time = now;
+            conn->config->session_state_lifetime_in_nanos = test.lifetime_secs * (uint64_t) ONE_SEC_IN_NANOS;
+
+            struct s2n_resumption_state_tls13 state = {
+                .ticket_issue_unix_ns = now - MILLIS_TO_NANOS(test.server_age_ms),
+                .ticket_age_add = test.ticket_age_add,
+            };
+            struct s2n_offered_psk psk = { .obfuscated_ticket_age = test.client_age_ms + test.ticket_age_add };
+            EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_freshness(conn, &psk, &state), S2N_ERR_INVALID_SESSION_TICKET);
+        }
+
+        /* A ticket issued in the future is treated as having age 0 */
+        {
+            mock_time = now;
+            conn->config->session_state_lifetime_in_nanos = 60 * (uint64_t) ONE_SEC_IN_NANOS;
+            struct s2n_resumption_state_tls13 state = {
+                .ticket_issue_unix_ns = now + MILLIS_TO_NANOS(5000),
+                .ticket_age_add = default_age_add,
+            };
+
+            struct s2n_offered_psk psk = { .obfuscated_ticket_age = default_age_add };
+            EXPECT_OK(s2n_validate_ticket_freshness(conn, &psk, &state));
+
+            psk.obfuscated_ticket_age = default_age_add + allowance_ms;
+            EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_freshness(conn, &psk, &state), S2N_ERR_INVALID_SESSION_TICKET);
+        };
+
+        /* Null arguments */
+        {
+            struct s2n_resumption_state_tls13 state = { 0 };
+            struct s2n_offered_psk psk = { 0 };
+            EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_freshness(NULL, &psk, &state), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_freshness(conn, NULL, &state), S2N_ERR_NULL);
+            EXPECT_ERROR_WITH_ERRNO(s2n_validate_ticket_freshness(conn, &psk, NULL), S2N_ERR_NULL);
+        };
 
         EXPECT_SUCCESS(s2n_connection_free(conn));
+        EXPECT_SUCCESS(s2n_config_free(config));
     };
 
     /* Test: s2n_offered_psk_list_choose_psk */

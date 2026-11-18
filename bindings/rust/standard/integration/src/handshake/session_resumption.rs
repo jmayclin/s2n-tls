@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::capability_check::{required_capability, Capability};
-use std::time::SystemTime;
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, SystemTime},
+};
 
 use openssl::ssl::{SslContextBuilder, SslMethod, SslVersion};
 
@@ -17,7 +23,7 @@ use tls_harness::{
     Mode, SigType, TlsConnPair,
 };
 
-use s2n_tls::security::Policy;
+use s2n_tls::{callbacks::WallClock, enums::Version, security::Policy};
 
 const KEY_NAME: &str = "InsecureTestKey";
 const KEY_VALUE: [u8; 16] = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
@@ -415,5 +421,110 @@ fn mismatched_stek_falls_back_to_full_handshake() {
         assert!(!pair.server.connection().resumed());
 
         pair.shutdown().unwrap();
+    });
+}
+
+/// A wall clock that can be advanced by the test. Clones share the same time.
+#[derive(Clone)]
+struct TestClock(Arc<AtomicU64>);
+
+impl TestClock {
+    fn new(secs_since_epoch: u64) -> Self {
+        Self(Arc::new(AtomicU64::new(secs_since_epoch)))
+    }
+
+    fn set(&self, secs_since_epoch: u64) {
+        self.0.store(secs_since_epoch, Ordering::Relaxed);
+    }
+}
+
+impl WallClock for TestClock {
+    fn get_time_since_epoch(&self) -> Duration {
+        Duration::from_secs(self.0.load(Ordering::Relaxed))
+    }
+}
+
+/// Verifies that an s2n-tls server only resumes a TLS1.3 ticket if the age reported
+/// by the client is within 10 seconds of the age on the server's own clock.
+///
+/// This helps mitigate replay attacks with 0-RTT data.
+#[test]
+fn tls13_resumption_requires_ticket_age_to_match_server_clock() {
+    required_capability(&[Capability::Tls13], || {
+        const START_SECS: u64 = 1_794_441_600;
+        let client_clock = TestClock::new(START_SECS);
+        let server_clock = TestClock::new(START_SECS);
+
+        let ticket_storage = S2NTicketStorage::default();
+        let client_config: S2NConfig = {
+            let mut config = s2n_tls::config::Builder::new_test_config(Mode::Client);
+            config
+                .set_security_policy(&Policy::from_version("20190801").unwrap())
+                .unwrap()
+                .set_wall_clock(client_clock)
+                .unwrap()
+                .enable_session_tickets(true)
+                .unwrap()
+                .set_session_ticket_callback(ticket_storage.clone())
+                .unwrap();
+            config.set_trust(SigType::Rsa2048);
+            config.build().unwrap().into()
+        };
+
+        let server_config: S2NConfig = {
+            let mut config = s2n_tls::config::Builder::new_test_config(Mode::Server);
+            config
+                .set_security_policy(&Policy::from_version("20190801").unwrap())
+                .unwrap()
+                .set_wall_clock(server_clock.clone())
+                .unwrap()
+                .enable_session_tickets(true)
+                .unwrap()
+                // An intro time of 0 means "now", according to the server's clock.
+                .add_session_ticket_key(KEY_NAME.as_bytes(), &KEY_VALUE, SystemTime::UNIX_EPOCH)
+                .unwrap();
+            config.set_chain(SigType::Rsa2048);
+            config.build().unwrap().into()
+        };
+
+        // Full handshake to issue a ticket. TLS1.3 tickets arrive after the handshake.
+        let mut pair: TlsConnPair<S2NConnection, S2NConnection> =
+            TlsConnPair::from_configs(&client_config, &server_config);
+        pair.handshake().unwrap();
+        pair.round_trip_assert(10_000).unwrap();
+        assert_eq!(
+            pair.server.connection().actual_protocol_version().unwrap(),
+            Version::TLS13
+        );
+        assert!(!pair.server.connection().resumed());
+        pair.shutdown().unwrap();
+        let ticket = ticket_storage.get_ticket();
+
+        // Returns whether the server resumed. The handshake succeeds either way.
+        let connect_with_ticket = || {
+            let mut pair: TlsConnPair<S2NConnection, S2NConnection> =
+                TlsConnPair::from_configs(&client_config, &server_config);
+            pair.client
+                .connection_mut()
+                .set_session_ticket(&ticket)
+                .unwrap();
+            pair.handshake().unwrap();
+            pair.round_trip_assert(10_000).unwrap();
+            let resumed = pair.server.connection().resumed();
+            assert_eq!(pair.client.connection().resumed(), resumed);
+            pair.shutdown().unwrap();
+            resumed
+        };
+
+        // The clocks agree.
+        assert!(connect_with_ticket());
+
+        // The server's clock is 5 seconds ahead of the age the client reports.
+        server_clock.set(START_SECS + 5);
+        assert!(connect_with_ticket());
+
+        // The server's clock is 11 seconds ahead, so it falls back to a full handshake.
+        server_clock.set(START_SECS + 11);
+        assert!(!connect_with_ticket());
     });
 }

@@ -1364,7 +1364,12 @@ int main(int argc, char **argv)
             /* Wiping the master secret to prove that the decryption function actually writes the master secret */
             memset(conn->secrets.version.tls12.master_secret, 0, test_master_secret.size);
 
+            /* Decryption leaves the decrypted state unread in the stuffer */
             EXPECT_OK(s2n_resume_decrypt_session(conn, &conn->client_ticket_to_decrypt));
+            EXPECT_NOT_EQUAL(s2n_stuffer_data_available(&conn->client_ticket_to_decrypt), 0);
+
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &conn->client_ticket_to_decrypt.blob,
+                    &conn->client_ticket_to_decrypt));
             EXPECT_EQUAL(s2n_stuffer_data_available(&conn->client_ticket_to_decrypt), 0);
 
             /* Check decryption was successful by comparing master key */
@@ -1400,7 +1405,9 @@ int main(int argc, char **argv)
 
             EXPECT_OK(s2n_resume_encrypt_session_ticket(conn, key, &output));
             EXPECT_OK(s2n_resume_decrypt_session(conn, &output));
+            EXPECT_NOT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &output.blob, &output));
             EXPECT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
             /* Check decryption was successful */
@@ -1439,7 +1446,9 @@ int main(int argc, char **argv)
 
             EXPECT_OK(s2n_resume_encrypt_session_ticket(conn, key, &output));
             EXPECT_OK(s2n_resume_decrypt_session(conn, &output));
+            EXPECT_NOT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &output.blob, &output));
             EXPECT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
             /* Check decryption was successful */
@@ -1483,6 +1492,8 @@ int main(int argc, char **argv)
             *version_num = S2N_PRE_ENCRYPTED_STATE_V1;
             EXPECT_SUCCESS(s2n_stuffer_reread(&conn->client_ticket_to_decrypt));
             EXPECT_OK(s2n_resume_decrypt_session(conn, &conn->client_ticket_to_decrypt));
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &conn->client_ticket_to_decrypt.blob,
+                    &conn->client_ticket_to_decrypt));
         }
 
         /* Check error is thrown when info bytes used to generate the ticket key are incorrect */
@@ -1532,6 +1543,7 @@ int main(int argc, char **argv)
             /* The correct info bytes should succeed */
             EXPECT_SUCCESS(s2n_stuffer_reread(&valid_ticket));
             EXPECT_OK(s2n_resume_decrypt_session(conn, &valid_ticket));
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &valid_ticket.blob, &valid_ticket));
         }
 
         /* Check session ticket can never be encrypted with a zero-filled ticket key */
@@ -1586,7 +1598,9 @@ int main(int argc, char **argv)
 
             EXPECT_OK(s2n_resume_encrypt_session_ticket(conn, key, &output));
             EXPECT_OK(s2n_resume_decrypt_session(conn, &output));
+            EXPECT_NOT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
+            EXPECT_OK(s2n_deserialize_resumption_state(conn, &output.blob, &output));
             EXPECT_EQUAL(s2n_stuffer_data_available(&output), 0);
 
             /* Check decryption was successful */
